@@ -138,7 +138,7 @@ const GUIDE: [string, string[]][] = [
   ]],
   [tr('📜 Office rules (R)'), [
     tr('Each office sets where its agents may edit, what they may never read, which commands are forbidden, and job and quota limits.'),
-    tr('Edits and shell commands that write outside the office folder are refused. /tmp stays free.'),
+    tr('Writing outside the office folder: a boss asks you first, a worker is refused. /tmp and the boss\'s own memory folder stay free.'),
     tr('This stops mistakes, not a determined script: a program the agent writes itself can still get around it.'),
     tr('A boss can only propose a rule; you accept it here. A refusal shows on the Board.'),
   ]],

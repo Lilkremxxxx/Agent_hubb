@@ -263,6 +263,10 @@ middle one (0.**3**.0).
   not wake it.
 - **📖 User guide** at the top of Help (?): one folded topic each, from starting the office to reading the characters.
 
+- **A Claude Code boss asks before writing outside its office folder** instead of being refused, and answers can come from the
+  page. Its own memory folder needs no asking. Workers and Antigravity bosses are still refused, and forbidden commands and
+  folders stay refused for everyone.
+
 ## [1.0.3] - 2026-10-16
 
 ### Fixed

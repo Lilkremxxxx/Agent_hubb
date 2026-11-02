@@ -501,10 +501,22 @@ class RulesHook(unittest.TestCase):
         self.assertEqual((b["office"], b["name"], b["rev"]), ("o1", "Shop", 0))
         self.assertIn("agy-ask rules propose", b["text"])
         # the boss's own tool calls (no AGY_OFFICE): found by the same ancestry
-        self.assertIn("edited only inside", self.denied("Edit", {"file_path": "/x/other/a.py"}, env=e, via="claude"))
+        out = self.hook("Edit", {"file_path": "/x/other/a.py"}, env=e, via="claude")[0]
+        self.assertEqual(out["permissionDecision"], "ask")
+        self.assertIn("edited only inside", out["permissionDecisionReason"])
+        self.assertNotIn("Stop and report", out["permissionDecisionReason"])
+        self.assertIsNone(self.hook("Write", {"file_path": "~/.claude/projects/-home-u/memory/note.md"}, env=e, via="claude")[0])
+        self.assertIsNone(self.hook("Bash", {"command": "echo x > ~/.claude/projects/-home-u/memory/note.md"}, env=e, via="claude")[0])
+        self.assertEqual(self.hook("Bash", {"command": "rm /x/other/f"}, env=e, via="claude")[0]["permissionDecision"], "ask")
+        self.assertEqual(self.hook("Edit", {"file_path": "~/.ssh/config"}, env=e, via="claude")[0]["permissionDecision"], "deny")
+        self.assertEqual(self.hook("Write", {"file_path": "~/.claude/settings.json"}, env=e, via="claude")[0]["permissionDecision"], "ask")
         self.assertEqual(self.hook("Edit", {"file_path": "/x/other/a.py"}, env={}, args=())[0], None)
         self.assertEqual(subprocess.run([os.path.join(self.bin, "rules-hook"), "boss"], env=dict(os.environ, HABBLAUD_AGY_PROFILES=self.root),
                                         capture_output=True, text=True).stdout.strip(), "{}")
+
+    def test_a_worker_is_refused_where_a_boss_is_asked(self):
+        self.denied("Write", {"file_path": "~/.claude/projects/-home-u/memory/note.md"})
+        self.denied("Bash", {"command": "rm /x/other/f"})
 
     def test_a_shell_command_cannot_write_outside_the_office(self):
         for cmd in ("cp a /etc/x", "echo hi > /x/other/a", "cd /x/other && rm f", "sed -i s/a/b/ /etc/f"):

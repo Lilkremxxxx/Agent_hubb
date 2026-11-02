@@ -18,7 +18,8 @@
 //    start and on each prompt): the rules for the boss go with the first prompt and again whenever the user changes
 //    them (rev), as context the model reads; each Edit/Write/MultiEdit/NotebookEdit/Read/Grep/Glob/Bash call is checked
 //    by `rules-hook` (the same script Claude workers run as a PreToolUse hook) and denied with its reason when it is
-//    against the rules. No rules-hook installed, an error or a timeout = allowed, as before.
+//    against the rules; outside the office folder the user is asked first ($.ui.ask), and no answer stays refused.
+//    No rules-hook installed, an error or a timeout = allowed, as before.
 //
 // Rules: no hook throws (a hook that throws is skipped, but whatever it left half-done remains): each
 // step has its own try/catch and failure = silence. $.process only runs rules-hook; no $.model, $.prompt or
@@ -296,6 +297,18 @@ export function parseDeny(stdout: string): string | undefined {
   }
 }
 
+/** The question in rules-hook's PreToolUse output (a boss outside the office folder), or undefined. */
+export function parseAsk(stdout: string): string | undefined {
+  if (!stdout.trim()) return undefined
+  try {
+    const o = (JSON.parse(stdout) as { hookSpecificOutput?: { permissionDecision?: unknown; permissionDecisionReason?: unknown } }).hookSpecificOutput
+    if (o?.permissionDecision !== 'ask') return undefined
+    return typeof o.permissionDecisionReason === 'string' && o.permissionDecisionReason ? o.permissionDecisionReason : 'This is outside the office folder.'
+  } catch {
+    return undefined
+  }
+}
+
 /** The event rules-hook reads on stdin for a tool call (the tool's arguments without the engine's own keys). */
 export function rulesEvent(e: Record<string, unknown>): string {
   const { tool, tool_use_id: _id, agentId: _agent, requestMeta: _meta, consent: _consent, ...input } = e
@@ -449,12 +462,26 @@ async function refreshBoss($: EngineInterface): Promise<void> {
   }
 }
 
-/** rules-hook's verdict on one tool call of the boss: the deny reason, or undefined. May throw: caller allows. */
-async function checkRules($: EngineInterface, e: Record<string, unknown>): Promise<string | undefined> {
+/** rules-hook's verdict on one tool call of the boss. May throw: caller allows. */
+async function checkRules($: EngineInterface, e: Record<string, unknown>): Promise<{ deny?: string; ask?: string }> {
   const env = await readEnv($)
-  if (!env.rulesHook) return undefined
+  if (!env.rulesHook) return {}
   const r = await $.process.run([env.rulesHook], { stdin: rulesEvent(e), timeoutMs: RULES_TIMEOUT_MS })
-  return parseDeny(r.stdout)
+  const deny = parseDeny(r.stdout)
+  const ask = parseAsk(r.stdout)
+  return { ...(deny ? { deny } : {}), ...(ask ? { ask } : {}) }
+}
+
+const ALLOW_ONCE = 'Allow once'
+
+/** The user's answer to a call outside the office folder: undefined = allowed, else why not. Never throws. */
+async function askUser($: EngineInterface, reason: string): Promise<string | undefined> {
+  try {
+    const answer = await $.ui.ask(`${reason} Allow it this once?`, { options: [ALLOW_ONCE, 'Refuse'], header: 'Office rules' })
+    return answer === ALLOW_ONCE ? undefined : `${reason} The user refused${answer === 'Refuse' ? '' : `: ${answer}`}. Do not work around it.`
+  } catch {
+    return `${reason} Nobody answered, so it stays refused. Do not work around it.`
+  }
 }
 
 export const register: Register = (on) => {
@@ -496,12 +523,13 @@ export const register: Register = (on) => {
   // A boss's tool call against the office rules is denied with the rule's reason.
   on('tool.call', async ($, e, next) => {
     if (!boss || !RULES_TOOLS.includes(e.tool)) return next(e)
-    let reason: string | undefined
+    let verdict: { deny?: string; ask?: string } = {}
     try {
-      reason = await checkRules($, e as unknown as Record<string, unknown>)
+      verdict = await checkRules($, e as unknown as Record<string, unknown>)
     } catch {
-      reason = undefined // rules-hook failed or took too long: allowed
+      // rules-hook failed or took too long: allowed
     }
+    const reason = verdict.ask ? await askUser($, verdict.ask) : verdict.deny
     return reason ? { deny: reason } : next(e)
   }).catch(($, e, next) => next(e)) // fail open: the rules never stop a session that broke them by accident
 

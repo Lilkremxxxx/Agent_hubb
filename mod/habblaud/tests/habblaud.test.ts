@@ -3,7 +3,7 @@
 // (mock.clock), $.session.usage, $.session.id, $.session.surfaces, $.fs.write, $.http.fetch, and $.ui.status.
 import type { CommandRunInput, HttpResponse, On, SessionRateLimit } from 'claude-code'
 import { describe, expect, mock, test } from 'claude-code/testing'
-import { accountIdOf, configDirOf, normalizePath, parseBossRules, parseDeny, parseSummary, rulesEvent, statusText, usageDirOf, windowOf, type Summary, type WaitingAgent } from '../hooks/register'
+import { accountIdOf, configDirOf, normalizePath, parseAsk, parseBossRules, parseDeny, parseSummary, rulesEvent, statusText, usageDirOf, windowOf, type Summary, type WaitingAgent } from '../hooks/register'
 
 const NOW = Date.parse('2026-10-06T12:00:00Z')
 const SEC = (iso: string) => Date.parse(iso) / 1_000
@@ -329,6 +329,53 @@ describe('office rules (boss)', () => {
     })
     return { runs, contexts, calls }
   }
+
+  /** A boss whose rules-hook asks about every checked call, and the user's answer (undefined = the dialog is dismissed). */
+  async function askedBoss($: Parameters<Parameters<typeof test>[1]>[0], on: On, answer: string | undefined) {
+    world(on, { env: ENV })
+    const ASK = JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: 'Office rule (Shop): outside.' } })
+    on('process.run', ($, e) => {
+      const stdout = e.argv[1] === 'boss' ? JSON.stringify({ office: 'o1', name: 'Shop', rev: 1, text: 'rules' }) : ASK
+      return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    })
+    const ran: string[] = []
+    on('tool.call', ($, e) => {
+      if (e.tool !== 'AskUserQuestion') {
+        ran.push(e.tool)
+        return { result: {} }
+      }
+      if (answer === undefined) return { deny: 'dismissed' }
+      const question = (e as unknown as { questions: Array<{ question: string }> }).questions[0].question
+      return { result: { questions: [], answers: { [question]: answer } } }
+    })
+    await $.session.start(START)
+    return { ran, out: await $.tool.call({ tool: 'Edit', file_path: '/outside/a.py', old_string: 'a', new_string: 'b' }) }
+  }
+
+  test('outside the folder the user decides: allowed once', async ($, on) => {
+    expect((await askedBoss($, on, 'Allow once')).ran).toEqual(['Edit'])
+  })
+
+  test('outside the folder the user decides: refused', async ($, on) => {
+    const { ran, out } = await askedBoss($, on, 'Refuse')
+    expect(ran).toEqual([])
+    expect(JSON.stringify(out)).toContain('The user refused')
+  })
+
+  test('outside the folder the user decides: no answer stays refused', async ($, on) => {
+    const { ran, out } = await askedBoss($, on, undefined)
+    expect(ran).toEqual([])
+    expect(JSON.stringify(out)).toContain('Nobody answered')
+  })
+
+  test('rules-hook can ask instead of deny', () => {
+    const ask = JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: 'Office rule (Shop): outside.' } })
+    expect(parseAsk(ask)).toBe('Office rule (Shop): outside.')
+    expect(parseDeny(ask)).toBeUndefined()
+    expect(parseAsk(DENY)).toBeUndefined()
+    expect(parseAsk('')).toBeUndefined()
+    expect(parseAsk('<html>')).toBeUndefined()
+  })
 
   test('a boss gets its rules with the first prompt and after the user changes them; its tool calls are checked', async ($, on) => {
     world(on, { env: ENV })

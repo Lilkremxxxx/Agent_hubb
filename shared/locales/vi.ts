@@ -3442,7 +3442,6 @@ export const VI: Readonly<Record<string, string>> = {
   "The news shows failed jobs, quota hits, hung workers, rule refusals and who needs you.": "Tin quan trọng gồm việc thất bại, hết quota, worker treo, vi phạm nội quy và ai đang cần bạn.",
   "📜 Office rules (R)": "📜 Nội quy (phím R)",
   "Each office sets where its agents may edit, what they may never read, which commands are forbidden, and job and quota limits.": "Mỗi office tự đặt nơi agent được sửa, những gì không bao giờ được đọc, các lệnh bị cấm, và giới hạn số việc, quota.",
-  "Edits and shell commands that write outside the office folder are refused. /tmp stays free.": "Lệnh sửa file và lệnh shell ghi ra ngoài thư mục office sẽ bị từ chối. Riêng /tmp vẫn được phép.",
   "This stops mistakes, not a determined script: a program the agent writes itself can still get around it.": "Đây là rào chắn chống nhầm lẫn, không phải khóa cứng: chương trình do agent tự viết vẫn có thể lọt.",
   "A boss can only propose a rule; you accept it here. A refusal shows on the Board.": "Boss chỉ đề xuất được quy tắc, bạn là người duyệt tại đây. Mỗi lần bị từ chối sẽ hiện trên Board.",
   "🥵 A tired boss (H)": "🥵 Khi boss mệt (phím H)",
@@ -3458,4 +3457,5 @@ export const VI: Readonly<Record<string, string>> = {
   "A new task does not wake the boss: this tells it to read the list and do the next open task.": "Thêm mục mới không đánh thức boss: nút này bảo boss đọc danh sách và làm mục tiếp theo.",
   "Continue the to-do list in the HANDOFF file of this office: read it again, do the next open item, and mark it done when it is finished.": "Làm tiếp to-do trong file HANDOFF của office này: đọc lại danh sách, làm mục chưa xong tiếp theo, và đánh dấu xong khi hoàn thành.",
   "Sent to {0}.": "Đã gửi cho {0}.",
+  "Writing outside the office folder: a boss asks you first, a worker is refused. /tmp and the boss's own memory folder stay free.": "Ghi ra ngoài thư mục office: boss phải hỏi bạn trước, worker thì bị từ chối. Riêng /tmp và thư mục memory của boss vẫn được phép.",
 };
