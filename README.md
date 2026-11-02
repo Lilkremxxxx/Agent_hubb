@@ -2,18 +2,16 @@
   <img src="client/public/assets/brand/logo-mark@4x.png" width="96" alt="Habblaud logo: a small pixel-art building" />
 </p>
 
-<h1 align="center">Habblaud</h1>
+<h1 align="center">Vi-Habblaud</h1>
 
 <p align="center">
-  <b>The virtual office for your Claude Code (and Codex) agents.</b><br />
-  Each project becomes a room, and each agent becomes a pixel-art character that shows, in real time, what it's doing.
+  <b>A pixel-art office for a team of AI agents: one boss, several workers, one project per building.</b><br />
+  Clone it, set up your accounts, and watch your agents work.
 </p>
-
 
 <p align="center">
   <img alt="Node.js 22.12+" src="https://img.shields.io/badge/node-%E2%89%A522.12-5fa04e?logo=node.js&logoColor=white" />
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-7-3178c6?logo=typescript&logoColor=white" />
-  <img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ed?logo=docker&logoColor=white" />
   <img alt="Zero runtime dependencies" src="https://img.shields.io/badge/runtime%20dependencies-0-f08a3c" />
   <img alt="Interface in English and Vietnamese" src="https://img.shields.io/badge/interface-EN%20%C2%B7%20VI-4aa8e8" />
 </p>
@@ -24,23 +22,34 @@
 
 ---
 
-You open Claude Code in several projects, launch subagents, leave tasks running… and lose track of who's doing
-what. **Habblaud** turns all of that into an office you can take in at a glance: who's typing, who raised a hand
-because they **need you**, who delivered their work and left, who went for a coffee while waiting for the next
-instruction — and how much of each account you've already used in the 5-hour session and in the week.
+Vi-Habblaud is a fork of [Habblaud](https://github.com/marmottajr/habblaud) by Márcio Junior (MIT). Habblaud shows your
+Claude Code and Codex sessions as characters in an office. This fork adds a way to run them as a team: a **boss** session
+plans the work and gives jobs to **workers**, which are other Claude Code accounts or Antigravity (`agy`) accounts.
 
-And when two or more agents have nothing to do, the office gets a **social life**: each one has its own personality,
-and they watch soccer together in the lounge, play video games and ping-pong, gossip in the kitchen, freshen up at the
-mirror and bet coins on rock-paper-scissors. See [Social life](#social-life).
+The office itself runs on your machine and spends no tokens: it only reads logs, session files and `/usage`.
 
-Everything runs on your machine, reading the files Claude Code itself already writes (plus only the `alias` lines in
-your shell, to give each account its letter). Nothing leaves the computer: Habblaud doesn't read credentials or make
-external calls.
+**What this fork adds**
+
+- **Offices.** Each office is a team for one project folder, drawn as its own building, with its own boss and workers.
+- **Workers.** `agy-ask` and `claude-ask` give a job to a worker and print only its final answer, which keeps the boss's
+  context small. Every job is a new conversation, and you can watch it in a read-only terminal.
+- **Office rules (📜).** Per office: which folders may be edited, which commands are forbidden, job and quota limits.
+- **Board (B).** The office's to-do list, read from `HANDOFF.md` in its folder, its workers' jobs with tokens and cache,
+  and the news that matters.
+- **Boss overloaded (🥵).** A notice when a boss passes a context or compaction threshold, with a button to ask for a
+  handoff and one to start a new session.
+- **Energy and ghosts.** A desk mug empties with the 5-hour quota, a character sleeps when it runs out, and a worker that
+  goes silent for 10 minutes fades into a ghost.
+- **English and Vietnamese** only. Habblaud World, the shared online city, stays off with `npm run office`.
 
 ## Contents
 
+- [Install](#install)
+- [Set up your first office](#set-up-your-first-office)
+- [Run it every day](#run-it-every-day)
+- [Make it yours](#make-it-yours)
+- [Other ways to run it](#other-ways-to-run-it)
 - [What it looks like](#what-it-looks-like)
-- [Installation](#installation)
 - [How to use](#how-to-use)
 - [Accounts and usage (5-hour and weekly)](#accounts-and-usage-5-hour-and-weekly)
 - [Configuration](#configuration)
@@ -52,6 +61,100 @@ external calls.
 - [Disclaimer](#disclaimer)
 - [License](#license)
 - [Social life](#social-life)
+
+## Install
+
+You need:
+
+- **Linux.** The worker scripts rely on `setsid`, `dbus-daemon` and `gnome-keyring-daemon`.
+- **Node.js 22.12+** and npm.
+- **[Claude Code](https://code.claude.com)** 2.1.287 or newer, signed in and used at least once, so `mod:install` finds
+  the account.
+- **Python 3**, for `agy-ask` and `claude-ask`.
+- The **Antigravity CLI (`agy`)** in `~/.local/bin`, only if you want Antigravity workers.
+
+```bash
+git clone https://github.com/zafkielzz/Vi-Habblaud.git
+cd Vi-Habblaud
+npm install              # build tools only: the server has no required runtime dependencies
+npm run mod:install      # Claude Code plugins: usage, messages and permissions from the page, office rules
+tools/agy/install.sh     # agy-ask, claude-ask, agy-as, the rules hook and the skills
+npm run office           # builds and starts it in the background
+```
+
+Then open **http://127.0.0.1:4747**. If `~/.local/bin` is not on your PATH, the installer says so: add it.
+
+## Set up your first office
+
+1. **Sign in the worker accounts.** For each Antigravity account:
+
+   ```bash
+   mkdir -p ~/.agy_profiles/acc1
+   agy-as acc1              # sign in with Google when asked
+   tools/agy/install.sh     # again, so the new profile gets the rules plugin
+   ```
+
+   Never run a bare `agy`: it uses the machine's own account. A Claude Code worker is a second config folder, for example
+   `~/.claude-work`; sign in once with `CLAUDE_CONFIG_DIR=~/.claude-work claude`.
+
+2. **Create an office.** Press **＋** on the tab strip, give it a name and a project folder. Use one folder per office:
+   offices cannot share a folder or sit inside each other, so do not use your home folder.
+
+3. **Add the boss and the workers.** In the sidebar, **＋** next to Boss opens a Claude Code session in the office's folder
+   and makes it the boss. **＋** next to Workers adds an account.
+
+4. **Talk to the boss** in its terminal on the page. If the folder has no `HANDOFF.md`, the boss asks whether to create one
+   from your idea, and its "Next steps" list becomes the to-do list on the Board.
+
+## Run it every day
+
+```bash
+cd Vi-Habblaud
+npm run office
+```
+
+Open **http://127.0.0.1:4747**. The server runs apart from the terminal, so you can close it, but it does not come back
+after a reboot. If it is already running, the command only tells you so.
+
+To stop it and take in new code:
+
+```bash
+kill "$(ss -ltnp | grep ':4747' | grep -o 'pid=[0-9]*' | cut -d= -f2 | head -1)"   # sessions in the page's terminals end too
+git pull
+npm install
+npm run office
+```
+
+Sessions closed this way come back with `claude --resume`. The log is `~/.habblaud/office.log`.
+
+## Make it yours
+
+Clone it, change anything, and point it at your own repository:
+
+```bash
+git remote set-url origin https://github.com/<you>/<your-repo>.git
+```
+
+`HANDOFF*.md`, `.env`, `team.json` and `rules-log.jsonl` are ignored by git. Your accounts live in `~/.agy_profiles` and your
+Claude folders, outside the repository, so they stay on your machine.
+
+| To change | Where |
+|---|---|
+| Offices, bosses, workers | The page. Saved in `~/.agy_profiles/team.json` |
+| What an office may edit and run, job and quota limits | 📜 on the page (key R) |
+| Overload thresholds, language, sounds | Settings on the page |
+| Default mode and effort of a worker | A worker's drawer › "Defaults for jobs" |
+| Role and display name of an account | `~/.agy_profiles/roles.conf` (`acc2 impl accept-edits`; role `off` hides it) and `names.conf` (`acc2 Alice`) |
+| How the boss and the workers behave | `tools/agy/boss/AGENTS.md`, `tools/agy/worker-rules/GEMINI.md` |
+| The skills a Claude Code boss uses | `tools/agy/skills/` |
+| The scripts | `tools/agy/bin/`. They are linked, so an edit applies at once |
+| How it starts: terminals, Habblaud World | `scripts/office.sh`; for the port, `HABBLAUD_PORT=4800 npm run office` |
+| Interface text | `tr('English text')` in the code, with its line in `shared/locales/vi.ts` |
+
+See [`tools/agy/README.md`](tools/agy/README.md) for the worker commands, and [Development](#development) to work on the
+code.
+
+The rest of this file comes from Habblaud and still applies to the office itself.
 
 ## What it looks like
 
@@ -122,49 +225,24 @@ shrinks on its own.
 
 > The images above use **demo mode** (made-up projects, people and accounts).
 
-## Installation
+## Other ways to run it
 
-### Requirements
+`npm run office` covers most setups. Use these for something different; the workers need the host, so run on Node, not in
+Docker, if you want them.
 
-- **macOS** (tested) or Linux.
-- **[Claude Code](https://code.claude.com)** installed, with one or more accounts (2.1.287 or newer for the mod).
-- **Node.js 22.12+** and **npm** (developed with Node 24; Docker already uses Node 24).
-- **Docker Desktop** (or Docker Engine with Compose v2), if you're going to run it in a container.
+**Docker**, which only shows your sessions: `npm run docker:up` detects your Claude Code accounts, mounts only the folders it
+needs (read-only) and starts a container that restarts with Docker. Open **http://localhost:4747**.
 
-### 1. Get the project
-
-```bash
-git clone https://github.com/marmottajr/habblaud.git
-cd habblaud
-npm install
-```
-
-> `npm install` only downloads build tools (Vite, TypeScript, tsx…). The Habblaud server has no
-> runtime dependencies: it only uses Node's built-in modules.
-
-### 2. Start Habblaud
-
-**Option A — Docker (recommended for keeping it always on)**
-
-```bash
-npm run docker:up
-```
-
-The script detects your Claude Code accounts, mounts only the folders it needs (read-only), builds
-the image and starts the container — which restarts on its own along with Docker. Open **http://localhost:4747**.
-
-**Option B — Node, without Docker**
+**Node in the foreground**, which stops with its terminal:
 
 ```bash
 npm run build
 npm start
 ```
 
-Open **http://localhost:4747**. For development, use `npm run dev` (server + Vite with hot reload).
+For development, use `npm run dev` (server + Vite with hot reload).
 
-Now open Claude Code in any project and watch your agent arrive by elevator. 🎉
-
-### 3. Install the Habblaud mod in Claude Code (recommended)
+### The Habblaud mod in Claude Code
 
 ```bash
 npm run mod:install                        # mod plus permissions and messaging plugins in each account
@@ -210,7 +288,7 @@ you don't end up with two of them capturing usage or answering the same request.
 
 </details>
 
-### 4. Codex in the office (optional)
+### Codex in the office (optional)
 
 If you also use OpenAI's **Codex** (the `codex` CLI or the app), its sessions join the same office: each
 project is a room — the same room as Claude Code, when both are open in the same project — and each session is a
@@ -297,51 +375,6 @@ Without HTTPS the remote port doesn't start; `HABBLAUD_REMOTE_INSECURE_HTTP=1` f
 in the clear on the network). In Node mode: `HABBLAUD_REMOTE_PORT` and `HABBLAUD_REMOTE_HOST` (default
 `0.0.0.0:4748`) and `HABBLAUD_REMOTE_TLS_DIR` (default `~/.habblaud/remote-tls/server`).
 
-### Updating
-
-The version in use shows up in the top bar, next to "Connected", and in **Settings › About**. Every 6 hours
-Habblaud checks GitHub for a new version (the [releases](https://github.com/marmottajr/habblaud/releases)
-of this repository). When there is one, the green **New version** badge appears in place of the number, along with a notice and a dot on the
-settings button. **About** has the link to what changed and the **Check now** button (each version's notes
-are also in [`CHANGELOG.md`](CHANGELOG.md)). To update:
-
-```bash
-git pull
-npm install
-npm run docker:up        # or: npm run build && npm start (and then npm run mod:install)
-```
-
-> If `git pull` stops with "Your local changes to the following files would be overwritten by merge:
-> package-lock.json", run `git checkout -- package-lock.json` and try again: up to 0.4.0, `npm install` changed that
-> file.
-
-`docker:up` also updates the mod in the accounts where it's already installed (it never installs it on its own) and tells you:
-"Mod updated to 0.3.0 on Account D; open sessions: /reload-plugins". In Node mode, run `npm run mod:install`
-after updating. To skip checking GitHub, use `HABBLAUD_UPDATE_CHECK=0` (in `.env`, for Docker).
-
-#### Coming from CodeTown
-
-Habblaud was called **CodeTown** up to 0.3.2. After `git pull`, run once:
-
-```bash
-npm install
-npm run mod:install      # replaces codetown marketplace and plugins with habblaud in each account
-npm run docker:up        # removes codetown container and copies data from old volume to new one
-```
-
-- **Mod:** until you run `mod:install`, the accounts' Claude Code complains about the `codetown` marketplace (the
-  `mod/codetown*` folders were renamed). `docker:up` warns you, but doesn't switch it on its own.
-- **Docker:** the old volume (`codetown_codetown-data`) is left untouched. After checking that the characters' names
-  came over, delete it with `docker volume rm codetown_codetown-data`, and the old image with `docker image rm codetown:local`.
-- **Local folder:** `~/.codetown` becomes `~/.habblaud` on its own (in the server, in `docker:up` and in `mod:install`).
-- **Browser:** preferences and coins move to the new keys the first time the page opens.
-- **Variables:** the `CODETOWN_*` ones no longer work; rename them to `HABBLAUD_*` in `.env` (e.g. `HABBLAUD_BIND`). The
-  server and `docker:up` warn you when they find an old one.
-- **Repository:** it's now `github.com/marmottajr/habblaud` (GitHub redirects the old address). To fix your
-  clone: `git remote set-url origin https://github.com/marmottajr/habblaud.git`. The local folder can keep its
-  old name.
-- `settings.json` backups made before the switch keep the name `settings.json.codetown-backup-<date>`.
-
 ### Uninstalling
 
 ```bash
@@ -381,7 +414,7 @@ a **colored chip with the account letter** (C, D…).
 - **Top:** counters (rooms, agents, working, subagents, shells running, need you) and a **per-account usage**
   card. The shells counter only shows up while some command is running; click it to go to whoever is waiting.
   Below the logo are the connection and the version in use, which turns into the **New version** badge when a new version comes out (see
-  [Updating](#updating)).
+  [Run it every day](#run-it-every-day)).
 - **Side panel:** search, account filter and the list of rooms with their agents and subagents.
 - **Details drawer:** click a character (in the building or in the list) to see activity, tasks, subagents,
   timeline and stats (tools, tokens, cost, lines changed, model, branch).
