@@ -11,7 +11,7 @@
 // Several offices: the list and the jobs are those of the office shown (the office tabs).
 import type { JobBoard, JobBoardItem, NewsItem, OfficeInfo, TeamInfo, WorkerJob } from '../../../shared/types';
 import type { UiContext } from './context';
-import { bossPlan, boardRoom, cacheLabel, hasBoard, importantNews, officeItems, type BoardTab } from './board-model';
+import { bossPlan, boardRoom, cacheLabel, continueTodoRequest, hasBoard, importantNews, officeItems, todoBoss, type BoardTab } from './board-model';
 import { teamOffices, type TodoList } from './offices';
 import { h, iconButton, setHidden, setText } from './dom';
 import { formatClock, relativeTime } from './format';
@@ -47,6 +47,7 @@ export class JobBoardDialog {
   private readonly todoTitle: HTMLElement;
   private readonly todoList: HTMLElement;
   private readonly todoAdd: HTMLFormElement;
+  private readonly todoGo: HTMLButtonElement;
   private readonly todoInput: HTMLInputElement;
   private readonly todoStatus: HTMLElement;
   private readonly todoEmpty: HTMLElement;
@@ -87,6 +88,13 @@ export class JobBoardDialog {
       this.todoInput,
       h('button', { class: 'ui-btn ui-btn--sm', type: 'submit', text: tr('＋ Add') }),
     );
+    this.todoGo = h('button', {
+      class: 'ui-btn ui-btn--sm ui-board__go',
+      type: 'button',
+      text: tr('▶ Continue the to-do'),
+      attrs: { 'data-hint': tr('A new task does not wake the boss: this tells it to read the list and do the next open task.') },
+      on: { click: () => void this.continueTodo() },
+    });
     this.todoStatus = h('p', { class: 'ui-board__meta ui-muted', role: 'status', hidden: true });
     const todoCol = h(
       'section',
@@ -96,6 +104,7 @@ export class JobBoardDialog {
       this.todoList,
       this.todoEmpty,
       this.todoAdd,
+      this.todoGo,
       this.todoStatus,
     );
 
@@ -183,7 +192,8 @@ export class JobBoardDialog {
     const now = this.ctx.now();
     const team = snap?.team;
     const news = importantNews(snap, now);
-    const sig = JSON.stringify([board, team?.jobs?.map((j) => [j.id, j.status, j.answer, j.error]), this.busy, this.showAll, todo, news, office, Math.floor(now / 10_000)]);
+    const boss = todoBoss(snap, office);
+    const sig = JSON.stringify([board, team?.jobs?.map((j) => [j.id, j.status, j.answer, j.error]), this.busy, this.showAll, todo, news, office, boss?.id, boss?.canMessage, Math.floor(now / 10_000)]);
     if (sig === this.sig) return;
     this.sig = sig;
     const many = teamOffices(team).length > 1;
@@ -313,6 +323,10 @@ export class JobBoardDialog {
       }),
     );
     setHidden(this.todoAdd, !local || !plan);
+    const boss = plan?.items.some((it) => !it.done) ? todoBoss(this.ctx.store.snapshot, office) : undefined;
+    setHidden(this.todoGo, !local || !boss);
+    this.todoGo.disabled = !boss?.canMessage;
+    this.todoGo.title = boss?.canMessage ? continueTodoRequest() : tr('This session does not take messages from the office (habblaud-mensagens plugin).');
     this.todoInput.disabled = this.busy;
     const offices = this.ctx.store.snapshot?.team?.offices;
     if (!todo && office && offices && !office.folder) {
@@ -335,6 +349,20 @@ export class JobBoardDialog {
       this.todoEmpty.replaceChildren(h('p', { class: 'ui-muted', text: tr('The list is empty: add the first task below.') }));
     } else this.todoEmpty.replaceChildren();
     setHidden(this.todoEmpty, !this.todoEmpty.childElementCount);
+  }
+
+  /** Tells the boss to go on with its list. */
+  private async continueTodo(): Promise<void> {
+    const boss = todoBoss(this.ctx.store.snapshot, this.ctx.selectedOffice());
+    if (!boss) return;
+    setHidden(this.todoStatus, false);
+    setText(this.todoStatus, tr('Sending…'));
+    try {
+      const r = await this.ctx.store.sendMessage(boss.id, continueTodoRequest());
+      setText(this.todoStatus, 'error' in r ? tr('Not sent: {0}', [r.error]) : tr('Sent to {0}.', [boss.name]));
+    } catch {
+      setText(this.todoStatus, tr('Not sent: no connection to Habblaud.'));
+    }
   }
 
   /** Sends an edit of the boss's list; the server edits the file and the new list comes back in the snapshot. */

@@ -3,7 +3,7 @@
 //   boss's folder; without a boss (and a single office), the newest list of any room.
 // - The workers' jobs of the office shown (each job carries the office that gave it).
 // - Important news: failed jobs and quota hits today, and who needs you now (fixed rules, no tokens).
-import type { JobBoardItem, NewsItem, OfficeInfo, OfficeSnapshot, RoomInfo } from '../../../shared/types';
+import type { AgentInfo, JobBoardItem, NewsItem, OfficeInfo, OfficeSnapshot, RoomInfo } from '../../../shared/types';
 import { tr } from '../../../shared/i18n';
 import { jobInOffice, officeBoss, officePlan, roomTodo, teamOffices, type TodoList } from './offices';
 
@@ -28,6 +28,16 @@ export function bossPlan(snap: PlanSnap | null | undefined, office?: OfficeInfo)
   if (office && teamOffices(snap?.team).length > 1) return undefined;
   const any = (snap?.rooms ?? []).filter((r) => r.plan).sort((a, b) => b.plan!.mtime - a.plan!.mtime)[0];
   return any && roomTodo(any);
+}
+
+/** Who works through the to-do list of the office shown. */
+export function todoBoss(snap: Pick<OfficeSnapshot, 'agents' | 'team'> | null | undefined, office: OfficeInfo | undefined): AgentInfo | undefined {
+  return office ? officeBoss(snap, office) : snap?.agents.find((a) => a.boss);
+}
+
+/** The message "Continue the to-do" sends to the boss: a new item in the file does not wake it. */
+export function continueTodoRequest(): string {
+  return tr('Continue the to-do list in the HANDOFF file of this office: read it again, do the next open item, and mark it done when it is finished.');
 }
 
 /** The jobs of the office shown: a job from anywhere else (another session or folder, no office) is not its business. */

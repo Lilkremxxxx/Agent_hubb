@@ -255,6 +255,14 @@ middle one (0.**3**.0).
 
 - **`npm run office`** builds Habblaud and starts it in the background with its web terminals on.
 
+- **Office rules look at shell commands too:** a redirect, `cp`, `mv`, `rm`, `tee`, `sed -i` and similar outside the office
+  folder are refused like an edit. `/tmp` and `/dev` stay free. It stops mistakes, not a determined script.
+- **Switching office tabs** closes the terminal and the drawer of the office you left; its sessions keep running.
+
+- **▶ Continue the to-do** on the Board tells the boss to read its list and do the next open task. Adding a task alone does
+  not wake it.
+- **📖 User guide** at the top of Help (?): one folded topic each, from starting the office to reading the characters.
+
 ## [1.0.3] - 2026-10-16
 
 ### Fixed

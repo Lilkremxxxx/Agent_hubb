@@ -356,8 +356,16 @@ def rules_cmd(argv):
     if sub == "check":
         if opts["--cmd"] is not None:
             hit = R.check_command(rules, opts["--cmd"])
-            print(f"refused: command (rule: {hit})" if hit else "allowed")
-            sys.exit(REFUSED if hit else OK)
+            if hit:
+                print(f"refused: command (rule: {hit})")
+                sys.exit(REFUSED)
+            for ab in R.command_writes(opts["--cmd"], os.getcwd(), HOME):
+                c = R.check_path(rules, folder, HOME, ab, "write")
+                if not c["ok"]:
+                    print(f"refused: {c['kind']} (rule: {c['rule']}): {ab}")
+                    sys.exit(REFUSED)
+            print("allowed")
+            sys.exit(OK)
         if not pos:
             die('usage: agy-ask rules check <path> [--write] | --cmd "..."')
         c = R.check_path(rules, folder, HOME, pos[0], "write" if write else "read", cwd=os.getcwd())

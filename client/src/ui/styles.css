@@ -2973,6 +2973,24 @@ button.ui-teamdlg__account:hover {
   max-width: 68ch;
 }
 
+.ui-help__guide {
+  grid-column: 1 / -1;
+}
+
+.ui-help__guide details {
+  border-top: 1px solid var(--ui-line-strong);
+  padding: 6px 0;
+}
+
+.ui-help__guide summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.ui-help__guide .ui-help__list {
+  margin-top: 6px;
+}
+
 .ui-legend {
   display: flex;
   flex-direction: column;

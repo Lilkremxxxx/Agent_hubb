@@ -7,7 +7,7 @@ shared/rules.vectors.json and both test suites run its cases. Keep the two in st
 
 Installed next to agy-ask and rules-hook in ~/.local/bin (both import it from their own folder).
 """
-import json, math, os, re, time
+import json, math, os, re, shlex, time
 
 def real_home():
     """The user's home, also from inside an Antigravity profile (agy-as runs agy, its tools and hooks with
@@ -175,6 +175,91 @@ def check_command(rules, cmd):
         if any(p == n or p.startswith(n + " ") for p in parts):
             return c
     return None
+
+
+# What a shell command writes, for the scope (Python only: the page never checks commands). Best effort against mistakes:
+# a script, `bash -c "..."` or an unknown $VAR is not opened, and scratch space is free (jobs write their output to /tmp).
+SCRATCH = ("/tmp", "/var/tmp", "/dev")
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1([^\n]*)\n.*?\n\s*\2(?=\n|$)", re.S)
+PREFIXES = ("sudo", "env", "command", "nohup", "time", "exec")
+EVERY_ARG = ("rm", "rmdir", "unlink", "shred", "mkdir", "touch", "tee", "truncate", "mv")
+AFTER_FIRST = ("chmod", "chown", "chgrp")
+LAST_ARG = ("cp", "install", "ln", "rsync", "scp")
+
+
+def _commands(cmd):
+    """[(words, redirect targets)] of a command line; ValueError when its quotes do not close."""
+    text = HEREDOC.sub(lambda m: m.group(3) + "\n", cmd)
+    lex = shlex.shlex(text, posix=True, punctuation_chars=";&|<>()\n")
+    lex.whitespace, lex.whitespace_split = " \t\r", True
+    out, words, targets, tokens = [], [], [], list(lex)
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        i += 1
+        if t and set(t) <= set(";&|\n()"):
+            out.append((words, targets))
+            words, targets = [], []
+        elif t and set(t) <= set("<>&|"):
+            if words and words[-1].isdigit():
+                words.pop()  # the 2 of 2>file
+            to = tokens[i] if i < len(tokens) else ""
+            i += 1
+            if ">" in t and not (t.endswith("&") and re.fullmatch(r"\d+|-", to)):
+                targets.append(to)
+        else:
+            words.append(t)
+    out.append((words, targets))
+    return out
+
+
+def _written(words):
+    """The arguments of one command that it writes to."""
+    while words and (re.match(r"[A-Za-z_]\w*=", words[0]) or words[0] in PREFIXES):
+        words = words[1:]
+    if not words:
+        return []
+    name, args = os.path.basename(words[0]), words[1:]
+    paths = [a for a in args if not a.startswith("-")]
+    if name in EVERY_ARG:
+        return paths
+    if name in AFTER_FIRST:
+        return paths[1:]
+    if name in LAST_ARG:
+        if "-t" in args and args.index("-t") + 1 < len(args):
+            return [args[args.index("-t") + 1]]
+        return paths[-1:]
+    if name == "dd":
+        return [a[3:] for a in args if a.startswith("of=")]
+    if name == "sed" and any(a == "--in-place" or re.fullmatch(r"-[a-zA-Z]*i\S*", a) for a in args):
+        scripts = {i + 1 for i, a in enumerate(args) if a in ("-e", "-f")}
+        files = [a for i, a in enumerate(args) if not a.startswith("-") and i not in scripts]
+        return files if scripts else files[1:]
+    return []
+
+
+def command_writes(cmd, cwd, home):
+    """The paths outside scratch space a command line writes to, absolute. [] when it cannot be read."""
+    def place(path, here):
+        path = re.sub(r"^\$(HOME\b|\{HOME\})", "~", path)
+        if not path or "$" in path or "`" in path:
+            return None
+        return norm_path(path if path.startswith(("/", "~")) else f"{here}/{path}", home)
+
+    try:
+        commands = _commands(cmd)
+    except ValueError:
+        return []
+    out, here = [], cwd
+    for words, targets in commands:
+        if words[:1] == ["cd"] and len(words) > 1:
+            here = place(words[1], here) or here
+            continue
+        for path in _written(words) + targets:
+            ab = place(path, here)
+            if ab and ab not in out and not any(inside(ab, d) for d in SCRATCH):
+                out.append(ab)
+    return out
 
 
 def rules_text(office, rules, who):

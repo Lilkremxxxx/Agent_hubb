@@ -1,4 +1,4 @@
-// Help ("?"): status and icon legend, controls, what the office shows, accounts and usage, and Codex.
+// Help ("?"): the user guide, status and icon legend, controls, what the office shows, accounts and usage, and Codex.
 import type { AgentStatus } from '../../../shared/types';
 import type { HelpSection } from './context';
 import { h, iconButton, prefersReducedMotion } from './dom';
@@ -100,6 +100,60 @@ const SHORTCUTS: [string[], string][] = [
   [['+', '−'], tr('Zoom in and out')],
 ];
 
+/** The guide to working with the office, topic by topic. Keep it true to the page: a changed feature changes its topic. */
+const GUIDE: [string, string[]][] = [
+  [tr('🚀 Start and stop'), [
+    tr('Run npm run office in the project folder, then open http://127.0.0.1:4747. Reload the page after an update.'),
+    tr('The server keeps running when you close the terminal, but not after a reboot: run the command again then.'),
+    tr('Stopping the server also ends the sessions in the terminals on this page. Sessions you opened in your own terminal keep running.'),
+  ]],
+  [tr('🏢 Offices'), [
+    tr('An office is one team for one project folder, shown as its own building. Press ＋ on the tab strip to make one.'),
+    tr('To rename it, change its folder or delete it: ⋯ at the end of the strip, double-click its tab, or right-click it.'),
+    tr('Two offices cannot share a folder or sit inside each other, so give each its own project folder, not your home folder.'),
+    tr('Switching tabs closes the terminal and details of the office you left; its sessions keep running.'),
+  ]],
+  [tr('👑 The boss'), [
+    tr('＋ next to Boss opens a Claude Code session in the office folder and makes it the boss. You talk to it in its terminal.'),
+    tr('You can also pick a session you already have: open its details and press 👑 Make boss.'),
+    tr('The boss plans, gives jobs to the workers and checks the results. An account cannot be boss and worker in the same office.'),
+    tr('In a folder without a HANDOFF file, the boss asks whether to create one before it starts.'),
+  ]],
+  [tr('🧑‍🔧 Workers'), [
+    tr('＋ next to Workers adds an account, Antigravity or Claude Code. Accounts must be signed in first.'),
+    tr('Every job is a new conversation: a worker does not remember the job before it.'),
+    tr("A worker's terminal is read-only: open its details and press 👁 Watch its terminal."),
+    tr('A worker can serve several offices. It then has a character in each, named "(2)", and a busy worker refuses new jobs.'),
+  ]],
+  [tr('📨 Giving work'), [
+    tr('Directly: type in the boss\'s terminal, or send a message from its details. It starts right away.'),
+    tr('On the to-do list: add a task on the Board. It waits in the HANDOFF file and does not wake the boss.'),
+    tr('▶ Continue the to-do on the Board tells the boss to read the list and do the next open task, one at a time.'),
+    tr('To a worker: Send a job in its details, without going through the boss.'),
+  ]],
+  [tr('📋 The Board (B)'), [
+    tr("The to-do list is the \"Next steps\" list of the office's HANDOFF file: the boss and you edit the same list."),
+    tr("The workers' jobs are this office's only, with their tokens and cache. A job from anywhere else is not listed."),
+    tr('The news shows failed jobs, quota hits, hung workers, rule refusals and who needs you.'),
+  ]],
+  [tr('📜 Office rules (R)'), [
+    tr('Each office sets where its agents may edit, what they may never read, which commands are forbidden, and job and quota limits.'),
+    tr('Edits and shell commands that write outside the office folder are refused. /tmp stays free.'),
+    tr('This stops mistakes, not a determined script: a program the agent writes itself can still get around it.'),
+    tr('A boss can only propose a rule; you accept it here. A refusal shows on the Board.'),
+  ]],
+  [tr('🥵 A tired boss (H)'), [
+    tr('A long context or repeated compactions make a session slow and forgetful. A notice tells you when a boss passes a limit.'),
+    tr('Click the notice, press Ask for a handoff so it writes down its progress, then New session here to carry on.'),
+    tr('Set the limits in Settings › Boss overloaded.'),
+  ]],
+  [tr('☕ Reading the characters'), [
+    tr('The mug on the desk empties with the 5-hour quota. A character with no quota left sleeps at its desk until it renews.'),
+    tr('A worker silent for 10 minutes fades into a ghost 👻: it may be hung. Nothing is stopped for you.'),
+    tr('Hold Alt to see what every button does.'),
+  ]],
+];
+
 function keys(list: string[]): HTMLElement {
   return h('span', { class: 'ui-keys' }, ...list.map((k) => h('kbd', { class: 'ui-kbd', text: k })));
 }
@@ -148,6 +202,7 @@ export class HelpDialog {
         'div',
         { class: 'ui-dialog__body' },
         h('section', { class: 'ui-help__intro' }, h('p', { text: INTRO }), hintsBtn),
+        this.guideSection(),
         h('section', {}, h('h3', { text: 'Status' }), statusList),
         h('section', {}, h('h3', { text: tr('Activities') }), iconList),
         this.shellSection(),
@@ -201,6 +256,16 @@ export class HelpDialog {
       const heading = target.querySelector<HTMLElement>('h3');
       heading?.focus({ preventScroll: true });
     });
+  }
+
+  /** The guide: one folded topic each, so it reads as a handbook, not a wall of text. */
+  private guideSection(): HTMLElement {
+    return h(
+      'section',
+      { class: 'ui-help__guide' },
+      h('h3', { text: tr('📖 User guide') }),
+      ...GUIDE.map(([title, lines]) => h('details', {}, h('summary', { text: title }), h('ul', { class: 'ui-help__list' }, ...lines.map((text) => h('li', { text }))))),
+    );
   }
 
   /** Shell wait legend: the character's "comic escalation" as the shell drags on. */

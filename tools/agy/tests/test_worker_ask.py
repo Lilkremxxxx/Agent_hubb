@@ -506,6 +506,13 @@ class RulesHook(unittest.TestCase):
         self.assertEqual(subprocess.run([os.path.join(self.bin, "rules-hook"), "boss"], env=dict(os.environ, HABBLAUD_AGY_PROFILES=self.root),
                                         capture_output=True, text=True).stdout.strip(), "{}")
 
+    def test_a_shell_command_cannot_write_outside_the_office(self):
+        for cmd in ("cp a /etc/x", "echo hi > /x/other/a", "cd /x/other && rm f", "sed -i s/a/b/ /etc/f"):
+            self.assertIn("edited only inside", self.denied("Bash", {"command": cmd}), cmd)
+        self.assertIn("may not be read or edited", self.denied("Bash", {"command": "echo k > ~/.ssh/config"}))
+        for cmd in ("echo hi > /x/shop/out.txt", "cd /x/shop && rm old.txt", "echo hi > /tmp/job.txt", "cat /etc/hosts", "ls 2>/dev/null"):
+            self.assertIsNone(self.hook("Bash", {"command": cmd})[0], cmd)
+
     def test_boss_is_told_when_the_folder_has_no_handoff(self):
         folder = tempfile.mkdtemp(dir=self.tmp)
         office = dict(self.team["offices"][0], folder=folder, boss={"kind": "claude", "pid": "__PID__", "name": "Raul", "account": ".claude"})

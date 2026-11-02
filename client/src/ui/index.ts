@@ -195,6 +195,13 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
     isTimelapseOpen: () => timelapse.isOpen,
     selectedOffice: () => pickOffice(teamOffices(store.snapshot?.team), officeId),
     selectOffice(id, opts) {
+      // You left an office: what was open there closes (its sessions keep running). A pick in another building goes
+      // through showOffice, so the character you clicked stays open.
+      if (id !== ctx.selectedOffice()?.id) {
+        pty.close();
+        terminal.close();
+        ctx.select(null);
+      }
       showOffice(id);
       // each office is a building of its own: the camera flies to it (not when a character there was picked)
       if (opts?.fly !== false && teamOffices(store.snapshot?.team).length > 1) (world as BuildingsWorld).focusOffice?.(id);

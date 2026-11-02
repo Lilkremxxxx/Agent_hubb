@@ -17,7 +17,7 @@ decision: agy's own permissions still apply). agy tools: write_to_file / replace
 edits, view_file / read_file / grep_search / list_dir / find_by_name are reads, run_command (CommandLine) a command.
 
 Checks: Edit/Write/MultiEdit/NotebookEdit -> the path may be edited; Read/Grep/Glob -> it may be read; Bash -> no
-forbidden command prefix. Whoever the agent is, team.json and rules-log.jsonl may not be edited (with the file tools,
+forbidden command prefix, and what it writes (office_rules.command_writes) may be edited. Whoever the agent is, team.json and rules-log.jsonl may not be edited (with the file tools,
 or, best effort, by a Bash command that names them and writes): rules are changed from the Habblaud page only.
 
 The office: $AGY_OFFICE / $HABBLAUD_OFFICE (claude-ask sets AGY_OFFICE and AGY_WORKER for its workers), else the office
@@ -125,6 +125,13 @@ def decide(o, ev):
             return "command", cmd, f'Office rule ({name}): the command "{hit}" may not run here.{stop}'
         if names_protected(cmd) and WRITES.search(cmd):
             return "command", cmd, f"Office rule ({name}): team.json and rules-log.jsonl are changed from the Habblaud page only, not by agents.{stop}"
+        for ab in R.command_writes(cmd, cwd, home):
+            c = R.check_path(rules, folder, home, ab, "write")
+            if c["ok"]:
+                continue
+            if c["kind"] == "deny":
+                return "deny", ab, f'Office rule ({name}): {ab} may not be read or edited ("{c["rule"]}").{stop}'
+            return "outside", ab, f"Office rule ({name}): files may be edited only inside {', '.join([folder, *rules['scope']['write']])}, not {ab}.{stop}"
         return None
     if tool in WRITE_TOOLS:
         path, mode = inp.get("file_path") or inp.get("notebook_path"), "write"

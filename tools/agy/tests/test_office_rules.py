@@ -58,5 +58,54 @@ class Parse(unittest.TestCase):
         self.assertRegex(R.rules_text({"name": "A", "folder": "/p"}, r, "boss"), r"(?s)B only.*At most 2 jobs.*agy-ask rules propose")
 
 
+class CommandWrites(unittest.TestCase):
+    """What a shell command writes (best effort: scripts and $VARS are not opened)."""
+
+    def writes(self, cmd, cwd="/proj"):
+        return R.command_writes(cmd, cwd, "/home/u")
+
+    def test_redirects(self):
+        self.assertEqual(self.writes("echo hi > /etc/x"), ["/etc/x"])
+        self.assertEqual(self.writes("echo hi >> out.txt"), ["/proj/out.txt"])
+        self.assertEqual(self.writes('echo "a > b"'), [])
+        self.assertEqual(self.writes("ls 2>/dev/null 2>&1"), [])
+        self.assertEqual(self.writes("ls 2>/etc/err"), ["/etc/err"])
+        self.assertEqual(self.writes("sort < /etc/hosts"), [])
+
+    def test_heredoc_body_is_not_the_command(self):
+        self.assertEqual(self.writes("cat > /etc/f <<'E'\nrm /nope > /no\nE\necho done"), ["/etc/f"])
+
+    def test_commands_that_write(self):
+        self.assertEqual(self.writes("cp a b /opt/x"), ["/opt/x"])
+        self.assertEqual(self.writes("cp -t /opt/d a b"), ["/opt/d"])
+        self.assertEqual(self.writes("mv /a/f /b/g"), ["/a/f", "/b/g"])
+        self.assertEqual(self.writes("rm -rf /a /b"), ["/a", "/b"])
+        self.assertEqual(self.writes("sudo rm /x"), ["/x"])
+        self.assertEqual(self.writes("FOO=1 rm /x"), ["/x"])
+        self.assertEqual(self.writes("chmod 644 /etc/f"), ["/etc/f"])
+        self.assertEqual(self.writes("ls | tee -a /etc/f"), ["/etc/f"])
+        self.assertEqual(self.writes("dd if=/x of=/etc/y"), ["/etc/y"])
+        self.assertEqual(self.writes("sed -i 's/a/b/' /etc/f"), ["/etc/f"])
+        self.assertEqual(self.writes("sed -i -e 's/a/b/' /etc/f"), ["/etc/f"])
+        self.assertEqual(self.writes("mkdir -p /opt/d && touch /opt/d/f"), ["/opt/d", "/opt/d/f"])
+
+    def test_reading_commands_write_nothing(self):
+        for cmd in ("cat /etc/hosts", "sed -n 1p /etc/f", "grep -r x /etc", "git status", "npm test"):
+            self.assertEqual(self.writes(cmd), [], cmd)
+
+    def test_where_it_runs(self):
+        self.assertEqual(self.writes("cd /etc && rm hosts"), ["/etc/hosts"])
+        self.assertEqual(self.writes("cd sub; rm f"), ["/proj/sub/f"])
+        self.assertEqual(self.writes("rm ~/x $HOME/y"), ["/home/u/x", "/home/u/y"])
+
+    def test_scratch_space_is_free(self):
+        self.assertEqual(self.writes("echo x > /tmp/job.txt; rm -rf /var/tmp/a; echo y > /dev/stderr"), [])
+
+    def test_gives_up_quietly(self):
+        self.assertEqual(self.writes("rm $UNKNOWN/x `pwd`/y"), [])
+        self.assertEqual(self.writes("echo 'unbalanced"), [])
+        self.assertEqual(self.writes(""), [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
