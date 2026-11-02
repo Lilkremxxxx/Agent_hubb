@@ -405,10 +405,12 @@ describe('BuildingUplink: connection and dispatches', () => {
     const h = await start({ tokensVisible: false });
     await waitFor(() => h.world.ws.uplinks.length === 1, 'first');
     expect(h.world.ws.uplinks[0].uplink.tokens).toBeUndefined();
-    h.store.setTheme('christmas');
+    // A theme other than today's: 'auto' follows the calendar, so a fixed one would change nothing part of the year.
+    const theme = h.world.ws.uplinks[0].uplink.theme === 'christmas' ? 'halloween' : 'christmas';
+    h.store.setTheme(theme);
     h.uplink.themeChanged();
     await waitFor(() => h.world.ws.uplinks.length === 2, 'theme');
-    expect(h.world.ws.uplinks[1].uplink.theme).toBe('christmas');
+    expect(h.world.ws.uplinks[1].uplink.theme).toBe(theme);
   });
 
   it('welcome.building: floors and agents from world until first local dispatch', async () => {
