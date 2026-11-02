@@ -500,6 +500,8 @@ class RulesHook(unittest.TestCase):
         b = json.loads(out)
         self.assertEqual((b["office"], b["name"], b["rev"]), ("o1", "Shop", 0))
         self.assertIn("agy-ask rules propose", b["text"])
+        self.assertIn("Your workers: acc1.", b["text"])
+        self.assertIn("skill agy-orchestrator", b["text"])
         # the boss's own tool calls (no AGY_OFFICE): found by the same ancestry
         out = self.hook("Edit", {"file_path": "/x/other/a.py"}, env=e, via="claude")[0]
         self.assertEqual(out["permissionDecision"], "ask")
@@ -525,6 +527,13 @@ class RulesHook(unittest.TestCase):
         for cmd in ("echo hi > /x/shop/out.txt", "cd /x/shop && rm old.txt", "echo hi > /tmp/job.txt", "cat /etc/hosts", "ls 2>/dev/null"):
             self.assertIsNone(self.hook("Bash", {"command": cmd})[0], cmd)
 
+    def test_a_boss_with_no_workers_is_not_told_about_them(self):
+        template = json.dumps({"offices": [dict(self.team["offices"][0], workers=[], boss={"kind": "claude", "pid": "__PID__", "name": "Raul", "account": ".claude"})]}).replace('"__PID__"', "__PID__")
+        out = subprocess.run([os.path.join(self.bin, "claude"), os.path.join(self.bin, "rules-hook"), "boss"],
+                             env=dict({k: v for k, v in os.environ.items() if not k.startswith("AGY_")}, HABBLAUD_AGY_PROFILES=self.root, HOME="/home/u", TEAM_TEMPLATE=template),
+                             capture_output=True, text=True, timeout=10).stdout
+        self.assertNotIn("Your workers", json.loads(out)["text"])
+
     def test_boss_is_told_when_the_folder_has_no_handoff(self):
         folder = tempfile.mkdtemp(dir=self.tmp)
         office = dict(self.team["offices"][0], folder=folder, boss={"kind": "claude", "pid": "__PID__", "name": "Raul", "account": ".claude"})
@@ -537,6 +546,7 @@ class RulesHook(unittest.TestCase):
             return json.loads(out)["text"]
 
         self.assertIn("no HANDOFF*.md yet", text())
+        self.assertIn("Your workers: acc1.", text())
         self.assertIn("one item at a time", text())
         with open(os.path.join(folder, "handoff_v2.md"), "w") as f:
             f.write("# Next steps\n")

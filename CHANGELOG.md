@@ -267,6 +267,8 @@ middle one (0.**3**.0).
   page. Its own memory folder needs no asking. Workers and Antigravity bosses are still refused, and forbidden commands and
   folders stay refused for everyone.
 
+- **A Claude Code boss knows its team:** with its rules it is told who its workers are and how to give them jobs.
+
 ## [1.0.3] - 2026-10-16
 
 ### Fixed

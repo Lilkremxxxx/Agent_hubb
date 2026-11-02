@@ -7,8 +7,8 @@ Habblaud mod.
                       "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": ...}}) and appends one
                       RuleViolation (by "hook") to rules-log.jsonl; otherwise prints nothing (the call goes on).
   rules-hook boss     {"office", "name", "rev", "text"} when the calling Claude Code session is the boss of an office
-                      (text = the rules for the boss, how to follow the to-do list, and to ask for a handoff file
-                      when the folder has none), else {}.
+                      (text = the rules for the boss, its workers, how to follow the to-do list, and to ask for a
+                      handoff file when the folder has none), else {}.
                       Used by the Habblaud mod (mod/habblaud).
 
 Antigravity (agy) PreToolUse hooks use the same script (agy-plugin/office-rules): their event is {"toolCall": {"name",
@@ -170,6 +170,16 @@ def decide(o, ev, who="boss"):
 AGY = [False]
 
 
+def team_note(office):
+    """What a boss is told about its workers: being appointed says nothing about them otherwise."""
+    workers = office.get("workers") or []
+    if not workers:
+        return ""
+    return (f"\n\nYour workers: {', '.join(workers)}. Give them routine and read-heavy work: `agy-ask <acc> \"<job>\"`, or "
+            "`claude-ask <account> \"<job>\"` for a claude: worker. Keep the hard parts and the final check for yourself. "
+            "The skill agy-orchestrator has the details.")
+
+
 def note(folder):
     """What a boss is told about the office's to-do list; a folder with no handoff file asks for one first."""
     if not folder:
@@ -196,7 +206,7 @@ def main():
             return
         rules = R.office_rules(o)
         print(json.dumps({"office": o.get("id"), "name": o.get("name") or o.get("id"), "rev": rules["rev"],
-                          "text": R.rules_text(o, rules, "boss") + note(o.get("folder"))}))
+                          "text": R.rules_text(o, rules, "boss") + team_note(o) + note(o.get("folder"))}))
         return
     ev = json.loads(sys.stdin.read() or "{}")
     ev = ev if isinstance(ev, dict) else {}
