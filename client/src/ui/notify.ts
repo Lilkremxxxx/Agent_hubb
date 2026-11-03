@@ -38,8 +38,7 @@ export class Notifier implements UiComponent {
   }
 
   render(): void {
-    // Live, even during timelapse: the tab title alerts who needs you right now.
-    const waiting = computeCounters(this.ctx.store.liveSnapshot).waiting;
+    const waiting = computeCounters(this.ctx.store.snapshot).waiting;
     const title = waiting > 0 ? `(${waiting}) ${BASE_TITLE}` : BASE_TITLE;
     if (title !== this.lastTitle) {
       this.lastTitle = title;

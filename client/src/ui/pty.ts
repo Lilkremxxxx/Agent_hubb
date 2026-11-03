@@ -118,11 +118,10 @@ export class PtyPanel implements UiComponent, PtyControl {
   }
 
   get enabled(): boolean {
-    return !!this.ctx.store.snapshot?.meta.pty?.enabled && !this.ctx.store.replaying;
+    return !!this.ctx.store.snapshot?.meta.pty?.enabled;
   }
 
   get reason(): string {
-    if (this.ctx.store.replaying) return tr('No terminal in the timelapse');
     return this.ctx.store.snapshot?.meta.pty?.reason ?? tr('Interactive terminal off');
   }
 

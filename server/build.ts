@@ -1,9 +1,8 @@
 // Compiled client build identifier (dist/client): main bundle name, which changes on each
 // `npm run build`. Included in snapshot so pages open prior to an update notice and reload.
-// Also server build stamp (dist/build.json: commit and "modified copy"), for Habblaud World.
+// Also server build stamp (dist/build.json: commit and "modified copy").
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import type { BuildInfo } from '../shared/world/protocol';
 
 const BUNDLE = /bundle\/(main-[\w-]+)\.js/;
 
@@ -28,7 +27,11 @@ export function createBuildReader(rootDir: string): () => string | undefined {
 }
 
 /** What scripts/build-server.mjs writes to dist/build.json (scripts/build-info.mjs). */
-export interface BuildStamp extends BuildInfo {
+export interface BuildStamp {
+  /** Full git commit hash, or 'unknown'. */
+  commit: string;
+  /** The working copy had uncommitted changes when built. */
+  dirty: boolean;
   /** When build was made (ISO); missing without the file. */
   builtAt?: string;
 }
@@ -36,7 +39,7 @@ export interface BuildStamp extends BuildInfo {
 const UNKNOWN: BuildStamp = { commit: 'unknown', dirty: false };
 
 /**
- * Commit of build in use and whether the copy was dirty, from dist/build.json. Included in Habblaud World `hello`.
+ * Commit of build in use and whether the copy was dirty, from dist/build.json.
  * Without the file (dev mode with tsx, or an old build) or if corrupted: commit "unknown".
  */
 export function readBuildInfo(rootDir: string): BuildStamp {

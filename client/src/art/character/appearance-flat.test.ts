@@ -1,9 +1,9 @@
-// appearanceFromSeed moved from client/src/art/character/appearance.ts to shared/world/appearance-flat.ts: these are the
+// appearanceFromSeed moved from client/src/art/character/appearance.ts to client/src/art/character/appearance-flat.ts: these are the
 // outputs of the old module (recorded before the change) for 20 seeds, without look, with look 'f', with look 'm' for
 // subagent, and with editor parts on top. Any difference changes the appearance of all characters.
 import { describe, expect, it } from 'vitest';
-import { PART_KEYS, parseAppearanceParts } from '../appearance';
-import { hash32 } from '../hash';
+import { PART_KEYS, parseAppearanceParts } from '../../../../shared/appearance';
+import { hash32 } from '../../../../shared/hash';
 import { appearanceFromSeed, flattenAppearance, type SeedAppearance } from './appearance-flat';
 
 const SIG_KEYS = [
@@ -36,7 +36,7 @@ const GOLDEN: Array<[number, string, string, string, string]> = [
   [2718281828, "#bd8560|#3f2c22|short|#2b2236|#2f4c7d|#4a86d8|blouse|#2e3e5e|pants|#2b2b33|none|#2b2b33|none|-|f", "#bd8560|#3f2c22|short|#2b2236|#2f4c7d|#4a86d8|blouse|#2e3e5e|pants|#2b2b33|none|#2b2b33|none|-|f", "#bd8560|#3f2c22|short|#2b2236|#262a33|#e8e3d6|jacket|#2e3e5e|pants|#2b2b33|none|#2b2b33|none|#36b0b0|m", "#bd8560|#3f2c22|bob|#2b2236|#4a86d8|#4a86d8|blouse|#2e3e5e|pants|#2b2b33|cap|#2b2b33|none|-|f"],
 ];
 
-describe('appearanceFromSeed (moved to shared/world)', () => {
+describe('appearanceFromSeed ', () => {
   it('same appearances as old module across 20 seeds', () => {
     expect(GOLDEN).toHaveLength(20);
     for (const [seed, plain, f, mSub, parts] of GOLDEN) {

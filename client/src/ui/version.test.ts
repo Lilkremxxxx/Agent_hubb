@@ -7,9 +7,8 @@ function snap(version: string): OfficeSnapshot {
 }
 
 describe('versionInfo', () => {
-  it('real versions only: timelapse and no snapshot have none', () => {
+  it('real versions only: no snapshot has none', () => {
     expect(versionInfo(snap('0.2.0'))).toEqual({ version: '0.2.0' });
-    expect(versionInfo(snap('timelapse'))).toBeNull();
     expect(versionInfo(null)).toBeNull();
   });
 });

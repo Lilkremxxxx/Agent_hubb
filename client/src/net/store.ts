@@ -1,7 +1,5 @@
 // Office state in browser: receives snapshots/feed/notices from server via SSE
 // and notifies subscribers.
-// Alternative source (World visit): pushReplay() publishes another office's snapshots while
-// SSE remains connected underneath, keeping live snapshots until stopReplay().
 // Also handles reconnection: when browser gives up on stream (EventSource closed after HTTP error,
 // e.g. server restarting behind proxy), retries with exponential backoff.
 import type { AppearanceParts } from '../../../shared/appearance';
@@ -77,9 +75,6 @@ export class OfficeStore {
   private readonly onOnline = () => {
     if (!this.stopped && this.connection === 'closed') this.reconnectNow();
   };
-  /** Alternative source active: `snapshot` comes from it; last live snapshot is in `live` (with arrival time). */
-  private replay = false;
-  private live: { snap: OfficeSnapshot; at: number } | null = null;
 
   constructor(opts: StoreOptions = {}) {
     this.openStream = opts.eventSource ?? ((url) => new EventSource(url));
@@ -130,50 +125,12 @@ export class OfficeStore {
     return (this.snapshot?.agents ?? []).filter((a) => a.roomId === roomId);
   }
 
-  /** Long agent history (server). With an alternative source returns `recent`. */
+  /** Long agent history (server). */
   async agentHistory(id: string): Promise<Activity[]> {
-    if (this.replay) return this.agent(id)?.recent ?? [];
     const res = await fetch(`/api/agents/${encodeURIComponent(id)}`);
     if (!res.ok) return this.agent(id)?.recent ?? [];
     const detail = (await res.json()) as AgentDetail;
     return detail.history;
-  }
-
-  // ---------------------------------------------------------------- alternative source
-
-  /** Snapshots come from alternative source, not SSE. */
-  get replaying(): boolean {
-    return this.replay;
-  }
-
-  /** Last live snapshot (with an alternative source, `snapshot` is not live). */
-  get liveSnapshot(): OfficeSnapshot | null {
-    return this.replay ? (this.live?.snap ?? null) : this.snapshot;
-  }
-
-  /** Publishes snapshot from alternative source; first one enables replay mode (live is saved). */
-  pushReplay(snap: OfficeSnapshot): void {
-    if (!this.replay) {
-      this.replay = true;
-      this.live = this.snapshot ? { snap: this.snapshot, at: Date.now() } : null;
-    }
-    this.setSnapshot(snap);
-  }
-
-  /** Disables alternative source and reverts to last live snapshot. */
-  stopReplay(): void {
-    if (!this.replay) return;
-    this.replay = false;
-    const live = this.live;
-    this.live = null;
-    if (live) {
-      // `serverTime` advanced by elapsed time: UI aligns clock to freshly arrived snapshot.
-      this.setSnapshot({ ...live.snap, serverTime: live.snap.serverTime + (Date.now() - live.at) });
-    } else {
-      this.snapshot = null;
-      this.agentIndex = new Map();
-      this.roomIndex = new Map();
-    }
   }
 
   /**
@@ -190,7 +147,6 @@ export class OfficeStore {
   }
 
   private async characterRequest(id: string, method: 'PUT' | 'DELETE', body: object): Promise<string | undefined> {
-    if (this.replay) return tr('Editing the character only works with the live office.');
     let res: Response;
     try {
       res = await fetch(`/api/agents/${encodeURIComponent(id)}/character`, {
@@ -251,10 +207,9 @@ export class OfficeStore {
   }
 
   private applySnapshot(snap: OfficeSnapshot): void {
-    const cur = this.replay ? this.live?.snap : this.snapshot;
+    const cur = this.snapshot;
     if (cur && snap.rev < cur.rev && snap.meta.startedAt === cur.meta.startedAt) return;
-    if (this.replay) this.live = { snap, at: Date.now() };
-    else this.setSnapshot(snap);
+    this.setSnapshot(snap);
     this.checkBuild(snap.meta.build);
   }
 

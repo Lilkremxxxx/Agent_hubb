@@ -190,12 +190,6 @@ class AgentView {
   private last: AgentInfo | null = null;
   private history: Activity[] = [];
   private historyReq = 0;
-  /** Increments when switching live ↔ replay or rewinding: previous generation responses are discarded. */
-  private historyGen = 0;
-  /** Source and timestamp of last timeline (to detect switching and rewinding). */
-  private historyReplay = false;
-  private historyAt = 0;
-  private historyBound = false;
 
   private avatar: HTMLElement;
   private name: HTMLElement;
@@ -473,47 +467,22 @@ class AgentView {
     this.loadHistory();
   }
 
-  /** Long agent history (most recent request wins; see historyGen). */
+  /** Long agent history (most recent request wins). */
   private loadHistory(): void {
     const id = this.id;
     if (!id) return;
     const req = ++this.historyReq;
-    const gen = this.historyGen;
     this.ctx.store
       .agentHistory(id)
       .then((hist) => {
-        // Another agent (req) or source switch/rewind midway (gen): response is no longer valid.
-        if (req !== this.historyReq || gen !== this.historyGen) return;
-        this.history = mergeHistory(hist, this.history, 200, this.ctx.store.replaying ? this.ctx.store.snapshot?.serverTime : undefined);
+        // Another agent was selected midway: response is no longer valid.
+        if (req !== this.historyReq) return;
+        this.history = mergeHistory(hist, this.history);
         this.ctx.invalidate();
       })
       .catch(() => {
         // Without long history: timeline uses recent activities from snapshot.
       });
-  }
-
-  /**
-   * In replay, timeline stops at playback timestamp. Switching source or rewinding invalidates
-   * in-flight request; on switch, restarts from snapshot (and, back live, fetches history again).
-   */
-  private historyUntil(): number | undefined {
-    const replaying = this.ctx.store.replaying;
-    const at = this.ctx.store.snapshot?.serverTime ?? 0;
-    if (this.historyBound) {
-      const sourceChanged = replaying !== this.historyReplay;
-      const rewound = replaying && at < this.historyAt;
-      if (sourceChanged || rewound) {
-        this.historyGen++;
-        if (sourceChanged) {
-          this.history = [];
-          if (!replaying) this.loadHistory();
-        }
-      }
-    }
-    this.historyBound = true;
-    this.historyReplay = replaying;
-    this.historyAt = at;
-    return replaying ? at : undefined;
   }
 
   /** Opens (or closes) this agent's terminal; disabled without local access or after agent leaves. */
@@ -728,9 +697,8 @@ class AgentView {
       this.team.sync(parent ? [parent] : []);
     }
 
-    // Timeline (newest first). In replay, nothing after the playback timestamp.
-    const until = this.historyUntil();
-    this.history = mergeHistory(this.history, a.recent, 200, until);
+    // Timeline (newest first).
+    this.history = mergeHistory(this.history, a.recent);
     const items = this.history.slice(-this.timelineShown).reverse();
     const hiddenCount = Math.max(0, this.history.length - this.timelineShown);
     setHidden(this.timelineMore, hiddenCount === 0);
@@ -790,11 +758,9 @@ class AgentView {
       open
         ? tr('Close the terminal (T)')
         : !available
-          ? this.ctx.store.replaying
-            ? tr('No terminal in timelapse: the conversation is the current one, not the one from the replayed moment.')
-            : this.ctx.store.snapshot?.meta.terminal && access().remote
-              ? tr("The terminal isn't enabled for remote access (HABBLAUD_REMOTE_ALLOW).")
-              : TERMINAL_UNAVAILABLE_HINT
+          ? this.ctx.store.snapshot?.meta.terminal && access().remote
+            ? tr("The terminal isn't enabled for remote access (HABBLAUD_REMOTE_ALLOW).")
+            : TERMINAL_UNAVAILABLE_HINT
           : !live
             ? tr('The agent has already left the office.')
             : kind === 'ao vivo'

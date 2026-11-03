@@ -1,6 +1,6 @@
 // Character parts (skin, hair and style, eyes, top, pants, shoes, accessory, beard) with full-body preview:
-// the core of the character editor, used in agent drawer (character-editor.ts) and Habblaud World
-// character (world/settings-world.ts). Caller manages name, saving, and sending; here only appearance is chosen.
+// the core of the character editor, used in agent drawer (character-editor.ts).
+// Caller manages name, saving, and sending; here only appearance is chosen.
 import type { PartKey } from '../../../shared/appearance';
 import { characterSprite, editorConflict, editorOptions, fitToOptions } from '../art';
 import type { Appearance } from '../art/api';

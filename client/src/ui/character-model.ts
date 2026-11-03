@@ -12,7 +12,6 @@ export interface EditGate {
   terminal: boolean;
   /** Page opened via localhost/127.x (server rejects others). */
   local: boolean;
-  replaying: boolean;
 }
 
 /**
@@ -20,7 +19,7 @@ export interface EditGate {
  * would reply 404) and with local access (terminal restriction).
  */
 export function canEditCharacter(a: Pick<AgentInfo, 'id' | 'kind' | 'status'>, g: EditGate): boolean {
-  return a.kind === 'main' && a.status !== 'offline' && g.live && g.terminal && g.local && !g.replaying;
+  return a.kind === 'main' && a.status !== 'offline' && g.live && g.terminal && g.local;
 }
 
 /** Parts differing from seed-generated base appearance (sent in `parts`), in PART_KEYS order. */

@@ -30,8 +30,6 @@ export class TopBar implements UiComponent {
   readonly el: HTMLElement;
   private pill: HTMLElement;
   private pillText: HTMLElement;
-  /** Bottom line of brand (connection, version, badges): Habblaud World chip goes here (ui/index.ts). */
-  private status: HTMLElement;
   private counters = new Map<keyof Counters, CounterRefs>();
   private shellsBtn: HTMLButtonElement;
   /** Next agent for shells button (successive clicks cycle through all, starting from longest waiting). */
@@ -41,11 +39,9 @@ export class TopBar implements UiComponent {
   private sidebarBtn: HTMLButtonElement;
   private feedBtn: HTMLButtonElement;
   readonly settingsBtn: HTMLButtonElement;
-  /** Opens the Habblaud World window (beside Settings); the window decides when it appears. */
-  readonly worldBtn: HTMLButtonElement;
   /** Accounts window (👤): add and sign in Claude and Antigravity accounts, apart from sessions. */
   private readonly accounts: AccountsDialog;
-  /** Panel buttons group (feed, Habblaud World, settings, help); history goes here (ui/index.ts). */
+  /** Panel buttons group (feed, settings, help); history goes here (ui/index.ts). */
   readonly panelGroup: HTMLElement;
 
   constructor(private ctx: UiContext) {
@@ -95,16 +91,12 @@ export class TopBar implements UiComponent {
 
     this.sidebarBtn = iconButton(ICONS.sidebar, tr('Sidebar ( [ )'), () => ctx.togglePanel('sidebar'), 'ui-btn-sidebar');
     this.feedBtn = iconButton(ICONS.feed, tr('Activity feed ( ] )'), () => ctx.togglePanel('feed'), 'ui-btn-feed');
-    // Habblaud World: hidden until its window (ui/world/world-dialog.ts) reports a configured world server.
-    this.worldBtn = iconButton(ICONS.city, tr('Habblaud World'), () => ctx.toggleWorld(), 'ui-btn-world');
-    this.worldBtn.setAttribute('aria-haspopup', 'dialog');
-    this.worldBtn.hidden = true;
     this.settingsBtn = iconButton(ICONS.settings, tr('Settings'), () => ctx.toggleSettings());
     this.settingsBtn.setAttribute('aria-haspopup', 'dialog');
     this.accounts = new AccountsDialog(ctx);
     ctx.root.append(this.accounts.el);
     this.version = new VersionChip(ctx, this.settingsBtn);
-    this.status = h('div', { class: 'ui-topbar__status' }, this.pill, this.version.el);
+    const status = h('div', { class: 'ui-topbar__status' }, this.pill, this.version.el);
     const viewGroup = h(
       'div',
       { class: 'ui-btn-group', role: 'group', attrs: { 'aria-label': tr('Camera') } },
@@ -117,7 +109,6 @@ export class TopBar implements UiComponent {
       { class: 'ui-btn-group', role: 'group', attrs: { 'aria-label': tr('Panels') } },
       this.accounts.button,
       this.feedBtn,
-      this.worldBtn,
       this.settingsBtn,
       iconButton(ICONS.help, tr('Help (?)'), () => ctx.openHelp()),
     );
@@ -134,22 +125,12 @@ export class TopBar implements UiComponent {
           'div',
           { class: 'ui-brand' },
           mark,
-          h('div', { class: 'ui-brand__text' }, wordmark(), this.status),
+          h('div', { class: 'ui-brand__text' }, wordmark(), status),
         ),
       ),
       counterWrap,
       h('div', { class: 'ui-topbar__right' }, viewGroup, panelGroup),
     );
-  }
-
-  /** Adds a badge to the brand status line, after version (e.g.: Habblaud World chip). */
-  addStatus(el: HTMLElement): void {
-    this.status.append(el);
-  }
-
-  /** World button (scene switch), before the feed button. */
-  addSceneButton(btn: HTMLElement): void {
-    this.panelGroup.insertBefore(btn, this.feedBtn);
   }
 
   /** Adds a dedicated window button (e.g.: Overload) to the start of panel group. */
@@ -191,7 +172,6 @@ export class TopBar implements UiComponent {
 
     this.version.render();
     this.accounts.render();
-    setHidden(this.accounts.button, store.replaying);
 
     this.sidebarBtn.setAttribute('aria-pressed', String(this.ctx.isPanelOpen('sidebar')));
     this.feedBtn.setAttribute('aria-pressed', String(this.ctx.isPanelOpen('feed')));

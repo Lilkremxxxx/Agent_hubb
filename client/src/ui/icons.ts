@@ -298,10 +298,6 @@ export const ICONS = {
   chevronDown: pixelIcon(['#......#', '##....##', '.##..##.', '..####..', '...##...']),
   chevronUp: pixelIcon(['...##...', '..####..', '.##..##.', '##....##', '#......#']),
   arrowDown: pixelIcon(['...##...', '...##...', '...##...', '#######.', '.#####..', '..###...', '...#....'].map((r) => r.padEnd(8, '.'))),
-  /** Habblaud World city (World button): buildings of different heights. */
-  city: pixelIcon(['......##..', '..##..##..', '..##.####.', '####.#..#.', '#..#.####.', '####.#..#.', '#..#.####.', '####.#..#.', '##########']),
-  /** The office (return button from the city): a building with a door. */
-  office: pixelIcon(['..######..', '..#.##.#..', '..######..', '..#.##.#..', '..######..', '..#.##.#..', '..##..##..', '..##..##..', '##########']),
 } as const;
 
 export type IconKey = keyof typeof ICONS;

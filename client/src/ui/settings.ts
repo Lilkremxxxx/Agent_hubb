@@ -1,5 +1,4 @@
-// Settings (popover): office options, alerts, and About (version). Habblaud World has its own window
-// (ui/world/world-dialog.ts); this only provides the theme note under Appearance, which also applies to the building.
+// Settings (popover): office options, alerts, and About (version).
 import { access, remoteLogout } from '../net/access';
 import type { UiComponent, UiContext } from './context';
 import { h, iconButton, setAttr, setHidden, setText } from './dom';
@@ -9,7 +8,6 @@ import type { UiPrefs } from './prefs';
 import { SoundSettingsGroup } from './settings-sound';
 import type { SoundControl } from './sound';
 import { AboutGroup } from './version';
-import type { WorldThemeLink } from './world/world-dialog';
 import { COMPACTS_RANGE, sanitizeThresholds, SHARE_RANGE, type LoadThresholds } from '../../../shared/overload';
 import { LOCALE_STORAGE_KEY, LOCALES, normalizeLocale, tr, type Locale } from '../../../shared/i18n';
 
@@ -109,8 +107,6 @@ export class SettingsPopover implements UiComponent {
     private ctx: UiContext,
     private notifier: Notifier,
     sound: SoundControl,
-    /** Habblaud World window: theme note in Appearance and sending theme to building. */
-    private readonly world: WorldThemeLink,
   ) {
     const sw = (key: BoolPref, label: string, hint: string, onToggle: () => void) => {
       const r = switchRow(label, hint, onToggle);
@@ -150,11 +146,7 @@ export class SettingsPopover implements UiComponent {
     this.theme = segmented<UiPrefs['theme']>(
       tr('Office theme'),
       [['auto', tr('Automatic')], ['none', tr('None')], ['christmas', tr('Christmas')], ['halloween', tr('Halloween')]],
-      (v) => {
-        ctx.updatePrefs({ theme: v });
-        // With World connected and account approved, theme also applies to the building (clicking again resends).
-        void this.world.onThemePicked(v);
-      },
+      (v) => ctx.updatePrefs({ theme: v }),
     );
     this.theme.row.append(h('span', { class: 'ui-set__hint', text: tr('Automatic: Halloween in October and Christmas from November 1 to December 26; the rest of the year, the original look. None: always the original.') }));
     this.soundGroup = new SoundSettingsGroup(ctx, sound);
@@ -197,7 +189,6 @@ export class SettingsPopover implements UiComponent {
       ),
     );
 
-    this.theme.row.append(world.themeNote);
     this.about = new AboutGroup(ctx);
 
     const close = iconButton(ICONS.close, tr('Close settings'), () => this.hide(), 'ui-icon-btn--sm');

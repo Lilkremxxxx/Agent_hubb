@@ -5,15 +5,14 @@ import { canEditCharacter, changedParts, EDITOR_GROUPS, rowVisible, styleLabel }
 import { CharacterEditor } from './character-editor';
 import type { UiContext } from './context';
 
-const OPEN = { live: true, terminal: true, local: true, replaying: false };
+const OPEN = { live: true, terminal: true, local: true };
 const MAIN = { id: '.claude:1', kind: 'main', status: 'working' } as const;
 
 describe('canEditCharacter', () => {
-  it('only the real live main agent with local access (not with an alternative source)', () => {
+  it('only the real live main agent with local access', () => {
     expect(canEditCharacter(MAIN, OPEN)).toBe(true);
     expect(canEditCharacter({ ...MAIN, id: 's:sub', kind: 'sub' }, OPEN)).toBe(false);
     for (const k of ['live', 'terminal', 'local'] as const) expect(canEditCharacter(MAIN, { ...OPEN, [k]: false })).toBe(false);
-    for (const k of ['replaying'] as const) expect(canEditCharacter(MAIN, { ...OPEN, [k]: true })).toBe(false);
   });
 
   it('leaving agents (offline, during the 20 s grace period) do not get the edit pencil; other statuses do', () => {

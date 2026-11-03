@@ -11,13 +11,11 @@ const NAME_MAX = 40;
 
 /**
  * Can this room be renamed from here? The server rejects demo rooms, clients not opened on the host
- * machine itself, and Habblaud exposed over the network (without terminal lock); in timelapse there is no
- * server to persist.
+ * machine itself, and Habblaud exposed over the network (without terminal lock).
  */
 export function canRenameRoom(ctx: UiContext, roomId: string): boolean {
   return (
     !!ctx.renameRoom &&
-    !ctx.store.replaying &&
     !!ctx.store.snapshot?.meta.terminal &&
     access().local
   );

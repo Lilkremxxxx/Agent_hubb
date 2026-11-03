@@ -140,6 +140,13 @@ describe('API HTTP', () => {
     expect(health).toMatchObject({ ok: true, version: '9.9.9', docker: false, terminal: false, accounts: [{ id: '.claude', usageStatus: 'disabled' }] });
   });
 
+  it('answers 404 for removed APIs', async () => {
+    for (const p of ['/api/world', '/api/timeline', '/api/permissions', '/api/rules', '/api/board']) {
+      const r = await fetch(`${env.base}${p}`);
+      expect(r.status, p).toBe(404);
+    }
+  });
+
   it('terminal disabled: 403 JSON and meta.terminal false', async () => {
     const res = await fetch(`${env.base}/api/agents/${encodeURIComponent('.claude:1')}/terminal`);
     expect(res.status).toBe(403);

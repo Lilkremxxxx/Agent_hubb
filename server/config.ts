@@ -41,28 +41,6 @@ export interface ServerConfig {
   remote?: RemoteConfig;
   /** Why remote access was disabled when variables are incomplete. */
   remoteWarning?: string;
-  /** Habblaud World (server/world/): account, character, and, in future phases, building in the world. */
-  world: WorldConfig;
-}
-
-export interface WorldConfig {
-  /** HABBLAUD_WORLD other than 0 (false, off, no): /api/world/* routes exist and interface shows section. */
-  enabled: boolean;
-  /**
-   * HTTP(S) base of the world server, without trailing slash (from HABBLAUD_WORLD_URL or DEFAULT_WORLD_URL;
-   * `wss://` becomes `https://`). Missing = HABBLAUD_WORLD_URL rejected (`warning` explains why): feature stays off
-   * and nothing leaves the computer. WebSocket is the same origin with /v1/socket.
-   */
-  url?: string;
-  /** The URL came from default (HABBLAUD_WORLD_URL missing or empty). */
-  defaultUrl?: true;
-  /**
-   * `--dev` or HABBLAUD_WORLD_DEV=1: also accepts `http://` and `ws://` for 127.0.0.1 and host.docker.internal (local
-   * world server; from Habblaud container, host is host.docker.internal).
-   */
-  dev: boolean;
-  /** Why HABBLAUD_WORLD_URL was rejected (logged on start). */
-  warning?: string;
 }
 
 export function isTruthy(v: string | undefined): boolean {
@@ -144,58 +122,6 @@ export function terminalOffReason(env: NodeJS.ProcessEnv, host: string, inDocker
   return isLoopbackBind(host) ? undefined : tr('the port is exposed on the network: HABBLAUD_HOST={0}', [host]);
 }
 
-/**
- * Habblaud World server when HABBLAUD_WORLD_URL is missing or empty: World is on by default, but nothing
- * leaves the computer until the user creates an account and logs in (server/world/service.ts).
- * HABBLAUD_WORLD=0 disables all.
- */
-export const DEFAULT_WORLD_URL = 'https://server.habblaud.com';
-
-/** Hosts accepted without TLS in dev mode: the computer itself and, from inside Docker, the host. */
-const LOCAL_WORLD_HOSTS: readonly string[] = ['127.0.0.1', 'host.docker.internal'];
-
-/**
- * Habblaud World from environment. Without HABBLAUD_WORLD_URL, DEFAULT_WORLD_URL. URL requires `https://` or
- * `wss://` (device token never travels without TLS); `http://` and `ws://` only in dev mode and only for
- * 127.0.0.1 or host.docker.internal (world server running locally, seen from outside or inside
- * Docker). No path, user, password, or query params: server address only. A defined and rejected URL does not
- * fall back to default: feature remains disabled, with reason in `warning`.
- */
-export function parseWorldConfig(env: NodeJS.ProcessEnv, argv: string[]): WorldConfig {
-  const flag = env.HABBLAUD_WORLD?.trim();
-  const enabled = !flag || isTruthy(flag);
-  const dev = argv.includes('--dev') || isTruthy(env.HABBLAUD_WORLD_DEV);
-  if (!enabled) return { enabled, dev };
-  const raw = env.HABBLAUD_WORLD_URL?.trim();
-  if (!raw) return { enabled, dev, url: DEFAULT_WORLD_URL, defaultUrl: true };
-  let u: URL;
-  try {
-    u = new URL(raw);
-  } catch {
-    return { enabled, dev, warning: tr('HABBLAUD_WORLD_URL is not a valid address') };
-  }
-  const secure = u.protocol === 'https:' || u.protocol === 'wss:';
-  const local = (u.protocol === 'http:' || u.protocol === 'ws:') && LOCAL_WORLD_HOSTS.includes(u.hostname);
-  if (!secure && !(local && dev)) {
-    return {
-      enabled,
-      dev,
-      warning: local
-        ? tr('HABBLAUD_WORLD_URL with http:// (127.0.0.1 or host.docker.internal) only works in development mode (--dev or HABBLAUD_WORLD_DEV=1)')
-        : tr('HABBLAUD_WORLD_URL must start with https:// or wss://'),
-    };
-  }
-  if (u.username || u.password || u.search || u.hash || (u.pathname !== '/' && u.pathname !== '')) {
-    return { enabled, dev, warning: tr('HABBLAUD_WORLD_URL must contain only the server address (no path, user, password or parameters)') };
-  }
-  return { enabled, dev, url: `${secure ? 'https:' : 'http:'}//${u.host}` };
-}
-
-/** World WebSocket address from HTTP(S) base (ServerConfig.world.url). */
-export function worldSocketUrl(base: string): string {
-  return `${base.replace(/^http/, 'ws').replace(/\/+$/, '')}/v1/socket`;
-}
-
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] = process.argv): ServerConfig {
   const home = env.HOME || homedir();
   const inDocker = detectDocker(env);
@@ -219,7 +145,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     agy: parseAgyConfig(env, home),
     remote: remote.config,
     remoteWarning: remote.warning,
-    world: parseWorldConfig(env, argv),
   };
 }
 

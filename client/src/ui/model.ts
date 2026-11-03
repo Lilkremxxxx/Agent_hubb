@@ -510,12 +510,10 @@ export function shortcutHint(accounts: readonly Pick<AccountInfo, 'short'>[]): s
 
 /**
  * Merges long history (server) with recent activities, deduplicated, oldest to newest.
- * `until` (replay timestamp) discards subsequent events — rewinding won't show future in drawer.
  */
-export function mergeHistory<T extends { id: string; at: number }>(history: readonly T[], recent: readonly T[], limit = 200, until?: number): T[] {
+export function mergeHistory<T extends { id: string; at: number }>(history: readonly T[], recent: readonly T[], limit = 200): T[] {
   const seen = new Map<string, T>();
-  const keep = (a: T) => until === undefined || a.at <= until;
-  for (const a of history) if (keep(a)) seen.set(a.id, a);
-  for (const a of recent) if (keep(a)) seen.set(a.id, a);
+  for (const a of history) seen.set(a.id, a);
+  for (const a of recent) seen.set(a.id, a);
   return [...seen.values()].sort((a, b) => a.at - b.at).slice(-limit);
 }

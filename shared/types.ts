@@ -5,7 +5,6 @@
 // Renaming/removing fields breaks server, world, and UI simultaneously.
 
 import type { AppearanceParts } from './appearance';
-import type { WorldMeta } from './world/api';
 
 export type AgentKind = 'main' | 'sub';
 
@@ -509,16 +508,6 @@ export interface OfficeSnapshot {
      * with node-pty and local access. Absent = feature disabled.
      */
     pty?: PtyStatus;
-    /**
-     * Habblaud World (server/world/): `enabled` = section appears (HABBLAUD_WORLD is not 0 and world server was
-     * accepted: default server.habblaud.com or valid HABBLAUD_WORLD_URL; rejected, feature disabled and nothing
-     * from World appears); `configured` = world server accepted; `state` = account on this machine; `building`
-     * (additive, only with approved account and created character) = building summary in world: connected,
-     * paused, floors and agents from last payload and its timestamp, whether left world and if world server stopped
-     * it (without reason, which only goes in status). Nothing else from account (snapshot also goes to mobile
-     * and timeline). Absent in tests and timelapse.
-     */
-    world?: WorldMeta;
   };
 }
 
@@ -533,11 +522,6 @@ export interface AccessInfo {
   terminal: boolean;
   /** Can spawn new agents in Claude app (POST /api/spawn). */
   spawn: boolean;
-  /**
-   * Can use Habblaud World account (/api/world/*): feature enabled (HABBLAUD_WORLD), terminal guard, and
-   * local port with local Host. Absent in older servers.
-   */
-  world?: boolean;
 }
 
 export interface FeedItem {

@@ -162,24 +162,6 @@ describe('utilities', () => {
     expect(mergeHistory(h, r).map((x) => x.id)).toEqual(['a', 'c', 'b']);
     expect(mergeHistory(h, r, 2).map((x) => x.id)).toEqual(['c', 'b']);
   });
-  it('mergeHistory in replay discards activities after current time', () => {
-    // Selected agent at t=2000 (final activity already in history) and navigated back to t=1000:
-    // snapshot only contains t=1000, so t=2000 cannot remain in the drawer.
-    const acumulado = [
-      { id: 'a', at: 1000 },
-      { id: 'b', at: 2000 },
-    ];
-    const noInstante = [{ id: 'a', at: 1000 }];
-    expect(mergeHistory(acumulado, noInstante).map((x) => x.id)).toEqual(['a', 'b']);
-    expect(mergeHistory(acumulado, noInstante, 200, 1000).map((x) => x.id)).toEqual(['a']);
-    // Live history response that still brings future events: at replay timestamp it is also dropped.
-    const respostaAoVivo = [
-      { id: 'a', at: 1000 },
-      { id: 'c', at: 500 },
-      { id: 'b', at: 2000 },
-    ];
-    expect(mergeHistory(noInstante, respostaAoVivo, 200, 1000).map((x) => x.id)).toEqual(['c', 'a']);
-  });
 });
 
 describe('activityFallback', () => {

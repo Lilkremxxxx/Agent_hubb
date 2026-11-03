@@ -69,15 +69,8 @@ export interface UiContext {
   /** Opens help; with `section`, scrolls to it (e.g. "usage" = Accounts and usage). */
   openHelp(section?: HelpSection): void;
   toggleSettings(): void;
-  /** Opens/closes Habblaud World modal (top bar button; ui/world/world-dialog.ts). */
-  toggleWorld(): void;
   /** Opens room rename input near point (window px); right-click on room (ui/roomrename.ts). */
   renameRoom?(roomId: string, at: { x: number; y: number }): void;
-  /**
-   * (Optional) "See as others see": opens Habblaud World city and enters own building (Visit scene). Only
-   * exists with World scene mounted (app.ts).
-   */
-  visitOwnBuilding?(): void;
   /** Opens settings on "About" section (running version and update status). */
   openAbout(): void;
   /** The office shown (the office tabs above the top bar, ui/office-tabs.ts); undefined = no team (demo, older server). */

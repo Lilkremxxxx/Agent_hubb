@@ -1,5 +1,5 @@
 // Character editor in agent drawer: name, "Randomize", and parts (skin, hair, clothes...) with full-body
-// preview (appearance-fields.ts, same as Habblaud World character). "Save" writes project character
+// preview (appearance-fields.ts). "Save" writes project character
 // (the room) to server; pure rules (when visible, labels, what goes into `parts`) live in character-model.ts.
 import { NAME_MAX } from '../../../shared/appearance';
 import type { AgentInfo } from '../../../shared/types';
@@ -77,7 +77,6 @@ export class CharacterEditor {
       live,
       terminal: !!store.snapshot?.meta.terminal,
       local: access().local,
-      replaying: store.replaying,
     });
     setHidden(this.button, !allowed);
     if (this.editing && !allowed) {

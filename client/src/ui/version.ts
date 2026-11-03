@@ -9,7 +9,7 @@ export const VERSION_ICONS = {
   up: pixelIcon(['...##...', '..####..', '.######.', '########', '..####..', '..####..', '..####..', '..####..']),
 };
 
-/** In-use version, from live snapshot (no real version in timelapse). */
+/** In-use version, from the snapshot. */
 export function versionInfo(snap: OfficeSnapshot | null | undefined): { version: string } | null {
   const v = snap?.meta.version;
   if (!v || !/^\d+\.\d+\.\d+/.test(v)) return null;
@@ -32,7 +32,7 @@ export class VersionChip implements UiComponent {
   }
 
   render(): void {
-    const info = versionInfo(this.ctx.store.liveSnapshot);
+    const info = versionInfo(this.ctx.store.snapshot);
     setHidden(this.el, !info);
     const label = tr('Settings');
     setAttr(this.settingsBtn, 'aria-label', label);
@@ -61,7 +61,7 @@ export class AboutGroup {
   }
 
   render(): void {
-    const info = versionInfo(this.ctx.store.liveSnapshot);
+    const info = versionInfo(this.ctx.store.snapshot);
     setHidden(this.el, !info);
     if (!info) return;
     setText(this.name, `v${info.version}`);

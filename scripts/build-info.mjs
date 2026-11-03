@@ -1,6 +1,5 @@
 // Writes dist/build.json with the Habblaud commit and whether the working copy was dirty (from `npm run build:server`).
-// server/build.ts reads the file (readBuildInfo), and Habblaud World's `hello` sends {commit, dirty} so the server
-// knows whether it is an official release (shared/world/protocol.ts, BuildInfo).
+// server/build.ts reads the file (readBuildInfo).
 //
 // - commit: `git rev-parse HEAD`; without git (folder downloaded as .zip, Docker build without .git) = "unknown".
 // - dirty: any TRACKED file modified (`git status --porcelain --untracked-files=no`). Files outside git

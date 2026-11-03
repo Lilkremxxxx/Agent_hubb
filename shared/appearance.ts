@@ -28,7 +28,7 @@ export interface AppearanceParts {
 }
 
 /**
- * Fixed order of parts: same in parseAppearanceParts, partsKey, and editor (changedParts). Timelapse compares
+ * Fixed order of parts: same in parseAppearanceParts, partsKey, and editor (changedParts). Parts are compared
  * by JSON, so order must be stable.
  */
 export const PART_KEYS = [

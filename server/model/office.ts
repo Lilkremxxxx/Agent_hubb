@@ -31,7 +31,6 @@ import { hash32 } from '../../shared/hash';
 import type { NameStore, StoredCharacter } from './names';
 import { normalizeCwd, roomDisplayNames, SlotAllocator } from './rooms';
 import { tr } from '../../shared/i18n';
-import type { WorldMeta } from '../../shared/world/api';
 
 /** Boss outfit (AgentInfo.boss) for agents without a chosen character. */
 const BOSS_PARTS: AppearanceParts = { topStyle: 'shirt_tie', top: '#1f2a44', topAccent: '#c0392b', bottomStyle: 'pants', bottom: '#1f2a44', shoes: '#141414' };
@@ -71,8 +70,6 @@ export interface OfficeDeps {
   terminal?: boolean;
   /** Interactive terminals (PtyManager): feature status and open terminals. */
   ptys?: () => { status: PtyStatus; list: PtyInfo[] };
-  /** Habblaud World (WorldService.meta; see OfficeSnapshot.meta.world). */
-  world?: () => WorldMeta;
   now?: () => number;
 }
 
@@ -1022,7 +1019,6 @@ export class Office {
         build: this.deps.build?.(),
         terminal: this.deps.terminal === true,
         ...(ptys ? { pty: ptys.status } : {}),
-        ...(this.deps.world ? { world: this.deps.world() } : {}),
       },
     };
   }

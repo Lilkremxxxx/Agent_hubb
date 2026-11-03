@@ -1,5 +1,5 @@
 // Deterministic appearance generation from a seed (pure, no DOM). Randomization and palettes lived here and
-// were moved to shared/world/appearance-flat.ts (the same randomization serves the office and Habblaud World); this module
+// live in ./appearance-flat.ts; this module
 // re-exports and holds what is specific to the character editor.
 import { ACCESSORIES, BOTTOM_STYLES, FACIAL_HAIR, HAIR_STYLES, TOP_STYLES, type PartKey } from '../../../../shared/appearance';
 import {
@@ -16,14 +16,14 @@ import {
   TIE_COLORS,
   TOP_COLORS,
   type SeedAppearance,
-} from '../../../../shared/world/appearance-flat';
+} from './appearance-flat';
 import type { Appearance, TopStyle } from '../api';
 import { tr } from '../../../../shared/i18n';
 
-export { appearanceFromSeed, SKINS } from '../../../../shared/world/appearance-flat';
-export type { BottomStyle, FacialHair } from '../../../../shared/world/appearance-flat';
+export { appearanceFromSeed, SKINS } from './appearance-flat';
+export type { BottomStyle, FacialHair } from './appearance-flat';
 
-// The format of shared/world/appearance-flat.ts and art (art/api.ts) cannot diverge.
+// The format of ./appearance-flat.ts and art (art/api.ts) cannot diverge.
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 const _sameAppearance: Same<SeedAppearance, Appearance> = true;
 void _sameAppearance;

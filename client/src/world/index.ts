@@ -41,7 +41,7 @@ export interface VisitWorld {
 export interface CreateWorldOptions {
   /**
    * Visit to a world building (Visit scene): `Sim` without status-timing dependencies (SimMode.visit), the
-   * visitor walking with keyboard and click (camera follows),.
+   * visitor walking with keyboard and click (camera follows).
    */
   visit?: boolean;
 }

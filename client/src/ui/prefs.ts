@@ -24,8 +24,6 @@ export interface UiPrefs {
   feedOpen: boolean;
   /** Hidden accounts in the sidebar (AccountInfo.id). */
   hiddenAccounts: string[];
-  /** Habblaud World: notice when the first visitor enters your building (per connection). Enabled by default. */
-  worldVisitNotify: boolean;
   /** "Boss overloaded": when a session counts as tired or overloaded. */
   overload: LoadThresholds;
 }
@@ -42,7 +40,6 @@ export const DEFAULT_PREFS: UiPrefs = {
   sidebarOpen: true,
   feedOpen: true,
   hiddenAccounts: [],
-  worldVisitNotify: true,
   overload: DEFAULT_THRESHOLDS,
 };
 
@@ -70,7 +67,6 @@ export function sanitizePrefs(raw: unknown): UiPrefs {
     feedOpen: bool(o.feedOpen, d.feedOpen),
     // The account filter chips are gone: a list saved by them would hide accounts with no way back.
     hiddenAccounts: [],
-    worldVisitNotify: bool(o.worldVisitNotify, d.worldVisitNotify),
     overload: sanitizeThresholds(o.overload),
   };
 }

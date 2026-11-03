@@ -8,7 +8,7 @@ import { isAbsolute, join } from 'node:path';
 import type { PtyInfo } from '../shared/types';
 import { isDefaultDir } from './accounts/detect';
 import { AccountsService } from './accounts/service';
-import { isTruthy, loadConfig, terminalOffReason, worldSocketUrl } from './config';
+import { isTruthy, loadConfig, terminalOffReason } from './config';
 import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard } from './http/guard';
 import { createRemoteGate, isRemoteRequest, loadSecret, RemoteSessions, startRemoteListener, type RemoteListener } from './http/remote';
@@ -31,19 +31,12 @@ import { CLAUDE_WORKER, seatSuffix, TeamService, workerAgentId } from './team';
 import { GhostWatch } from './workers/ghosts';
 import { WorkerService, type WorkerTarget } from './workers/service';
 import { agyProfilesRoot } from './sources/agy/profiles';
-import { createBuildReader, readBuildInfo } from './build';
+import { createBuildReader } from './build';
 import { tr } from '../shared/i18n';
-import type { WorldLocale } from '../shared/world/protocol';
 import { createCliRunner, createOpener, SpawnService } from './spawn/spawn';
 import { runnableClaudeBin } from './claude-bin';
 import { AttachmentStore } from './spawn/attachments';
 import { recentFolders } from './spawn/folders';
-import { WorldClient } from './world/client';
-import { createWorldRoutes } from './world/http';
-import { WorldService } from './world/service';
-import { WorldSettingsStore } from './world/settings';
-import { BuildingUplink } from './world/uplink';
-import { WorldViewer } from './world/viewer';
 
 const config = loadConfig();
 const startedAt = Date.now();
@@ -56,20 +49,6 @@ roomAliases.load();
 
 // Office, accounts, and agent sources reference each other (change notifications / sources): late binding.
 const late: { office?: Office; agents?: SourceSet; ptys?: PtyManager; ptyOff?: string; workers?: WorkerService } = {};
-// Habblaud World (server/world/): account and character on this computer. Enabled by default (server.habblaud.com, or
-// HABBLAUD_WORLD_URL); nothing leaves the computer before the user creates an account and signs in. HABBLAUD_WORLD=0
-// hides everything (404 routes and nothing in the UI); a rejected HABBLAUD_WORLD_URL keeps the feature disabled.
-const worldStore = new WorldSettingsStore(join(config.dataDir, 'world.json'));
-if (config.world.enabled && config.world.url) worldStore.load();
-const world = config.world.enabled
-  ? new WorldService({
-      config: config.world,
-      terminal: config.terminal,
-      store: worldStore,
-      client: config.world.url ? new WorldClient({ baseUrl: config.world.url, version: config.version }) : undefined,
-      onChange: () => late.office?.markDirty(),
-    })
-  : undefined;
 const accounts = new AccountsService({
   dirs: config.claudeDirs,
   home: config.home,
@@ -88,7 +67,6 @@ const office = new Office({
   accountName: (id) => accounts.find(id)?.detected.name,
   terminal: config.terminal,
   ptys: () => (late.ptys ? { status: late.ptys.status(), list: late.ptys.list() } : { status: { enabled: false, reason: late.ptyOff ?? tr('off') }, list: [] }),
-  world: () => world?.meta() ?? { enabled: false, configured: false, state: 'off' },
 });
 // Claude workers' sessions run in the office's terminals and are shown by server/workers, not as sessions.
 const claude = new ClaudeWatcher({ accounts, office, inDocker: config.inDocker, ignore: (_acc, pid) => !!late.workers?.ownsPid(pid) });
@@ -154,37 +132,6 @@ team.start();
 late.office = office;
 late.agents = agents;
 const hub = new Hub(office);
-// Building in Habblaud World (world/uplink.ts): only with accepted world server. Connects automatically with approved
-// account, created character, terminal lock, and without pause; packet comes only from projection
-// (shared/world/projection.ts).
-const worldUplink =
-  world && config.world.url
-    ? new BuildingUplink({
-        url: worldSocketUrl(config.world.url),
-        version: config.version,
-        build: () => {
-          const b = readBuildInfo(config.rootDir);
-          return { commit: b.commit, dirty: b.dirty };
-        },
-        locale: (): WorldLocale => 'en', // the World has no Vietnamese
-        store: worldStore,
-        canAct: () => config.terminal,
-        agents: () => office.list(),
-        subscribe: (cb) => office.onChange(cb),
-        booting: () => office.isBooting(),
-        lastFile: join(config.dataDir, 'world-last-uplink.json'),
-        onGoodbye: (reason) => world.goodbye(reason),
-        onLeft: () => world.leftElsewhere(),
-        onChange: () => office.markDirty(),
-      })
-    : undefined;
-if (world && worldUplink) world.attachUplink(worldUplink);
-// World scene (world/viewer.ts): the city over the same building connection, only with the scene open in the browser.
-const worldViewer = worldUplink ? new WorldViewer() : undefined;
-if (worldUplink && worldViewer) {
-  worldViewer.attach(worldUplink);
-  worldUplink.attachCity(worldViewer);
-}
 // Terminal: only exists with local bind (see terminalOffReason in config.ts).
 // Each agent uses its tool's parser (Claude Code's by default).
 const terminals = config.terminal
@@ -333,7 +280,6 @@ if (ptys) {
 void agents.start();
 accounts.start();
 hub.start();
-worldUplink?.start();
 // Hung workers: a faint ghost on the seat; nothing is stopped.
 const ghosts = new GhostWatch({
   office,
@@ -405,7 +351,6 @@ const api = createApiHandler({
     return recentFolders(history ? await history.list().catch(() => []) : [], rooms);
   },
   remote: config.remote ? { is: isRemoteRequest, allows: (f) => config.remote!.allow.has(f) } : undefined,
-  world: world ? createWorldRoutes(world, worldViewer) : undefined,
 });
 
 const server = http.createServer();
@@ -520,18 +465,6 @@ server.listen(config.port, config.host, () => {
           ? tr('   New agent: on ({0} --bg; a folder not yet trusted opens in the Claude app).', [spawnBin])
           : tr('   New agent: on, only via the Claude app (claude not found in PATH).'),
   );
-  if (config.world.warning) log.warn(`   ${config.world.warning}.`);
-  log.info(
-    !world
-      ? tr('   Habblaud World: hidden (HABBLAUD_WORLD=0).')
-      : !config.world.url
-        ? tr('   Habblaud World: off (HABBLAUD_WORLD_URL rejected).')
-        : tr('   Habblaud World: {0}, account on this computer: {1}{2}.', [
-            config.world.defaultUrl ? tr('{0} (default)', [config.world.url]) : config.world.url,
-            world.state(),
-            config.terminal ? '' : tr(' (read-only: the terminal lock is off)'),
-          ]),
-  );
 });
 
 let shuttingDown = false;
@@ -546,9 +479,6 @@ function shutdown(signal: string): void {
   hub.stop();
   terminals?.stop();
   ptys?.stopAll();
-  worldViewer?.stop();
-  worldUplink?.stop();
-  world?.stop();
   names.flush();
   void closeVite?.();
   remoteListener?.close();
