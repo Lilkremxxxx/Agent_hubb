@@ -41,7 +41,6 @@ import {
 } from '../../shared/world/protocol';
 import { isTraitId } from '../../shared/world/traits';
 import { parseAltchaChallenge } from './altcha';
-import { parseBlocked, parseMeBuilding } from './social';
 import { DEVICE_ID_RE, TOKEN_RE } from './settings';
 
 export type WorldResult<T> =
@@ -172,11 +171,6 @@ export function parseMe(raw: unknown): MeResponse | undefined {
   if (player) me.player = player;
   // Left the world (from this or another machine) and has not returned: only `true` is valid.
   if (v.left === true) me.left = true;
-  // Building (Phase 5 daily likes, code, and summary) and accounts blocked by this account.
-  const building = parseMeBuilding(v.building);
-  if (building) me.building = building;
-  const blocked = parseBlocked(v.blocked);
-  if (blocked) me.blocked = blocked;
   return me;
 }
 

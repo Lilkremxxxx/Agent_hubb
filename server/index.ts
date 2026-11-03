@@ -42,7 +42,6 @@ import { WorldClient } from './world/client';
 import { createWorldRoutes } from './world/http';
 import { WorldService } from './world/service';
 import { WorldSettingsStore } from './world/settings';
-import { OwnerSocial } from './world/social';
 import { BuildingUplink } from './world/uplink';
 import { WorldViewer } from './world/viewer';
 
@@ -62,8 +61,6 @@ const late: { office?: Office; agents?: SourceSet; ptys?: PtyManager; ptyOff?: s
 // hides everything (404 routes and nothing in the UI); a rejected HABBLAUD_WORLD_URL keeps the feature disabled.
 const worldStore = new WorldSettingsStore(join(config.dataDir, 'world.json'));
 if (config.world.enabled && config.world.url) worldStore.load();
-// Owner's light social features (world/social.ts): daily likes, "while you were away", door knocks, and blocked users.
-const worldSocial = config.world.enabled ? new OwnerSocial({ session: () => worldStore.get()?.deviceId, onChange: () => late.office?.markDirty() }) : undefined;
 const world = config.world.enabled
   ? new WorldService({
       config: config.world,
@@ -71,7 +68,6 @@ const world = config.world.enabled
       store: worldStore,
       client: config.world.url ? new WorldClient({ baseUrl: config.world.url, version: config.version }) : undefined,
       onChange: () => late.office?.markDirty(),
-      social: worldSocial,
     })
   : undefined;
 const accounts = new AccountsService({
@@ -188,10 +184,6 @@ const worldViewer = worldUplink ? new WorldViewer() : undefined;
 if (worldUplink && worldViewer) {
   worldViewer.attach(worldUplink);
   worldUplink.attachCity(worldViewer);
-}
-if (worldUplink && worldSocial) {
-  worldSocial.attach(worldUplink);
-  worldUplink.attachOwner(worldSocial);
 }
 // Terminal: only exists with local bind (see terminalOffReason in config.ts).
 // Each agent uses its tool's parser (Claude Code's by default).
@@ -413,7 +405,7 @@ const api = createApiHandler({
     return recentFolders(history ? await history.list().catch(() => []) : [], rooms);
   },
   remote: config.remote ? { is: isRemoteRequest, allows: (f) => config.remote!.allow.has(f) } : undefined,
-  world: world ? createWorldRoutes(world, worldViewer, worldSocial) : undefined,
+  world: world ? createWorldRoutes(world, worldViewer) : undefined,
 });
 
 const server = http.createServer();

@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentInfo, FeedItem } from '../../../shared/types';
-import type { SocialEvent } from '../world/api';
 import type { UiContext } from './context';
 import { FeedPanel } from './feed';
 
@@ -68,20 +67,18 @@ function item(id: string, a: AgentInfo): FeedItem {
 let elements: Element[];
 function panel(feed: FeedItem[] = [], agents: AgentInfo[] = []) {
   let receive!: (fresh: FeedItem[]) => void;
-  let social!: (e: SocialEvent) => void;
   const snapshot = { agents, rooms: [] };
   const prefs = { hiddenAccounts: [] as string[] };
   let open = true;
   const ctx = {
     store: { feed, snapshot, on: (_event: string, cb: typeof receive) => { receive = cb; } },
-    world: { onSocialEvent: (cb: typeof social) => { social = cb; } },
     prefs, agent: (id: string) => snapshot.agents.find((a) => a.id === id), account: () => undefined,
     invalidate: () => {}, togglePanel: () => {}, isPanelOpen: () => open,
   } as unknown as UiContext;
   const view = new FeedPanel(ctx);
   view.render();
   const el = (name: string) => elements.find((e) => e.className === name)!;
-  return { view, receive: (fresh: FeedItem[]) => receive(fresh), social: (e: SocialEvent) => social(e), snapshot, prefs, close: () => { open = false; },
+  return { view, receive: (fresh: FeedItem[]) => receive(fresh), snapshot, prefs, close: () => { open = false; },
     scroller: el('ui-feed__scroll'), list: el('ui-feed__list'), pill: el('ui-feed__new') };
 }
 
@@ -94,7 +91,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('FeedPanel when paused', () => {
-  it.each(['SSE', 'social'])('keeps only the 50 newest events from %s, without losing per-account counts', (source) => {
+  it('keeps only the 50 newest events, without losing per-account counts', () => {
     const shown = agent('visible');
     const hidden = agent('hidden', '.claude-2');
     const old = item('before', shown);
@@ -102,8 +99,7 @@ describe('FeedPanel when paused', () => {
     p.scroller.scrollTop = 0;
     p.scroller.fire('scroll');
     const fresh = Array.from({ length: 120 }, (_, i) => item(`new-${i}`, i < 70 ? shown : hidden));
-    if (source === 'SSE') p.receive(fresh);
-    else for (const f of fresh) p.social({ id: f.id, agentId: f.agentId, at: f.activity.at, icon: f.activity.icon, text: f.activity.text, place: f.roomName });
+    p.receive(fresh);
     // Retention is checked only to verify memory ceiling, in addition to panel output.
     const retained = (p.view as unknown as { pending: FeedItem[] }).pending;
     expect(retained).toHaveLength(50);

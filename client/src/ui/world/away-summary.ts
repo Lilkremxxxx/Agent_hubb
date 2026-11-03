@@ -14,7 +14,6 @@ import type { WorldBuildingStatus, WorldClient, WorldSource } from '../../net/wo
 import type { UiComponent, UiContext } from '../context';
 import { copyText, h, prefersReducedMotion, setHidden, setText } from '../dom';
 import { worldErrorText } from './world-model';
-import './social.css';
 
 // ------------------------------------------------------------------ models (pure)
 

@@ -3,12 +3,11 @@
 import * as artModule from '../art';
 import { TILE, type ArtModule } from '../art/api';
 import type { OfficeStore } from '../net/store';
-import { DEFAULT_WORLD_OPTIONS, seasonalThemeFor, type Selection, type SocialEvent, type SoundCue, type WorldApi, type WorldFocus, type WorldOptions } from './api';
+import { DEFAULT_WORLD_OPTIONS, seasonalThemeFor, type Selection, type SoundCue, type WorldApi, type WorldFocus, type WorldOptions } from './api';
 import { loadWorldAssets, type WorldAssets } from './assets';
 import { Camera, overviewFrame } from './camera';
 import { createDebug, type WorldDebug } from './debug';
 import { BUILDING_H, COL_W } from './constants';
-import { RECEPTION_ID } from './layout/core';
 import { inRect } from './layout/geometry';
 import { attachInput, type Hit } from './input';
 import type { AgentInfo } from '../../../shared/types';
@@ -37,14 +36,12 @@ export interface VisitWorld {
   exit(done: () => void): boolean;
   /** Visitor screen position (CSS px), for "Exit (E)" tooltip; null offscreen or without visitor. */
   visitorScreen(): { x: number; y: number } | null;
-  /** Reception wall board on screen (CSS px): location of front desk stamp board; null offscreen. */
-  boardScreen(): { x: number; y: number; w: number; h: number } | null;
 }
 
 export interface CreateWorldOptions {
   /**
    * Visit to a world building (Visit scene): `Sim` without status-timing dependencies (SimMode.visit), the
-   * visitor walking with keyboard and click (camera follows), and social wallets keyed with `world:`.
+   * visitor walking with keyboard and click (camera follows),.
    */
   visit?: boolean;
 }
@@ -53,7 +50,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   let options: WorldOptions = { ...DEFAULT_WORLD_OPTIONS };
   const visitMode = !!o.visit;
   const camera = new Camera();
-  let sim = new Sim(art, () => options, undefined, { visit: visitMode });
+  let sim = new Sim(art, () => options, { visit: visitMode });
   let renderer = new Renderer(canvas, art, sim, camera);
   let overlay = new Overlay(renderer.ctx, sim, renderer, camera);
   let assets: WorldAssets | null = null;
@@ -61,7 +58,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   let focusSource: (() => WorldFocus | null) | null = null;
   const selectCbs = new Set<(s: Selection) => void>();
   const hoverCbs = new Set<(id: string | null) => void>();
-  const socialCbs = new Set<(e: SocialEvent) => void>();
   const soundCbs = new Set<(c: SoundCue) => void>();
   const roomMenuCbs = new Set<(roomId: string, at: { x: number; y: number }) => void>();
   let cues = new SoundCues(sim, camera);
@@ -304,12 +300,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
       if (canvas.clientWidth !== camera.viewW || canvas.clientHeight !== camera.viewH || dpr !== camera.dpr) resize();
       sim.update(dt, now);
-      // resolved games and bets: sent to feed
-      const events = sim.social.events;
-      if (events.length) {
-        for (const e of events) for (const cb of socialCbs) cb(e);
-        events.length = 0;
-      }
       renderer.sync(seasonalThemeFor(options.theme, new Date()));
       if (sim.building.cols !== lastCols) {
         lastCols = sim.building.cols;
@@ -426,14 +416,9 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       if (p.x < 0 || p.y < 0 || p.x > camera.viewW || p.y > camera.viewH) return null;
       return p;
     },
-    social: (id) => sim.social.info(id),
     onRoomContextMenu: (cb) => {
       roomMenuCbs.add(cb);
       return () => void roomMenuCbs.delete(cb);
-    },
-    onSocialEvent: (cb) => {
-      socialCbs.add(cb);
-      return () => void socialCbs.delete(cb);
     },
     setOfficeFocus: (source) => {
       focusSource = source;
@@ -476,7 +461,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       document.removeEventListener('visibilitychange', onVisibility);
       selectCbs.clear();
       hoverCbs.clear();
-      socialCbs.clear();
       soundCbs.clear();
     },
     get debug() {
@@ -507,14 +491,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
         const p = camera.worldToScreen(h.x, h.y - 2);
         if (p.x < 0 || p.y < 0 || p.x > camera.viewW || p.y > camera.viewH) return null;
         return p;
-      },
-      boardScreen: () => {
-        const r = visitMode ? renderer.paintingRect(RECEPTION_ID) : null;
-        if (!r) return null;
-        const a = camera.worldToScreen(r.x, r.y);
-        const b = camera.worldToScreen(r.x + r.w, r.y + r.h);
-        if (b.x < 0 || b.y < 0 || a.x > camera.viewW || a.y > camera.viewH) return null;
-        return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
       },
     },
   };

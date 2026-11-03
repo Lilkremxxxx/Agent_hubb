@@ -79,15 +79,8 @@ export interface WorldApi {
    * (overview) and centers (focusAgent/focusRoom/follow) within free area.
    */
   setViewInsets?(insets: Partial<ViewInsets>): void;
-  /**
-   * (Optional, additive) Social life of an agent present in the office: personality, coin
-   * wallet, friendships/rivalries with those present now, and active gathering. null if not present.
-   */
-  social?(agentId: string): AgentSocial | null;
   /** (Optional, additive) Right click on an office room: room id and click position (window px). */
   onRoomContextMenu?(cb: (roomId: string, at: { x: number; y: number }) => void): () => void;
-  /** (Optional, additive) Social events (matches and bets) for the feed. */
-  onSocialEvent?(cb: (e: SocialEvent) => void): () => void;
   /**
    * (Optional, additive) Office shown on the page: the world dims (gently) the rooms and characters outside
    * `source()`, called every frame (return the same object while nothing changed); null source or result = no dimming.
@@ -117,38 +110,6 @@ export interface WorldFocus {
    * corridor, characters) and roomIds/agentIds are not used. Absent = dim by roomIds/agentIds.
    */
   office?: string;
-}
-
-
-export interface AgentSocial {
-  traits: { emoji: string; label: string; desc: string }[];
-  /** Catchphrase ("All done!"). */
-  catchphrase: string;
-  /** Coin balance (🪙). */
-  coins: number;
-  /** Total earned from work (initial balance + tasks + requests + deliveries). */
-  earned: number;
-  wins: number;
-  losses: number;
-  /** Present coworkers with friendship or rivalry; `record` = [wins, losses] against them. */
-  bonds: { id: string; name: string; kind: 'amizade' | 'rivalidade'; record: [number, number] | null }[];
-  /** Current gathering activity ("📺 Watching soccer on TV with Rafaela"), or null. */
-  doing: string | null;
-  /** Statement: most recent transactions first. */
-  ledger: { at: number; delta: number; icon: string; text: string }[];
-}
-
-/** Resolved match/bet (becomes a feed row). */
-export interface SocialEvent {
-  id: string;
-  at: number;
-  icon: string;
-  /** Protagonist (the winner). */
-  agentId: string;
-  /** Text without protagonist name: "won 🪙10 from Caio in rock-paper-scissors". */
-  text: string;
-  /** Where it took place ("Lounge", "Kitchen"...). */
-  place: string;
 }
 
 /** Viewport margins covered by UI (CSS px). */

@@ -54,8 +54,7 @@ function run(sim: Sim, clock: { now: number }, seconds: number, until?: () => bo
   }
 }
 
-/** In-memory wallets only, so saved coins stay untouched. */
-const newSim = () => new Sim(art, () => ({ ...DEFAULT_WORLD_OPTIONS, liveliness: 'calm' }), null);
+const newSim = () => new Sim(art, () => ({ ...DEFAULT_WORLD_OPTIONS, liveliness: 'calm' }));
 
 function enter(detail: WorldBuildingDetail): { sim: Sim; clock: { now: number }; snap: OfficeSnapshot } {
   const sim = newSim();
@@ -192,8 +191,8 @@ describe('world building visit in Sim', () => {
 
 // ------------------------------------------------------------------------------------------------ cena Visita (Fase 4)
 
-/** Visitor scene Sim: `visit: true`, in-memory wallets only. */
-const visitSim = () => new Sim(art, () => ({ ...DEFAULT_WORLD_OPTIONS, liveliness: 'calm' }), null, { visit: true });
+/** Visitor scene Sim: `visit: true`. */
+const visitSim = () => new Sim(art, () => ({ ...DEFAULT_WORLD_OPTIONS, liveliness: 'calm' }), { visit: true });
 
 function visit(detail: WorldBuildingDetail, light: VisitLight = 'live'): { sim: Sim; clock: { now: number }; snap: OfficeSnapshot } {
   const sim = visitSim();
@@ -267,7 +266,7 @@ describe('visitor', () => {
     return { ...v, ch };
   }
 
-  it('arrives via reception elevator with visitor badge, outside agent systems (snapshot, social, seats)', () => {
+  it('arrives via reception elevator with visitor badge, outside agent systems (snapshot, seats)', () => {
     const { sim, clock, ch, snap } = withVisitor();
     expect(ch.id).toBe(VISITOR_ID);
     expect(ch.appearance.lanyard).toBe(VISITOR_LANYARD);
@@ -285,10 +284,6 @@ describe('visitor', () => {
     run(sim, clock, MISSING_DEBOUNCE_MS / 1000 + 2);
     expect(sim.visitor).toBe(ch);
     expect(ch.leaving).toBe(false);
-    for (const c of sim.chars.values()) expect(c.gathering?.members.some((m) => m.id === VISITOR_ID) ?? false).toBe(false);
-    expect(ch.gathering).toBeNull();
-    // visitor is excluded from counts: wallets and rooms belong to agents only
-    expect(sim.social.wallets.get(VISITOR_ID)).toBeUndefined();
   });
 
   it('walks with keyboard without clipping walls or seats; clicking navigates a path', () => {

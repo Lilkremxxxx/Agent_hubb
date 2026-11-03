@@ -25,7 +25,6 @@ import { parsePlayerTraits } from '../../shared/world/traits';
 import { HttpError, readJson, sendJson } from '../http/app';
 import { isWorldLocale, parseVisibility, type WorldResult } from './client';
 import type { WorldService } from './service';
-import { socialRoutes, type OwnerSocial } from './social';
 import type { WorldViewer } from './viewer';
 
 /** Maximum body size for world routes (largest is character profile). */
@@ -139,10 +138,8 @@ export function sameOriginRequest(req: IncomingMessage): boolean {
 }
 
 /** Returns /api/world/* route handler (port and Host filtering is in http/app.ts). */
-export function createWorldRoutes(service: WorldService, viewer?: WorldViewer, social?: OwnerSocial): (req: IncomingMessage, res: ServerResponse, url: URL) => void {
+export function createWorldRoutes(service: WorldService, viewer?: WorldViewer): (req: IncomingMessage, res: ServerResponse, url: URL) => void {
   const routes: Record<string, { method: Method; account: boolean; run: (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<void> }> = {
-    // Lightweight social (Phase 5, social.ts): seen summary and unblock, via building connection.
-    ...(social ? socialRoutes(social) : {}),
     '/api/world/status': {
       method: 'GET',
       account: false,

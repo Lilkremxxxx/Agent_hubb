@@ -37,17 +37,6 @@ const ICON_HELP: [string, string][] = [
   ['⚠️', tr('Something went wrong')],
 ];
 
-/** Social life gatherings (idle agents get together with coworkers). */
-const SOCIAL_HELP: [string, string][] = [
-  ['📺', tr('TV in the lounge: soccer (they cheer the goal along with the screen), soap opera or cartoons, with popcorn.')],
-  ['🎮', tr('Video games on the couch (best of 3) or a duel at the arcade machines, with a cheering crowd.')],
-  ['🏓', tr('Ping-pong to 5 points, with a scoreboard and fans behind the table.')],
-  ['☕', tr('Chat in the kitchen: they grab coffee and sit down to gossip, tell jokes and talk shop.')],
-  ['✊', tr('Rock-paper-scissors for coins: rock, paper, scissors, reveal, the winner takes the 🪙 (and the loser asks for a rematch).')],
-  ['💄', tr('Bathroom mirror: they freshen up (lipstick, comb) and show up reflected in the glass.')],
-  ['🪙', tr('Wallet: they arrive with 🪙100 (subagents 🪙30), earn 🪙10 per completed task, 🪙5 per handled request and 🪙15 per subagent delivery.')],
-];
-
 /** GitHub events observed live in sessions (gh, git push, GitHub MCP). */
 const GITHUB_HELP: [string, string][] = [
   ['🎉', tr('Party: PR opened or merged, release published (or CI green after an alarm). Confetti falls in the room, everyone celebrates and a banner says why (~12 s).')],
@@ -174,7 +163,6 @@ export class HelpDialog {
         h('section', {}, h('h3', { text: 'Status' }), statusList),
         h('section', {}, h('h3', { text: tr('Activities') }), iconList),
         this.shellSection(),
-        this.socialSection(),
         this.githubSection(),
         h(
           'section',
@@ -244,25 +232,6 @@ export class HelpDialog {
           tr("it stays at its desk with the hourglass turning, the monitor shows the progress and a bubble says which shell it's waiting on and for how long. The longer it takes…"),
       }),
       h('ul', { class: 'ui-shell-legend' }, ...SHELL_STAGES.map((s) => item(s.emoji, s.help)), ...SHELL_END_HELP.map(([e, t]) => item(e, t))),
-    );
-  }
-
-  /** Social life legend: gatherings of idle agents, personalities, and coins. */
-  private socialSection(): HTMLElement {
-    const item = (emoji: string, text: string) =>
-      h('li', {}, h('span', { class: 'ui-icon-legend__icon', text: emoji, attrs: { 'aria-hidden': 'true' } }), h('span', { text }));
-    return h(
-      'section',
-      { class: 'ui-help__shell' },
-      h('h3', { text: tr('Social life') }),
-      h('p', {
-        class: 'ui-help__lead',
-        text:
-          tr('When two or more agents have nothing to do (idle, or waiting on a shell for more than 40 s), they get together. Each one has 2 or 3 personality traits ') +
-          tr("(competition, gossip, vanity, naps…), friendships and rivalries, and that decides what they'd rather do, with whom and what they talk about. ") +
-          tr("The agent's details show its personality, wallet and statement; matches and bets show up in the feed."),
-      }),
-      h('ul', { class: 'ui-shell-legend' }, ...SOCIAL_HELP.map(([e, t]) => item(e, t))),
     );
   }
 

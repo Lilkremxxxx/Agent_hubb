@@ -45,7 +45,6 @@ import { bossOfficeOf, officeForWorker, teamOffices } from './offices';
 import { accountChipLabel, providerOf } from './provider';
 import { postPty, ptyControllable } from './ptyapi';
 import { createAgentRow, updateAgentRow } from './rows';
-import { SocialSection } from './social';
 import { TERMINAL_UNAVAILABLE_HINT, type TerminalControl } from './terminal';
 import { Movable } from './movable';
 import type { PtyControl } from './pty';
@@ -262,7 +261,6 @@ class AgentView {
   /** How many timeline items are currently shown. */
   private timelineShown = TIMELINE_STEP;
   private stats: KvList<StatKey>;
-  private social: SocialSection;
   readonly character: CharacterEditor;
   private sessionValue: HTMLElement;
   private linesPlus: HTMLElement;
@@ -389,7 +387,6 @@ class AgentView {
     this.agySec.title.dataset.hint = tr('Gives this worker a job, like the boss does with agy-ask / claude-ask');
     this.agyDefaultsSec.title.dataset.hint = tr("Mode and effort this worker uses when a job doesn't say");
     this.agyProgressSec.title.dataset.hint = tr("This worker's level, XP and badges, earned from finished jobs");
-    this.social = new SocialSection(ctx);
 
     this.tasksBar = createProgress(tr('Task progress'));
     const tasksList = h('ul', { class: 'ui-tasks' });
@@ -450,7 +447,6 @@ class AgentView {
       this.agyDefaultsSec.el,
       this.agySec.el,
       this.agyProgressSec.el,
-      this.social.el,
       this.tasksSec.el,
       this.teamSec.el,
       this.timelineSec.el,
@@ -707,10 +703,6 @@ class AgentView {
     const detail = act?.detail ?? '';
     setHidden(this.actDetails, !detail);
     setText(this.actDetail, detail);
-
-    // Social life (personality, wallet, circles): only for agents currently in the office.
-    if (live) this.social.render(a.id, now);
-    else setHidden(this.social.el, true);
 
     // Tasks.
     const tp = taskProgress(a.tasks);

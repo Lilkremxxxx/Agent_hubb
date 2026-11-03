@@ -5,7 +5,6 @@ import type { Appearance, Dir, HeldItem, IconName, Pose } from '../../art/api';
 import { mulberry32 } from '../../../../shared/hash';
 import { FOOT_DX, FOOT_DY, TILE } from '../constants';
 import type { Mode } from './behavior';
-import type { Gathering } from '../social/gathering';
 import type { ShellStage } from './shell';
 import type { Step } from './steps';
 
@@ -54,10 +53,6 @@ export class Character {
   missingSince: number | null = null;
   /** Next stroll for the idle character (epoch ms). */
   nextOutingAt = 0;
-  /** Gathering in which it participates (or on the way to it). */
-  gathering: Gathering | null = null;
-  /** Waiting for a shell: next attempt to join a gathering (epoch ms; 0 = schedule). */
-  nextSocialAt = 0;
   /** Renders only after this instant (elevator queue). */
   hiddenUntil = 0;
   /** Hidden (inside stall or closed elevator). */
@@ -91,10 +86,6 @@ export class Character {
   /** Mini speech bubble (emoji). */
   chatEmoji = '';
   chatUntil = 0;
-  /** Short speech (small bubble with text) in gatherings: invites, chat, cheering, bets. */
-  sayText = '';
-  sayAt = 0;
-  sayUntil = 0;
   lastActivityId: string | null = null;
   activityChangedAt = 0;
 

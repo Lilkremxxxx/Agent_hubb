@@ -73,21 +73,6 @@ export class FeedPanel implements UiComponent {
       ctx.invalidate();
     });
     this.appendPending(ctx.store.feed.slice(-VISIBLE));
-    // Matches and bets resolved in the office (social life) enter the feed as local events.
-    ctx.world.onSocialEvent?.((e) => {
-      const a = ctx.agent(e.agentId);
-      if (!a) return;
-      this.appendPending([{
-        id: e.id,
-        agentId: a.id,
-        roomId: a.roomId,
-        agentName: a.name,
-        roomName: e.place,
-        account: a.account,
-        activity: { id: e.id, kind: 'other', icon: e.icon, text: e.text, at: e.at },
-      }]);
-      ctx.invalidate();
-    });
   }
 
   render(): void {
@@ -226,7 +211,6 @@ export class FeedPanel implements UiComponent {
     setText(icon, f.activity.icon);
     setText(text, f.activity.text);
     li.classList.toggle('is-error', !!f.activity.error);
-    li.classList.toggle('is-social', f.id.startsWith('social:'));
     // End of a shell (✅ finished / ❌ failed or interrupted): row has its own highlight.
     const done = shellDoneKind(f.activity);
     li.classList.toggle('is-shell-ok', done === 'ok');

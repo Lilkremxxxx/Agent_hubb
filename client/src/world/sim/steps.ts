@@ -1,6 +1,5 @@
 // Steps in a character's action queue. Created during planning (never per frame).
 import type { Dir, HeldItem, IconName, Pose } from '../../art/api';
-import type { Gathering } from '../social/gathering';
 
 export type Step =
   /** Walks (or runs) to tile (tx, ty); then, optionally, to fine position (fx, fy) and faces `dir`. */
@@ -21,8 +20,6 @@ export type Step =
   | { t: 'stall'; spot: string; ms: number; phase: number }
   /** Switches room light on/off at switch (must be on the switch spot). */
   | { t: 'switch'; room: string; on: boolean; phase: number; onlyIfLast?: boolean }
-  /** Participates in a gathering (TV, game, chat...) until it ends; pose comes from director (social/social.ts). */
-  | { t: 'gather'; g: Gathering }
   /** Immediate side effect. */
   | { t: 'do'; fn: () => void }
   /** Drops from the sky onto (gx, gy) (a new Claude Code session): falls, lands with a "Plop!". */

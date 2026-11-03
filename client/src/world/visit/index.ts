@@ -7,23 +7,17 @@
 // connects (only `pushReplay`): local machine office, global snapshot, and UI remain unaware. By
 // design, active controls are omitted: no terminal, drawer, feed, notices, permission requests, messages, My day,
 // timelapse, character editor, or rename room. Only top banner, read-only panel (rooms and agents, with
-// card showing name, role, tool, and status), Leave (button, Esc, or reception elevator), and at panel top,
-// light in-building social (visit-social.ts, Phase 5): **Like** and **Leave a stamp** at front desk, responding to
-// stream messages (`message`). Reception wall board becomes stamp board (`stampBoard`): today's stamp from this
-// browser, and in own building, stamps from "While you were away".
+// card showing name, role, tool, and status), and Leave (button, Esc, or reception elevator).
 // Visitor (own character, with badge) moves via keyboard and click; no movement steps leave this client.
-import { hash32 } from '../../../../shared/hash';
 import { tr } from '../../../../shared/i18n';
 import type { WorldSceneCommand, WorldSceneInside, WorldSceneMe } from '../../../../shared/world/api';
-import type { BuildingPatchMessage, StampId } from '../../../../shared/world/protocol';
+import type { BuildingPatchMessage } from '../../../../shared/world/protocol';
 import { OfficeStore } from '../../net/store';
 import { h, setHidden, setText } from '../../ui/dom';
 import { modalOpen } from '../input';
 import type { WorldOptions } from '../api';
 import { intentFrom, moveKeyOf } from '../city/input';
 import { createWorld } from '../index';
-import { browserStorage, clearWorldWallets } from '../social/wallet';
-import { mountVisitSocial, stampBoard, stampPinTitle } from '../visit-social';
 import { VisitController } from './controller';
 import { findAgent, visitBanner, visitLightOf, visitorsLabel, visitPanel } from './model';
 
@@ -44,12 +38,10 @@ export interface VisitSceneOptions {
   options: () => WorldOptions;
   version: string;
   topInset: () => number;
-  /** Commands via World scene stream (`leave`, `resync {building}`, and social `like`, `unlike`, `stamp`). */
+  /** Commands via World scene stream (`leave`, `resync {building}`). */
   send(cmds: WorldSceneCommand[]): void;
   /** Quick scene notification (same as city). */
   toast(text: string): void;
-  /** In own building: stamps from "While you were away" (lobby board). */
-  summaryStamps?(): ReadonlyArray<{ stampId: StampId; count: number }>;
   /** `leave` timed out: city resumes on its own. */
   stuck(): void;
 }
@@ -60,8 +52,6 @@ export interface VisitScene {
   /** Entire interior again (repeated `building`, `resync`, new stream snapshot). */
   replace(inside: Pick<WorldSceneInside, 'rev' | 'detail'>): void;
   patch(msg: BuildingPatchMessage): void;
-  /** Stream message before city: true = handled like or stamp here (city does not show it). */
-  message(msg: unknown): boolean;
   /** Leave now (button, Esc): sends `leave`. */
   leave(): void;
   /** Esc: closes open card; otherwise leaves. Always true (in visit, Esc belongs to scene). */
@@ -132,12 +122,9 @@ export function createVisitScene(o: VisitSceneOptions): VisitScene {
   );
   const emptyNote = h('p', { class: 'ui-visit-panel__empty', hidden: true });
   const roomsEl = h('ul', { class: 'ui-visit-panel__rooms' });
-  // Like and Leave a stamp (visit-social.ts), at top of panel; hidden in own building
-  const socialBox = h('div', { class: 'ui-visit-panel__social' });
   const panel = h(
     'aside',
     { class: 'ui-visit-panel', attrs: { id: 'ui-visit-panel', 'aria-label': tr('Building rooms') } },
-    socialBox,
     h('h3', { class: 'ui-visit-panel__title', text: tr('Rooms') }),
     card,
     emptyNote,
@@ -156,45 +143,10 @@ export function createVisitScene(o: VisitSceneOptions): VisitScene {
     h('span', {}, h('kbd', { text: 'Esc' }), ' ', tr('leave')),
   );
   const leaving = h('div', { class: 'ui-visit-leaving', hidden: true, role: 'status', text: tr('Leaving the building…') });
-  // lobby stamp board, layered over reception wall board (tracks camera every frame)
-  const boardPins = h('div', { class: 'ui-visit-board__pins' });
-  const board = h('div', { class: 'ui-visit-board', hidden: true, role: 'img' }, boardPins);
-  const layer = h('div', { class: 'ui-visit' }, board, bar, panel, exitHint, help, leaving);
+  const layer = h('div', { class: 'ui-visit' }, bar, panel, exitHint, help, leaving);
   o.uiRoot.append(layer);
   // local machine office notices continue, next to panel
   o.uiRoot.classList.add('is-visit');
-
-  const social = mountVisitSocial(socialBox, {
-    building: () => (destroyed ? null : controller.detail.building),
-    mine: () => o.mine,
-    send: (cmds) => o.send(cmds),
-    toast: (text) => o.toast(text),
-  });
-
-  let boardSig = '';
-  /** Board stamps: visitor's today stamp or summary stamps (in own building). */
-  function renderBoard(): void {
-    const mine = social.stampedToday();
-    const entries = o.mine ? (o.summaryStamps?.() ?? []).map((e) => ({ stampId: e.stampId, count: e.count })) : mine ? [{ stampId: mine, mine: true }] : [];
-    const sig = JSON.stringify(entries);
-    if (sig === boardSig) return;
-    boardSig = sig;
-    const pins = stampBoard(entries, hash32(controller.id));
-    boardPins.replaceChildren(
-      ...pins.map((p) =>
-        h('span', {
-          class: `ui-visit-board__pin${p.mine ? ' is-mine' : ''}`,
-          text: p.icon,
-          title: stampPinTitle(p),
-          attrs: { style: `left:${(p.x * 100).toFixed(1)}%;top:${(p.y * 100).toFixed(1)}%;--rot:${p.rot}deg` },
-        }),
-      ),
-    );
-    const label = pins.length ? `${tr('Stamps at the front desk')}: ${pins.map(stampPinTitle).join(', ')}` : tr('Stamps at the front desk: none yet');
-    board.setAttribute('aria-label', label);
-    board.title = label;
-    board.classList.toggle('is-empty', !pins.length);
-  }
 
   let roomsSig = '';
   function render(): void {
@@ -254,7 +206,6 @@ export function createVisitScene(o: VisitSceneOptions): VisitScene {
     }
     renderCard();
     setText(panelBtn, `${tr('Rooms')} (${d.floors.length})`);
-    renderBoard();
     panelBtn.setAttribute('aria-expanded', String(panelOpen));
     layer.classList.toggle('has-panel', panelOpen);
     insets();
@@ -377,16 +328,6 @@ export function createVisitScene(o: VisitSceneOptions): VisitScene {
     const show = !controller.leaving && world.visit.atExit();
     const at = show ? world.visit.visitorScreen() : null;
     setHidden(exitHint, !at);
-    // stamp board: only when reception is on screen and large enough to read
-    const r = world.visit.boardScreen();
-    const fits = !!r && r.h >= 18;
-    setHidden(board, !fits);
-    if (r && fits) {
-      board.style.transform = `translate(${Math.round(r.x)}px, ${Math.round(r.y)}px)`;
-      board.style.width = `${Math.round(r.w)}px`;
-      board.style.height = `${Math.round(r.h)}px`;
-      board.style.setProperty('--pin', `${Math.max(8, Math.round(r.h * 0.3))}px`);
-    }
     if (at) {
       // overhead, clamped within viewport
       const w = exitHint.offsetWidth || 150;
@@ -404,18 +345,9 @@ export function createVisitScene(o: VisitSceneOptions): VisitScene {
     world,
     replace(inside) {
       controller.replace(inside);
-      social.sync();
     },
     patch(msg) {
       controller.patch(msg);
-      // optimistic like is only rebuilt when building (likes, likedByMe) arrives in patch
-      if (msg.building) social.sync();
-    },
-    message(msg) {
-      if (destroyed) return false;
-      const handled = social.message(msg);
-      renderBoard();
-      return handled;
     },
     leave,
     escape() {
@@ -440,7 +372,6 @@ export function createVisitScene(o: VisitSceneOptions): VisitScene {
       if (leaveTimer) clearTimeout(leaveTimer);
       cancelAnimationFrame(raf);
       offSelect();
-      social.destroy();
       removeEventListener('keydown', onDown);
       removeEventListener('keyup', onUp);
       removeEventListener('blur', clearKeys);
@@ -450,8 +381,6 @@ export function createVisitScene(o: VisitSceneOptions): VisitScene {
       canvas.remove();
       layer.remove();
       o.uiRoot.classList.remove('is-visit');
-      // after world: no visit wallet writes remain after cleanup
-      clearWorldWallets(browserStorage());
     },
   };
 }

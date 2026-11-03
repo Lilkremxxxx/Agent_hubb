@@ -33,8 +33,6 @@
 // - World scene (viewer.ts) shares same connection: receives `welcome`, teardown, and city messages (`CityListener`)
 //   and sends player commands via `sendCity` only after `welcome`; notifies when city interest starts or stops
 //   (`cityChanged`), opening or closing connection when paused. Scene logic resides there.
-// - Owner lightweight social (Phase 5, social.ts): `likes.today`, `away.summary`, and `knock` route there whether
-//   scene is open or not (and to scene as well); `summary.seen` and `unblock` dispatch via `sendCity`.
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { tr } from '../../shared/i18n';
@@ -56,7 +54,6 @@ import {
   type WorldUplink,
 } from '../../shared/world/protocol';
 import { log } from '../log';
-import type { OwnerListener } from './social';
 import { WorldIds } from './ids';
 import type { WorldSession, WorldSettingsStore } from './settings';
 import { AgentSignals } from './signals';
@@ -235,7 +232,6 @@ export class BuildingUplink {
   /** Account building marked as "unverified" (from `welcome` or city updates). */
   private unverified = false;
   private city?: CityListener;
-  private owner?: OwnerListener;
 
   constructor(private readonly o: BuildingUplinkOptions) {
     this.t = { ...UPLINK_TIMING, ...o.timing };
@@ -330,11 +326,6 @@ export class BuildingUplink {
   /** Attaches World scene (viewer.ts) to connection. */
   attachCity(city: CityListener): void {
     this.city = city;
-  }
-
-  /** Attaches owner social (social.ts): today's likes, summary, and door knocks, with scene open or closed. */
-  attachOwner(owner: OwnerListener): void {
-    this.owner = owner;
   }
 
   /** Sends scene command (accepted connection only); false if not sent. */
@@ -469,9 +460,7 @@ export class BuildingUplink {
       case 'likes.today':
       case 'away.summary':
       case 'knock':
-        // For owner (Phase 5, social.ts), with scene open or closed; scene also observes.
         if (!this.welcomed) return;
-        this.owner?.message(msg);
         this.city?.message(msg);
         return;
       case 'ping':
@@ -517,7 +506,6 @@ export class BuildingUplink {
     if (this.sending()) this.armSend(Math.max(0, this.lastSentAt + this.t.minGapMs - this.now()));
     this.o.onChange?.();
     this.city?.opened(msg);
-    this.owner?.opened();
   }
 
   private onVisitors(msg: Record<string, unknown>): void {

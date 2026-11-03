@@ -110,7 +110,7 @@ export function celebrate(sim: Sim, fx: RoomFx, now: number): void {
       sim.pushEffect({ kind: 'confetti', charId: ch.id, at: now });
     }
     const home = sim.spots.get(ch.homeSpot);
-    if (home && ch.atSpot === home.id && !ch.step && !ch.queue.length && !ch.gathering) {
+    if (home && ch.atSpot === home.id && !ch.step && !ch.queue.length) {
       ch.reactUntil = now + PARTY_CHEER_MS + 2 * SEAT_MS + 200;
       if (home.seated) ch.queue.push({ t: 'exit' });
       ch.queue.push({ t: 'act', pose: 'cheer', ms: PARTY_CHEER_MS });

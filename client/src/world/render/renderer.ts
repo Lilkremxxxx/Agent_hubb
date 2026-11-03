@@ -519,7 +519,6 @@ export class Renderer {
           break;
       }
     }
-    this.drawPingPong(now);
     // ---- shell waiting: cobwebs, confetti/popcorn/rain (above entities)
     this.drawCobwebs(now);
     this.drainEffects(now);
@@ -685,10 +684,8 @@ export class Renderer {
         const o = wallItemOrigin(w, s.base);
         ctx.drawImage(s.base.canvas, o.x, o.y + rise);
         const r = s.base.rects?.tv;
-        // plays on lounge TV: selected program (soccer, soap opera, cartoon) or video game
-        const live = this.sim.social.tvScreen();
-        const mode = live ? live.mode : TV_MODES[Math.floor(now / 9000) % TV_MODES.length];
-        const seed = live ? live.seed : w.seed;
+        const mode = TV_MODES[Math.floor(now / 9000) % TV_MODES.length];
+        const seed = w.seed;
         if (r) this.safe(() => this.art.drawScreen(ctx, { x: o.x + r.x, y: o.y + rise + r.y, w: r.w, h: r.h }, mode, now, seed));
         return;
       }
@@ -772,22 +769,6 @@ export class Renderer {
       return { x: b.x + 3, y: b.y + 3, w: b.w - 6, h: b.h - 6 };
     })();
     return { x: o.x + r.x, y: o.y + r.y, w: r.w, h: r.h };
-  }
-
-  /**
-   * Rectangle (world px) of wall painting (`painting`) of an area, rendered along with walls: Guest scene
-   * places stamp board of front desk over lobby's painting.
-   */
-  paintingRect(areaId: string): { x: number; y: number; w: number; h: number } | null {
-    const vis = this.areas.get(areaId);
-    const it = vis?.layout.wallItems.find((x) => x.kind === 'painting');
-    if (!vis || !it) return null;
-    const w = toWallVis(it, vis.id);
-    const s = wallSprites(this.art, 'painting', it.variant === 'wide' ? undefined : it.variant, 0, w.seed);
-    if (!s) return null;
-    const o = wallItemOrigin(w, s.base);
-    const b = opaqueBounds(s.base.canvas);
-    return { x: o.x + b.x, y: o.y + b.y, w: b.w, h: b.h };
   }
 
   /**
@@ -910,11 +891,6 @@ export class Renderer {
         this.safe(() => this.art.drawScreen(ctx, { x: dx + r.x, y: dy + r.y, w: r.w, h: r.h }, mode, now, f.seed));
       } else if (f.kind === 'coffee_machine' && state === 1) {
         this.drawSteam(f.ax, dy + 2, now, f.seed);
-      } else if (f.kind === 'arcade' && s.rects?.screen) {
-        // arcade duel: both machines display the match
-        const seed = this.sim.social.arcadeSeed();
-        const r = s.rects.screen;
-        if (seed !== null) this.safe(() => this.art.drawScreen(ctx, { x: dx + r.x, y: dy + r.y, w: r.w, h: r.h }, 'game', now, seed));
       }
     }
     if (scaled) ctx.restore();
@@ -1141,8 +1117,7 @@ export class Renderer {
   }
 
   /**
-   * Effects requested by simulation: confetti (completed shell) over celebrating character, coins flying from
-   * bet loser to winner, and sparkles on whoever groomed in the mirror.
+   * Effects requested by simulation: confetti (completed shell) over celebrating character and sparkles.
    */
   private drainEffects(now: number): void {
     const fx = this.sim.effects;
@@ -1151,11 +1126,7 @@ export class Renderer {
       const head = this.heads.get(e.charId);
       if (!head || !head.visible || now - e.at > 1500) continue;
       if (e.kind === 'confetti') this.particles.confetti(head.x, head.y - 4);
-      else if (e.kind === 'sparkle') this.particles.sparkle(head.x, head.y + 4);
-      else if (e.kind === 'coins') {
-        const to = this.heads.get(e.toId);
-        if (to && to.visible) this.particles.coins(head.x, head.y + 2, to.x, to.y + 2);
-      }
+      else this.particles.sparkle(head.x, head.y + 4);
     }
     fx.length = 0;
   }
@@ -1291,33 +1262,6 @@ export class Renderer {
     if (this.cars.length) this.cars = this.cars.filter((c) => c.x >= x0 - 10 && c.x <= x1 + 10);
   }
 
-  private drawPingPong(now: number): void {
-    const { ctx } = this;
-    for (const g of this.sim.social.gatherings) {
-      if (g.kind !== 'pingpong' || g.phase !== 'run') continue;
-      let a: Character | undefined;
-      let b: Character | undefined;
-      for (const m of g.members) {
-        if (m.role !== 'player' || m.left) continue;
-        if (!a) a = this.sim.chars.get(m.id);
-        else b = this.sim.chars.get(m.id);
-      }
-      if (!a || !b) continue;
-      const left = a.x < b.x ? a : b;
-      const right = a.x < b.x ? b : a;
-      const period = 1100;
-      const ph = ((now - g.startAt) % (period * 2)) / period;
-      const u = ph < 1 ? ph : 2 - ph;
-      const x = left.x + 9 + (right.x - left.x - 18) * u;
-      const baseY = (left.y + right.y) / 2 - 9;
-      const arc = Math.sin(Math.PI * ((u * 2) % 1)) * 6;
-      ctx.fillStyle = 'rgba(30,40,60,0.35)';
-      ctx.fillRect(Math.round(x) - 1, Math.round(baseY) + 1, 2, 1);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(Math.round(x) - 1, Math.round(baseY - arc) - 1, 2, 2);
-    }
-  }
-
   private icon(name: IconName): Sprite | null {
     try {
       const s = this.art.iconSprite(name);
@@ -1363,8 +1307,6 @@ export class Renderer {
       // incomplete art (stub) must not crash the world
     }
   }
-
-
 }
 
 /** Where the buildings are (the base layer is repainted when it changes). */

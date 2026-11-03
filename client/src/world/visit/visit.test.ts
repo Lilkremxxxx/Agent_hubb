@@ -191,7 +191,7 @@ describe('routes during visit', () => {
     };
     const city = new CityState();
     const store = new OfficeStore();
-    const sim = new Sim(art, () => ({ ...DEFAULT_WORLD_OPTIONS }), null, { visit: true });
+    const sim = new Sim(art, () => ({ ...DEFAULT_WORLD_OPTIONS }), { visit: true });
     let now = 1_790_000_000_000;
     store.on('snapshot', (s) => sim.applySnapshot(s, now));
     let visit: VisitController | null = null;

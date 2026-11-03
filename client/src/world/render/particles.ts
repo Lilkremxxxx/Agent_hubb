@@ -1,5 +1,5 @@
 // Pixel art particles (world px): popcorn jumping from bucket, celebratory confetti, rain
-// from cloud when shell fails, flying coins (bet payout), and sparkles (mirror).
+// from cloud when shell fails, and sparkles.
 // Fixed pool in typed arrays: nothing allocated per frame.
 
 /** Particle types. */
@@ -7,7 +7,6 @@ const enum PK {
   Popcorn,
   Confetti,
   Rain,
-  Coin,
   Sparkle,
 }
 
@@ -16,15 +15,12 @@ export const CONFETTI_COLORS: readonly string[] = ['#ff4d6d', '#ffb11f', '#ffe14
 const POPCORN_BODY = '#fff6dc';
 const POPCORN_SHADE = '#f2c75c';
 const RAIN_COLOR = '#7cc4ff';
-const COIN_BODY = '#ffcf3a';
-const COIN_EDGE = '#c98a12';
-const COIN_SHINE = '#fff6c2';
 const SPARKLE_COLORS: readonly string[] = ['#ffffff', '#fff3a6', '#ffd1f0', '#bfe9ff'];
 
 /** Gravity per type (px/s²). */
-const GRAVITY: Readonly<Record<PK, number>> = { [PK.Popcorn]: 260, [PK.Confetti]: 150, [PK.Rain]: 0, [PK.Coin]: 240, [PK.Sparkle]: -14 };
+const GRAVITY: Readonly<Record<PK, number>> = { [PK.Popcorn]: 260, [PK.Confetti]: 150, [PK.Rain]: 0, [PK.Sparkle]: -14 };
 /** Horizontal drag per type (fraction lost per second): confetti glides, popcorn does not. */
-const DRAG: Readonly<Record<PK, number>> = { [PK.Popcorn]: 0, [PK.Confetti]: 2.2, [PK.Rain]: 0, [PK.Coin]: 0, [PK.Sparkle]: 3 };
+const DRAG: Readonly<Record<PK, number>> = { [PK.Popcorn]: 0, [PK.Confetti]: 2.2, [PK.Rain]: 0, [PK.Sparkle]: 3 };
 
 export class Particles {
   readonly cap: number;
@@ -98,21 +94,6 @@ export class Particles {
     this.spawn(PK.Rain, x, y, 0, v, Math.max(0.05, fall / v));
   }
 
-  /**
-   * Coins in an arc from (x0, y0) to (x1, y1): each is a ballistic toss that reaches its
-   * destination at the end of its life (some sooner, some later, like a tossed handful).
-   */
-  coins(x0: number, y0: number, x1: number, y1: number, count = 7): void {
-    const g = GRAVITY[PK.Coin];
-    for (let i = 0; i < count; i++) {
-      const t = 0.55 + i * 0.07 + Math.random() * 0.06;
-      const tx = x1 + (Math.random() * 6 - 3);
-      const ty = y1 + (Math.random() * 3 - 1);
-      const sx = x0 + (Math.random() * 4 - 2);
-      this.spawn(PK.Coin, sx, y0, (tx - sx) / t, (ty - y0) / t - 0.5 * g * t, t);
-    }
-  }
-
   /** Sparkles rising around (x, y). */
   sparkle(x: number, y: number, count = 9): void {
     for (let i = 0; i < count; i++) {
@@ -163,21 +144,6 @@ export class Particles {
         // rotates in air: alternates between 2x1 and 1x2
         const flip = Math.sin(now / 90 + this.ph[i]) > 0;
         ctx.fillRect(x, y, flip ? 2 : 1, flip ? 1 : 2);
-      } else if (k === PK.Coin) {
-        // spinning coin: alternates between face (3x3 with shine) and edge (1x3)
-        ctx.globalAlpha = 1;
-        const face = Math.sin(now / 70 + this.ph[i]) > -0.3;
-        if (face) {
-          ctx.fillStyle = COIN_EDGE;
-          ctx.fillRect(x - 1, y - 1, 3, 3);
-          ctx.fillStyle = COIN_BODY;
-          ctx.fillRect(x - 1, y - 1, 2, 2);
-          ctx.fillStyle = COIN_SHINE;
-          ctx.fillRect(x - 1, y - 1, 1, 1);
-        } else {
-          ctx.fillStyle = COIN_BODY;
-          ctx.fillRect(x, y - 1, 1, 3);
-        }
       } else if (k === PK.Sparkle) {
         // 4-pointed twinkling star (3x3 cross or single dot)
         ctx.globalAlpha = Math.min(1, left * 2.5);

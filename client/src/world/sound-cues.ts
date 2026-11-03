@@ -1,5 +1,5 @@
 // Ambient sounds suggested by the world: typing from characters working in view, "ding" when an
-// elevator door opens (someone arrives or leaves), and social spots (ping-pong paddle hits, arcade).
+// elevator door opens (someone arrives or leaves).
 // Only observes simulation and camera; UI decides whether to play (preference, volume, hidden tab).
 import type { SoundCue } from './api';
 import type { Camera } from './camera';
@@ -8,8 +8,6 @@ import type { Sim } from './sim/sim';
 
 /** Re-evaluates who is typing every interval (ms). */
 const KEYS_TICK_MS = 160;
-/** Period (ms) of a ping-pong ball pass (same as rendering). */
-const PINGPONG_PERIOD = 1_100;
 
 interface ViewRect {
   x0: number;
@@ -22,8 +20,6 @@ export class SoundCues {
   private doors: number[] = [];
   private keysAt = 0;
   private nextKeysAt = 0;
-  private nextArcadeAt = 0;
-  private rally = new Map<number, number>();
 
   constructor(
     private readonly sim: Sim,
@@ -39,7 +35,6 @@ export class SoundCues {
     const near = Math.max(0.45, Math.min(1, 0.25 + this.camera.zoom * 0.25));
     this.elevators(view, emit);
     this.keys(now, view, near, emit);
-    this.social(now, view, near, emit);
   }
 
   private pan(x: number, v: ViewRect): number {
@@ -78,42 +73,6 @@ export class SoundCues {
     if (this.rng() > Math.min(0.8, 0.3 + 0.12 * n)) return;
     this.nextKeysAt = now + (700 + this.rng() * 1500) / Math.sqrt(Math.min(n, 6));
     emit({ kind: 'keys', gain: near * Math.min(1, 0.6 + 0.1 * n), pan: this.pan(sx / n, view), count: 2 + Math.floor(this.rng() * 5) });
-  }
-
-  /** Ping-pong (paddle hits and table bounces matching drawn ball) and arcade. */
-  private social(now: number, view: ViewRect, near: number, emit: (cue: SoundCue) => void): void {
-    const alive = new Set<number>();
-    for (const g of this.sim.social.gatherings) {
-      if (g.phase !== 'run') continue;
-      if (g.kind !== 'pingpong' && g.kind !== 'arcade') continue;
-      let x = 0;
-      let y = 0;
-      let k = 0;
-      for (const m of g.members) {
-        if (m.role !== 'player' || m.left) continue;
-        const ch = this.sim.chars.get(m.id);
-        if (!ch) continue;
-        x += ch.x;
-        y += ch.y;
-        k++;
-      }
-      if (!k) continue;
-      x /= k;
-      y /= k;
-      if (!this.inView(x, y, view, 24)) continue;
-      if (g.kind === 'pingpong') {
-        alive.add(g.id);
-        // every half pass: paddle hit (ends) or table bounce (middle), matching rendering
-        const seg = Math.floor(((now - g.startAt) % (PINGPONG_PERIOD * 2)) / (PINGPONG_PERIOD / 2));
-        const prev = this.rally.get(g.id);
-        this.rally.set(g.id, seg);
-        if (prev !== undefined && prev !== seg) emit({ kind: seg % 2 === 0 ? 'pingpong' : 'table', gain: near, pan: this.pan(x, view) });
-      } else if (now >= this.nextArcadeAt) {
-        this.nextArcadeAt = now + 500 + this.rng() * 900;
-        emit({ kind: 'arcade', gain: near * 0.8, pan: this.pan(x, view) });
-      }
-    }
-    for (const id of this.rally.keys()) if (!alive.has(id)) this.rally.delete(id);
   }
 }
 

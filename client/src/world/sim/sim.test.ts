@@ -121,7 +121,6 @@ describe('quota as energy', () => {
     expect(ana.atSpot).toBe(ana.homeSpot);
     expect(ana.pose).toBe('sleep');
     expect(ana.icon).toBeNull();
-    expect(sim.social.canJoin(ana, clock.now)).toBe(false);
     run(sim, clock, 9);
     expect(ana.energy?.asleep).toBe(false);
     expect(ana.pose).not.toBe('sleep');
@@ -139,7 +138,7 @@ describe('quota as energy', () => {
 });
 
 describe('ghost', () => {
-  it('an idle ghost stays on its seat, without the sleep icon or invitations', () => {
+  it('an idle ghost stays on its seat, without the sleep icon', () => {
     const sim = newSim();
     const clock = { now: T0 };
     sim.applySnapshot(snap([room('/a', 0)], [agent('ana', '/a', 'idle', { ghost: { reason: 'no-job', since: T0 } })]), clock.now);
@@ -148,7 +147,6 @@ describe('ghost', () => {
     expect(ana.atSpot).toBe(ana.homeSpot);
     expect(sim.longIdle(ana, clock.now)).toBe(true);
     expect(ana.icon).toBeNull();
-    expect(sim.social.canJoin(ana, clock.now)).toBe(false);
   });
 });
 
@@ -338,7 +336,7 @@ describe('office simulation', () => {
     run(sim, clock, 60, () => ana.atSpot === ana.homeSpot && ana.icon === 'zzz');
     expect(ana.pose).toBe('sleep');
     expect(ana.icon).toBe('zzz');
-    // A gathering (or any plan) displaces without changing mode: remains "long idle".
+    // Any plan displaces without changing mode: remains "long idle".
     ana.queue.push({ t: 'exit' }, { t: 'act', pose: 'stand', ms: 4000 });
     run(sim, clock, 1.5);
     expect(ana.pose).toBe('stand');

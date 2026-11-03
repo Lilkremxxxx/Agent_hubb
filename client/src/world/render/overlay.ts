@@ -31,8 +31,6 @@ import { formatDuration } from '../../../../shared/activity';
 const UI_FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
 const LABEL_FONT = `600 10.5px ${UI_FONT}`;
 const BUBBLE_FONT = `500 11.5px ${UI_FONT}`;
-const SAY_FONT = `500 10.5px ${UI_FONT}`;
-const FLOAT_FONT = `800 12px ${UI_FONT}`;
 const CHIP_FONT = `700 8px ${UI_FONT}`;
 const BADGE_FONT = `700 8px ${UI_FONT}`;
 /** Model and effort after the name ("Opus 5.5 · high"): smaller and dimmer than the name. */
@@ -68,11 +66,8 @@ const CORE_NAMES: Record<string, string> = {
   'core:lounge': tr('Lounge'),
 };
 
-/** 'shell' = waiting for shell: dark terminal bubble with green text. 'say' = banter bubble (chat, cheering, bets). */
-type Tone = 'info' | 'alert' | 'deliver' | 'shell' | 'say';
-/** Maximum width for banter speech bubble (smaller than activity bubble). */
-export const SAY_MAX_W = 170;
-const SAY_H = 17;
+/** 'shell' = waiting for shell: dark terminal bubble with green text. */
+type Tone = 'info' | 'alert' | 'deliver' | 'shell';
 /** Shell wait bubble icon. */
 export const SHELL_BUBBLE_ICON = '⏳';
 
@@ -395,7 +390,6 @@ export class Overlay {
       }
     }
     this.drawChats(now);
-    this.drawFloaters(now);
     this.drawQuotaSleep();
     ctx.textBaseline = 'alphabetic';
   }
@@ -414,8 +408,8 @@ export class Overlay {
       let n = 0;
       for (const it of items) {
         if (it.type === 'bubble') {
-          // common activity and banter disappear; alert, delivery, shell wait and selected become icon only
-          if ((it.tone === 'info' && it.prio < 75) || it.tone === 'say') continue;
+          // common activity disappears; alert, delivery, shell wait and selected become icon only
+          if ((it.tone === 'info' && it.prio < 75)) continue;
           it.chip = true;
         }
         items[n++] = it;
@@ -429,7 +423,7 @@ export class Overlay {
     rin.length = 0;
     idx.length = 0;
     for (const it of items) {
-      if (it.type !== 'bubble' || (it.tone !== 'info' && it.tone !== 'shell' && it.tone !== 'say') || it.prio >= 75) continue;
+      if (it.type !== 'bubble' || (it.tone !== 'info' && it.tone !== 'shell') || it.prio >= 75) continue;
       // by PHYSICAL area (where the character currently is), which is what clutters the screen
       const ch = it.ch;
       rin.push({ room: `${Math.floor(ch.tx / COL_W)}:${ch.ty < CORRIDOR_Y ? 'n' : ch.ty < SOUTH_Y ? 'c' : 's'}`, prio: it.prio, changedAt: it.changedAt });
@@ -750,11 +744,6 @@ export class Overlay {
       const a = Math.min(1, (now - ch.bubbleAt) / 150, (ch.bubbleUntil - now) / 400);
       return this.takeBubble(ch, head, ch.bubbleIcon, ch.bubbleText, 'deliver', 90, a, ch.bubbleAt);
     }
-    // banter speech (invite, chat, cheering, bet): short and on top of recent activity
-    if (ch.sayText && now < ch.sayUntil && !ch.leaving) {
-      const a = Math.min(1, (now - ch.sayAt) / 120, (ch.sayUntil - now) / 300);
-      return this.takeBubble(ch, head, sayIcon(ch.sayText), ch.sayText, 'say', 55, a, ch.sayAt);
-    }
     if (ch.info.ghost && selected) return this.takeBubble(ch, head, '👻', ghostText(ch.info.ghost, now), 'info', 80, 1, ch.activityChangedAt);
     if (outOfQuota(ch) && selected) return this.takeBubble(ch, head, '💤', quotaSleepText(ch.energy?.resetsAt, now), 'info', 80, 1, ch.activityChangedAt);
     const act = ch.info.activity;
@@ -811,20 +800,16 @@ export class Overlay {
     const lift = Math.max(1, this.iconLift(b.ch)) * this.zoom + b.extraLift;
     const headX = this.sx(b.head.x);
     const headY = this.sy(b.head.y);
-    const say = b.tone === 'say';
-    const iconW = b.icon && !say ? this.measure(BUBBLE_FONT, b.icon) + 4 : 0;
+    const iconW = b.icon ? this.measure(BUBBLE_FONT, b.icon) + 4 : 0;
     if (b.chip || !b.text) {
       b.fitted = '';
-      b.w = Math.round(Math.max(20, (say ? this.measure(BUBBLE_FONT, b.icon) + 4 : iconW) + 10));
-    } else if (say) {
-      b.fitted = this.fit(SAY_FONT, b.text, SAY_MAX_W - 14);
-      b.w = Math.round(Math.min(SAY_MAX_W, this.measure(SAY_FONT, b.fitted) + 14));
+      b.w = Math.round(Math.max(20, iconW + 10));
     } else {
       const maxW = b.tone === 'alert' ? ALERT_MAX_W : BUBBLE_MAX_W;
       b.fitted = this.fit(BUBBLE_FONT, b.text, maxW - 16 - iconW);
       b.w = Math.round(Math.min(maxW, this.measure(BUBBLE_FONT, b.fitted) + iconW + 14));
     }
-    b.h = say && !b.chip ? SAY_H : BUBBLE_H;
+    b.h = BUBBLE_H;
     b.x = Math.max(4, Math.min(camera.viewW - b.w - 4, Math.round(headX - b.w / 2)));
     b.y = Math.round(headY - lift - b.h - 6);
   }
@@ -863,9 +848,9 @@ export class Overlay {
     const { x, y, w, h } = b;
     const headX = this.sx(b.head.x);
     const tone = b.tone;
-    const bg = tone === 'alert' ? '#ffcf4a' : tone === 'deliver' ? '#e2f0ff' : tone === 'shell' ? '#1d2433' : tone === 'say' ? '#ffffff' : '#fffdf8';
-    const border = tone === 'alert' ? '#c58f10' : tone === 'deliver' ? '#7aa7d9' : tone === 'shell' ? '#4b5d7e' : tone === 'say' ? 'rgba(40,48,66,0.38)' : 'rgba(40,48,66,0.22)';
-    const fg = tone === 'alert' ? '#3b2a00' : tone === 'deliver' ? '#17324f' : tone === 'shell' ? '#b9f6b4' : tone === 'say' ? '#1d2330' : '#232a36';
+    const bg = tone === 'alert' ? '#ffcf4a' : tone === 'deliver' ? '#e2f0ff' : tone === 'shell' ? '#1d2433' : '#fffdf8';
+    const border = tone === 'alert' ? '#c58f10' : tone === 'deliver' ? '#7aa7d9' : tone === 'shell' ? '#4b5d7e' : 'rgba(40,48,66,0.22)';
+    const fg = tone === 'alert' ? '#3b2a00' : tone === 'deliver' ? '#17324f' : tone === 'shell' ? '#b9f6b4' : '#232a36';
     const pulse = tone === 'alert' ? 1 + Math.sin(now / 160) * 0.035 : 1;
     ctx.save();
     ctx.globalAlpha = b.alpha;
@@ -912,13 +897,9 @@ export class Overlay {
     ctx.fillStyle = bg;
     ctx.fillRect(tailX - 4, y + h - 2, 8, 2);
     // content
-    ctx.font = tone === 'say' && !b.chip ? SAY_FONT : BUBBLE_FONT;
+    ctx.font = BUBBLE_FONT;
     ctx.fillStyle = fg;
-    if (tone === 'say' && !b.chip && b.fitted) {
-      ctx.textAlign = 'center';
-      ctx.fillText(b.fitted, x + w / 2, y + h / 2 + 1);
-      ctx.textAlign = 'left';
-    } else if (b.chip || !b.fitted) {
+    if (b.chip || !b.fitted) {
       ctx.textAlign = 'center';
       ctx.fillText(b.icon || '…', x + w / 2, y + h / 2 + 1);
       ctx.textAlign = 'left';
@@ -988,32 +969,6 @@ export class Overlay {
       ctx.textAlign = 'left';
       ctx.restore();
     }
-  }
-
-  /** "+🪙10" floating up and fading over winner (or "−🪙10" over loser). */
-  private drawFloaters(now: number): void {
-    const fl = this.sim.social.floaters;
-    if (!fl.length || this.zoom < TINY_ZOOM) return;
-    const { ctx } = this;
-    ctx.save();
-    ctx.font = FLOAT_FONT;
-    ctx.textAlign = 'center';
-    ctx.lineJoin = 'round';
-    for (const f of fl) {
-      const head = this.renderer.heads.get(f.charId);
-      if (!head || !head.visible || now < f.at) continue;
-      const t = Math.min(1, (now - f.at) / (f.until - f.at));
-      // beside head (banter bubble stays on top), floating up
-      const x = Math.round(this.sx(head.x) + 10 * this.zoom + 12);
-      const y = Math.round(this.sy(head.y) + 4 * this.zoom - t * 24);
-      ctx.globalAlpha = t < 0.12 ? t / 0.12 : Math.max(0, 1 - Math.max(0, t - 0.6) / 0.4);
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = 'rgba(20,24,36,0.85)';
-      ctx.strokeText(f.text, x, y);
-      ctx.fillStyle = f.color;
-      ctx.fillText(f.text, x, y);
-    }
-    ctx.restore();
   }
 
   // =================================================================== labels
@@ -1141,12 +1096,6 @@ export class Overlay {
       }
     }
   }
-}
-
-/** Chat icon when collapsed to chip only (overview): first emoji of phrase, or 💬. */
-export function sayIcon(text: string): string {
-  const m = /\p{Extended_Pictographic}(?:\uFE0F)?/u.exec(text);
-  return m ? m[0] : '💬';
 }
 
 /** Visitor label badge (Visitor scene), in place of "SUB". */

@@ -1,7 +1,7 @@
 // The visitor of the Visit scene (PLANO.md, section 8.4): my character inside someone else's building. Enters through
 // the reception elevator with the visitor badge, walks with the keyboard (free step, colliding with the building grid) or
 // with a click (A* path) and never sits: seats count as walls for them. Kept outside `Sim.chars`: does not come
-// from the snapshot, does not join social life, does not reserve spots, and does not toggle lights. In v1 no one else
+// from the snapshot, does not reserve spots, and does not toggle lights. In v1 no one else
 // sees them (no step leaves here: position inside does not go to the world server). Pure rules (no DOM).
 import type { AgentInfo } from '../../../../shared/types';
 import type { AppearanceParts } from '../../../../shared/appearance';

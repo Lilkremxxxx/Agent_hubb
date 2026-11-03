@@ -9,7 +9,6 @@ import type { Camera } from './camera';
 import type { Renderer } from './render/renderer';
 import { oldestShell } from './sim/shell';
 import type { Sim } from './sim/sim';
-import type { GatherKind } from './social/gathering';
 
 /** A shell for debug scenarios: optional ShellJob fields + relative age. */
 export interface ShellJobInput extends Partial<ShellJob> {
@@ -61,15 +60,6 @@ export interface WorldDebug {
   fastForward(): void;
   /** Makes all idle characters go for a wander now. */
   wanderNow(): void;
-  /**
-   * Starts a gathering now with anyone idle/waiting for shell (or with `ids`): everyone returns to
-   * their desk right away and leaves together. Returns participant names or null.
-   */
-  socialize(kind: GatherKind, ids?: string[]): string[] | null;
-  /** Active gatherings: kind, phase, members, score, and bet. */
-  gatherings(): unknown;
-  /** Adds (or deducts) coins from an agent's wallet. Returns balance. */
-  coins(agentId: string, delta: number): number;
   /**
    * Sets shells an agent is waiting for (simulated session or real agent; real agent is overlaid
    * until reset()). Any in background -> status 'shell'; foreground only -> 'working';
@@ -369,29 +359,6 @@ export function createDebug(sim: Sim, renderer: Renderer, camera: Camera, onCame
 
     wanderNow: () => {
       for (const c of sim.chars.values()) c.nextOutingAt = 1;
-    },
-
-    socialize: (kind, ids) => {
-      sim.fastForward(now());
-      return sim.social.force(kind, now(), ids);
-    },
-
-    gatherings: () =>
-      [...sim.social.gatherings].map((g) => ({
-        kind: g.kind,
-        phase: g.phase,
-        program: g.program,
-        bet: g.bet,
-        score: g.score,
-        members: g.members.map((m) => ({ name: sim.chars.get(m.id)?.info.name ?? m.id, role: m.role, arrived: m.arrived, left: m.left, pose: m.pose })),
-      })),
-
-    coins: (id, delta) => {
-      const w = sim.social.wallets.get(id);
-      if (!w) return 0;
-      if (delta > 0) sim.social.wallets.credit(id, delta, '🛠️', 'Adjustment (debug)', now());
-      else w.coins = Math.max(0, w.coins + delta);
-      return w.coins;
     },
 
     setUsage: (account, usage) => {

@@ -340,8 +340,6 @@ describe('remote port', () => {
       ['POST', '/api/world/delete-account'],
       ['POST', '/api/world/delete-account/confirm'],
       ['GET', '/api/world/export'],
-      ['POST', '/api/world/summary/seen'],
-      ['POST', '/api/world/unblock'],
     ];
     for (const [method, path] of routes) {
       const r = await request(s.remoteBase, path, { method, headers, ...(method === 'GET' ? {} : { body: {} }) });

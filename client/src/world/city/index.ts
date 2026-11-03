@@ -412,7 +412,6 @@ export function createCityScene(o: CitySceneOptions): CityScene {
       topInset: () => o.topInset(),
       send: (cmds) => s?.send(cmds),
       toast: (text) => showToast(text),
-      summaryStamps: () => awaySummary?.stamps ?? [],
       // no response to `leave`: restarts city (local server sends `view`, which world treats as return)
       stuck: () => {
         endVisit();
@@ -459,8 +458,6 @@ export function createCityScene(o: CitySceneOptions): CityScene {
         return;
       }
       case 'message': {
-        // inside a building, visit handles like and stamp notices first
-        if (visit?.message(ev.msg)) return;
         // social sees message before state (previous value) and handles notices for its own commands
         if (social?.message(ev.msg, performance.now())) return;
         if (ev.msg.t === 'away.summary') awaySummary = parseAwaySummary(ev.msg) ?? awaySummary;
