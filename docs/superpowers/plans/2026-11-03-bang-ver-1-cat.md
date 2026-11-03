@@ -470,3 +470,13 @@ git add -A && git commit -m "docs: plan 1 results (lines, tests, RSS)"
 - Spec §16 bảng cắt: World 12, Timelapse 7, Codex 5, mod/perm/msg/deliv 8, installer/docker/release 1, social 11, theme mùa 13, dictation 8, update 3, demo 4, nội quy 9, Board 10, herdr/agy-up 14. Remote: giữ theo §21 (Task 2 ghi rõ). "Nhiều office", "team rule", `names.conf`: Kế hoạch 2. `install.sh`/link `~/.local/bin`: Kế hoạch 3.
 - Mỗi task kết thúc bằng typecheck + vitest + commit; test mới ở Task 1 (usage undefined), 9 (pytest rules gone), 12 (404 routes).
 - Thứ tự theo điểm import tăng dần như spec; file "sửa tối thiểu rồi xoá ở task sau" được nêu rõ.
+
+## Kết quả
+
+Chạy ngày 2026-11-04 trên HEAD 872170f (nhánh `bang-ver`).
+
+- **Số dòng** (`find server client shared tools -name '*.ts' -o -name '*.py' -o -name '*.css' | grep -v node_modules | xargs cat | wc -l`): **74.979** (server 23,1k, client 47,4k, shared 4,2k, tools 0,3k; test ≈15,7k, `styles.css` 6,6k). Upstream Vi-Habblaud (`vi/main`) là 149.415 dòng, tức giảm khoảng 50%. `git diff --stat vi/main..HEAD`: 462 files changed, 2592 insertions(+), 85519 deletions(-). Ước tính ban đầu "≈37–42k" trong kế hoạch là sai; con số thật ở trên.
+- **Số test**: vitest 953 passed, 1 failed (954; 80/81 file) — lỗi duy nhất là `server/sources/tail.test.ts > FileTail > detects replaced file (rotation) even if larger`, test flaky đã biết. pytest `tools/agy`: 20 passed.
+- **RSS server**: 104.636 kB sau khi khởi động 5 giây (pid 440568), 108.576 kB ngay trước khi dừng (≈106 MB), sau khi chụp ảnh và chạy worker-ask.
+- **Chạy thật**: `HABBLAUD_WORLD=0 HABBLAUD_TIMELINE=0 HABBLAUD_CODEX=0 npm run office` → HTTP 200, log không có stack trace, `/api/snapshot` có 7 agent agy từ `~/.agy_profiles/team.json` (1 office, 7 worker), không có file mới trong `~/.habblaud/timeline/`. Ảnh: `docs/superpowers/plans/plan1-office.png` (office, không có tab World/Board/My day, `pageerrors []`). `tools/agy/bin/worker-ask acc1 "Trả lời đúng một dòng: OK" --mode plan --timeout 120` in `OK`, exit 0.
+- **Hệ con đã bỏ** (số task): release tooling/docker/installer cũ/statusline tap (1); update checker + news (3); demo mode (4); Codex (5); timelapse + My day (7); Claude mods/permissions/messages/deliveries/dictation (8); office rules engine (9); Board + HANDOFF.md (10); social simulation + coins + âm thanh Hangouts (11); Habblaud World (12); trang trí theo mùa (13); herdr/agy-up/mode/sync/roles.conf (14). Giữ lại: remote (Task 2, cho Kế hoạch 6).
