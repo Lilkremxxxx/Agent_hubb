@@ -97,7 +97,6 @@ export function officeFromBuilding(detail: WorldBuildingDetail, now: number, opt
       startedAt: now,
       version: String(opts.version),
       terminal: false,
-      messages: false,
       world: { enabled: true, configured: true, state: 'approved' },
     },
   };

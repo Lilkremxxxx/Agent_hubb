@@ -25,7 +25,7 @@ export function isLoopbackHostname(hostname: string): boolean {
 
 export function fallbackAccess(hostname: string): AccessInfo {
   const local = isLoopbackHostname(hostname);
-  return { remote: false, local, permissions: local, messages: local, terminal: local, spawn: false };
+  return { remote: false, local, terminal: local, spawn: false };
 }
 
 /** GET /api/access timeout (page doesn't wait indefinitely to connect). */
@@ -33,7 +33,7 @@ export const ACCESS_TIMEOUT_MS = 5_000;
 
 function isAccessInfo(v: unknown): v is AccessInfo {
   const a = v as Partial<AccessInfo> | null;
-  return !!a && ['remote', 'local', 'permissions', 'messages', 'terminal'].every((k) => typeof a[k as keyof AccessInfo] === 'boolean');
+  return !!a && ['remote', 'local', 'terminal'].every((k) => typeof a[k as keyof AccessInfo] === 'boolean');
 }
 
 /** Access for this page (from server, once received). */

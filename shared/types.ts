@@ -93,8 +93,7 @@ export interface Activity {
 }
 
 /**
- * An AskUserQuestion question, masked and trimmed. With office request (PermissionRequestInfo.questions),
- * can be answered there; otherwise answer is given in Claude Code.
+ * An AskUserQuestion question, masked and trimmed. The answer is given in Claude Code.
  */
 export interface AskQuestion {
   /** Question position in `tool_input.questions` (invalid entries skipped, so there may be gaps). */
@@ -102,7 +101,7 @@ export interface AskQuestion {
   question: string;
   header?: string;
   multiSelect?: boolean;
-  /** `index` = option position in original `options`: returned in answer (PermissionAnswer). */
+  /** `index` = option position in original `options`. */
   options: Array<{ index: number; label: string; description?: string }>;
 }
 
@@ -200,8 +199,8 @@ export interface AgentInfo {
   shells?: ShellJob[];
   model?: string;
   /**
-   * Context window of the session's model in tokens, as Claude Code's status line reports it (sent by the Habblaud
-   * mod); missing without the mod, then shared/overload.ts guesses it from `model`.
+   * Context window of the session's model in tokens, when known; otherwise shared/overload.ts guesses it from
+   * `model`.
    */
   contextWindow?: number;
   /** Reasoning effort in use: Claude Code from the transcript, Antigravity from the agy log. */
@@ -221,16 +220,6 @@ export interface AgentInfo {
   custom?: true;
   /** Subagent running in background. */
   background?: boolean;
-  /**
-   * Permission request answerable via Habblaud (hook PermissionRequest; oldest if multiple).
-   * While active, agent appears as 'waiting'. See PermissionRequestInfo.
-   */
-  permission?: PermissionRequestInfo;
-  /**
-   * Can send message to this agent via Habblaud (main agents only): session has habblaud-mensagens plugin
-   * and checked inbox recently. See POST /api/messages.
-   */
-  canMessage?: boolean;
   /** Antigravity worker: level, XP, and achievements (provider 'agy' only). */
   progress?: WorkerProgress;
   /** Antigravity worker: mode and effort for jobs that do not say (~/.agy_profiles/defaults.json). */
@@ -549,11 +538,6 @@ export interface OfficeSnapshot {
      */
     terminal?: boolean;
     /**
-     * Messages via office enabled (POST /api/messages): same terminal guard and HABBLAUD_MENSAGENS not
-     * disabled. Recipient currently indicated by AgentInfo.canMessage. Absent/false = feature disabled.
-     */
-    messages?: boolean;
-    /**
      * Interactive terminal (open/take over sessions and exit agents via office): only outside Docker,
      * with node-pty and local access. Absent = feature disabled.
      */
@@ -579,8 +563,6 @@ export interface OfficeSnapshot {
 export interface AccessInfo {
   remote: boolean;
   local: boolean;
-  permissions: boolean;
-  messages: boolean;
   terminal: boolean;
   /** Can spawn new agents in Claude app (POST /api/spawn). */
   spawn: boolean;
@@ -628,40 +610,6 @@ export interface AgentDetail {
   agent: AgentInfo;
   /** Longer history (max ~200), oldest to newest. */
   history: Activity[];
-}
-
-// ------------------------------------------------------------------ Claude Code mod
-
-/**
- * Response of GET /api/mod/summary: minimal data Claude Code mod (mod/habblaud) needs for the
- * "needs you" line below prompt and /habblaud command. Only real agents (demo excluded) and
- * present agents (excluding closed or delivered); with `?session=` (and `?account=`), excluding
- * caller's own session: its main agent and subagents.
- */
-export interface ModSummary {
-  /** Habblaud version in use. */
-  version: string;
-  /** Present agents and how many are working. */
-  agents: number;
-  working: number;
-  /** Who needs you, ordered by longest waiting to shortest waiting. */
-  waiting: ModWaitingAgent[];
-}
-
-export interface ModWaitingAgent {
-  /** = AgentInfo.id. */
-  id: string;
-  name: string;
-  /** Displayed room (project) name. */
-  room: string;
-  /** = AccountInfo.id. */
-  account: string;
-  /** Reason (AgentInfo.waitingFor), e.g.: "approve permission". */
-  waitingFor: string;
-  /** Waiting since (epoch ms). */
-  since?: number;
-  /** Has permission request answerable via office (AgentInfo.permission). */
-  answerable: boolean;
 }
 
 // ------------------------------------------------------------------ terminal
@@ -740,163 +688,12 @@ export interface RecentSession {
   agentId?: string;
 }
 
-// ------------------------------------------------------------------ deliveries
-
-/** Delivery attachment kind, to choose viewer. */
-export type DeliveryAttachmentKind = 'image' | 'pdf' | 'video' | 'page' | 'text' | 'file';
-
-/** File delivered by agent (SendUserFile, response link) or screenshot captured at end of work. */
-export interface DeliveryAttachment {
-  /** Opaque id for GET /api/deliveries/file/:id (never the path). */
-  id: string;
-  name: string;
-  kind: DeliveryAttachmentKind;
-  /** Agent caption (SendUserFile) or "Captured screen". */
-  caption?: string;
-  /** Screenshot captured inside conversation (not a local disk file). */
-  capture?: boolean;
-}
-
-/**
- * A delivery: completion of a request where agent worked (used tools) and responded. Built from transcript
- * (server/deliveries/deliveries.ts), formatted for a BA: headline, summary, request, and attachments.
- */
-export interface DeliveryInfo {
-  /** "<account>:<session>:<request entry>". */
-  id: string;
-  account: string;
-  provider?: Provider;
-  sessionId: string;
-  /** Agent still in office (for avatar and "open terminal"). */
-  agentId?: string;
-  /** Agent name (from office) or session title. */
-  agentName?: string;
-  project?: string;
-  /** What was requested (one line). */
-  request: string;
-  /** First sentence of response, without markdown. */
-  headline: string;
-  /** Plain language paragraph (last in response), when present. */
-  summary?: string;
-  /** Full response (markdown). */
-  text: string;
-  startedAt: number;
-  finishedAt: number;
-  /** Tools used and files modified in request. */
-  tools: number;
-  edited: number;
-  attachments: DeliveryAttachment[];
-}
-
-export interface DeliveriesResponse {
-  deliveries: DeliveryInfo[];
-}
-
 /** Response of GET /api/sessions/recent: newest to oldest activity. */
 export interface RecentSessionsResponse {
   sessions: RecentSession[];
   /** Listing window (days) and max sessions. */
   days: number;
   limit: number;
-}
-
-// ------------------------------------------------------------------ answer from office
-
-/** "Always allow" rule suggested by Claude Code for a request (hook permission_suggestions). */
-export interface PermissionSuggestionInfo {
-  /** Position in list received by hook: returned in decision (hook applies original suggestion). */
-  index: number;
-  /** Rules in Claude Code permission format, e.g.: "Bash(npm test:*)". */
-  rules: string[];
-  /** Where rule is stored: 'session', 'localSettings', 'projectSettings', or 'userSettings'. */
-  destination: string;
-}
-
-/**
- * Pending permission request answerable via Habblaud: Claude Code hook PermissionRequest
- * (mod/habblaud-permissoes/hooks/permission-hook.mjs) registers it and awaits decision. Only exists with
- * local bind (same terminal guard) and with an open Habblaud page.
- * Sent in snapshot without `input` (full args only returned via GET /api/permissions/:id, with
- * local access); demo mock requests include it.
- */
-export interface PermissionRequestInfo {
-  id: string;
-  /** Tool of requester; absent = 'claude'. */
-  provider?: Provider;
-  /** Raw tool name (e.g.: "Bash", "Edit", "mcp__github__create_issue"). */
-  tool: string;
-  /** Title in Claude Code style: "Bash(npm test)", "Edit(src/app.ts)". Masked and trimmed. */
-  title: string;
-  /** Short summary (e.g.: "Running tests") and activity icon. */
-  text: string;
-  icon: string;
-  /** Arguments (command, diff, JSON...), masked and truncated. */
-  input?: string;
-  inputKind?: TerminalInputKind;
-  /** Request from a subagent not yet shown by Habblaud: its type (e.g.: "Explore"). */
-  subagent?: string;
-  /** "Always allow" rules applicable alongside approval. */
-  suggestions?: PermissionSuggestionInfo[];
-  /**
-   * AskUserQuestion request: questions to answer via office (`answer` decision). Also included
-   * in snapshot (without them card has nothing to show).
-   */
-  questions?: AskQuestion[];
-  /** Other requests from same agent queued after this one. */
-  queued?: number;
-  createdAt: number;
-  /** When hook stops waiting and request falls back to terminal only. */
-  expiresAt: number;
-}
-
-/**
- * Response to an AskUserQuestion question, by POSITION (AskQuestion.index and option `index`): hook replaces
- * positions with original text received from Claude Code (page only sees masked/trimmed text).
- */
-export interface PermissionAnswer {
-  /** AskQuestion.index. */
-  question: number;
-  /** Positions of chosen options (single one without multiSelect). */
-  options?: number[];
-  /** Plain text ("Other"). Without multiSelect, substitutes an option. */
-  other?: string;
-}
-
-/** Body of POST /api/permissions/:id/decision (from page). */
-export interface PermissionDecision {
-  /**
-   * allow = approve; deny = reject; terminal = return request to terminal (hook exits without deciding);
-   * answer = answer AskUserQuestion questions (`answers`).
-   */
-  behavior: 'allow' | 'deny' | 'terminal' | 'answer';
-  /** Denial: message forwarded to agent. */
-  message?: string;
-  /** Denial: interrupt agent (stops and waits for you). */
-  interrupt?: boolean;
-  /** Approval: apply suggestion at this index (PermissionSuggestionInfo.index). */
-  suggestion?: number;
-  /** Response (`answer`): one per question in request. */
-  answers?: PermissionAnswer[];
-}
-
-// ------------------------------------------------------------------ messages via office
-
-/**
- * Status of message sent from page to an agent (GET /api/messages/:id):
- * queued = waiting for session fetch; sent = session fetched and delivering; delivered = entered session (or
- * its queue, if agent was busy); failed = delivery failed (`error` indicates reason).
- */
-export type OutboxStatus = 'queued' | 'sent' | 'delivered' | 'failed';
-
-export interface OutboxMessage {
-  id: string;
-  /** Recipient AgentInfo.id (always a main agent). */
-  agentId: string;
-  status: OutboxStatus;
-  error?: string;
-  createdAt: number;
-  /** Last status change. */
-  updatedAt: number;
 }
 
 /** Interactive terminal state (OfficeSnapshot.meta.pty). */
@@ -921,19 +718,4 @@ export interface PtyInfo {
   startedAt: number;
   exitedAt?: number;
   exitCode?: number;
-}
-
-/** Message delivered to habblaud-mensagens plugin (POST /api/mod/inbox). */
-export interface InboxMessage {
-  id: string;
-  /** Text as typed: plugin delivers it to session as if typed directly. */
-  text: string;
-  /** Instead of the text: a slash command the plugin runs ($.command.run): model, effort or plan mode only. */
-  command?: SessionCommand;
-}
-
-/** What the office may change in a Claude Code session (agent drawer): `/model`, `/effort`, `/plan`. */
-export interface SessionCommand {
-  name: 'model' | 'effort' | 'plan';
-  args: string;
 }

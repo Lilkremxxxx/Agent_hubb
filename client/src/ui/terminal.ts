@@ -1,14 +1,12 @@
 // Terminal: floating window over the office with a session's conversation (prompts, replies, tools, and
 // results) formatted as Claude Code displays it, live via SSE stream GET /api/agents/:id/terminal (`init`
-// replaces all; `append` appends). The footer contains the composer (ui/composer.ts): with the
-// habblaud-mensagens plugin, what you type there enters the main agent's session as if typed in the terminal.
+// replaces all; `append` appends).
 // Also shows history sessions (ui/history.ts), using the same protocol at
 // GET /api/sessions/:conta/:sessionId/terminal: header displays project, title, and date; footer, "Session ended at …".
 // Search (Ctrl/⌘+F or magnifying glass), filter, and copy button for each entry come from ui/termtools.ts.
 // The model (deduplication, tool -> result join, entry limit, collapsed previews, and footer) is pure and
 // tested in ui/terminal.test.ts; DOM building uses textContent only (reply markdown comes from ui/markdown.ts).
 import type { AgentInfo, RecentSession, TerminalEntry, TerminalInit } from '../../../shared/types';
-import { MessageComposer } from './composer';
 import type { UiComponent, UiContext } from './context';
 import { copyText, h, iconButton, prefersReducedMotion, setAttr, setHidden, setText, setTitle, setVariant } from './dom';
 import { calendarDayDiff, formatClock, formatDateTime, formatDuration, formatElapsed, relativeTime } from './format';
@@ -364,11 +362,7 @@ export function terminalFooter(agent: AgentInfo | undefined, agents: readonly Ag
     }
     case 'waiting': {
       const text = agent.waitingFor ? tr('Waiting on you: {0}', [agent.waitingFor]) : tr('Waiting on you');
-      if (agent.permission) return { kind: 'waiting', text, since: agent.statusSince };
-      // Without request in Habblaud (hook already replied to session, session opened without plugin, or no page open
-      // when it arrived): buttons aren't shown, so state where to reply.
-      const hint = tr("{0} · answer in Claude Code: this request didn't reach Habblaud or timed out", [text]);
-      return { kind: 'waiting', text: hint, since: agent.statusSince };
+      return { kind: 'waiting', text, since: agent.statusSince };
     }
     default:
       return { kind: 'idle', text: tr('Waiting for the next prompt') };
@@ -641,8 +635,6 @@ export class TerminalPanel implements UiComponent, TerminalControl {
   private actions: TermActions | null;
   private tabs: TermTabs;
   private movable: Movable;
-  /** Footer composer (live session of a main agent only). */
-  private composer: MessageComposer;
 
   constructor(
     private ctx: UiContext,
@@ -732,8 +724,6 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.statusText = h('span', { class: 'ui-term__status-text' });
     this.statusTime = h('span', { class: 'ui-term__status-time' });
     this.status = h('p', { class: 'ui-term__status' }, this.glyph, this.statusText, this.statusTime);
-    // Esc in search input returns focus to conversation (next Esc closes terminal).
-    this.composer = new MessageComposer(ctx, 'terminal', { onEscape: () => this.focusLog() });
 
     this.el = h(
       'section',
@@ -742,7 +732,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
       this.tabs.el,
       tools,
       h('div', { class: 'ui-term__body' }, this.alertEl, this.scroll, this.newBtn),
-      h('div', { class: 'ui-term__foot' }, this.status, this.composer.el),
+      h('div', { class: 'ui-term__foot' }, this.status),
     );
     this.el.addEventListener('keydown', (e) => this.onKey(e));
     // Dragging by titlebar detaches window (ui/movable.ts).
@@ -809,8 +799,6 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.tabs.render(live ? live.id : null);
     this.renderFooter();
     this.renderState();
-    // Messages only for live session (in history, composer says session ended).
-    this.composer.render(this.session ? undefined : this.ctx.agent(this.id), this.id);
   }
 
   /** Opens panel on a new conversation (agent or history session); same conversation just gets focus. */

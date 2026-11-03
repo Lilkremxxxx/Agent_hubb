@@ -9,7 +9,7 @@ import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import { tempDir } from '../test/fixtures';
 import { createApiHandler, sendJson } from './app';
-import { createRequestGuard, isLoopbackHost } from './guard';
+import { createRequestGuard } from './guard';
 import {
   COOKIE,
   createRemoteGate,
@@ -52,11 +52,11 @@ describe('parseRemoteConfig', () => {
     const insecure = parseRemoteConfig({ ...base, HABBLAUD_REMOTE_INSECURE_HTTP: '1' }, false, () => false).config;
     expect(insecure?.tls).toBeUndefined();
   });
-  it('starts with defaults: port 4748, permissions only, certificate in default folder', () => {
+  it('starts with defaults: port 4748, terminal only, certificate in default folder', () => {
     const { config } = parseRemoteConfig({ ...base, HOME: '/h' }, false, TLS_FILES);
     expect(config).toMatchObject({ port: 4748, host: '0.0.0.0', user: 'ana' });
     expect(config?.tls?.certFile).toBe('/h/.habblaud/remote-tls/server/server.crt');
-    expect([...config!.allow]).toEqual(['permissions']);
+    expect([...config!.allow]).toEqual(['terminal']);
   });
   it('in Docker ignores port and host (container always listens on 0.0.0.0:4748) and reads cert from /remote-tls', () => {
     const env = { ...base, HABBLAUD_REMOTE_PORT: '9999', HABBLAUD_REMOTE_HOST: '10.0.0.1' };
@@ -66,9 +66,9 @@ describe('parseRemoteConfig', () => {
     expect(parseRemoteConfig(env, false, TLS_FILES).config).toMatchObject({ port: 9999, host: '10.0.0.1' });
   });
   it('HABBLAUD_REMOTE_ALLOW: lists, ignores unknown names, "none" = view only', () => {
-    expect([...parseAllow('messages, Terminal, bogus')]).toEqual(['messages', 'terminal']);
+    expect([...parseAllow('spawn, Terminal, bogus')]).toEqual(['spawn', 'terminal']);
     expect([...parseAllow('none')]).toEqual([]);
-    expect([...parseAllow('')]).toEqual(['permissions']);
+    expect([...parseAllow('')]).toEqual(['terminal']);
   });
 });
 
@@ -163,7 +163,6 @@ interface Harness {
   hub: Hub;
   remoteBase: string;
   localBase: string;
-  permissionCalls: string[];
   ptyCalls: string[];
   worldCalls: string[];
   spawn: SpawnService;
@@ -176,7 +175,7 @@ afterEach(async () => {
 });
 
 /** One local port (no login) and one remote (with login), over the SAME API, as in server/index.ts. */
-async function start(allow: RemoteFeature[] = ['permissions']): Promise<Harness> {
+async function start(allow: RemoteFeature[] = []): Promise<Harness> {
   const tmp = tempDir();
   const dir = join(tmp.dir, '.claude');
   mkdirSync(join(dir, 'sessions'), { recursive: true });
@@ -190,13 +189,8 @@ async function start(allow: RemoteFeature[] = ['permissions']): Promise<Harness>
     accountName: () => undefined,
   });
   const allowSet = new Set(allow);
-  // Mesma regra do server/index.ts.
-  const hub = new Hub(office, {
-    throttleMs: 10,
-    canAnswer: (req) => (isRemoteRequest(req) ? allowSet.has('permissions') : isLoopbackHost(req.headers.host)),
-  });
+  const hub = new Hub(office, { throttleMs: 10 });
   hub.start();
-  const permissionCalls: string[] = [];
   const ptyCalls: string[] = [];
   const worldCalls: string[] = [];
   const spawn = new SpawnService();
@@ -209,15 +203,6 @@ async function start(allow: RemoteFeature[] = ['permissions']): Promise<Harness>
     inDocker: true,
     terminal: true,
     spawn,
-    permissions: (req, res, path) => {
-      req.resume();
-      permissionCalls.push(`${isRemoteRequest(req) ? 'remote' : 'local'} ${req.method} ${path}`);
-      sendJson(res, 200, { ok: true });
-    },
-    messages: (req, res) => {
-      req.resume();
-      sendJson(res, 200, { ok: true });
-    },
     pty: (req, res, path) => {
       req.resume();
       ptyCalls.push(`${req.method} ${path}`);
@@ -261,7 +246,6 @@ async function start(allow: RemoteFeature[] = ['permissions']): Promise<Harness>
     hub,
     localBase: `http://127.0.0.1:${(local.address() as AddressInfo).port}`,
     remoteBase: `http://127.0.0.1:${(remote.address() as AddressInfo).port}`,
-    permissionCalls,
     ptyCalls,
     worldCalls,
     spawn,
@@ -305,8 +289,8 @@ async function login(base: string): Promise<string> {
 }
 
 describe('remote port', () => {
-  it('logged in: interactive terminal, hook/plugin routes, and helper never pass, even with local Host', async () => {
-    const s = await start(['permissions', 'messages', 'terminal', 'spawn']);
+  it('logged in: interactive terminal and helper routes never pass, even with local Host', async () => {
+    const s = await start(['terminal', 'spawn']);
     const cookie = await login(s.remoteBase);
     const headers = { Cookie: cookie, Host: 'localhost' };
     const blocked: Array<[string, string]> = [
@@ -314,32 +298,22 @@ describe('remote port', () => {
       ['POST', '/api/pty/x/input'],
       ['POST', '/api/agents/a1/stop'],
       ['POST', '/api/agents/a1/takeover'],
-      ['POST', '/api/permissions'],
-      ['GET', '/api/permissions/p1/wait'],
-      ['POST', '/api/mod/inbox'],
-      ['POST', '/api/mod/inbox/ack'],
-      ['POST', '/api/host/files/poll'],
       ['POST', '/api/host/spawn/poll'],
     ];
     for (const [method, path] of blocked) {
       const r = await request(s.remoteBase, path, { method, headers, ...(method === 'POST' ? { body: {} } : {}) });
       expect(r.status, `${method} ${path}`).toBe(403);
     }
-    expect(s.permissionCalls).toEqual([]);
     expect(s.ptyCalls).toEqual([]);
-    // What the phone uses continues to pass: request detail and decision.
-    expect((await request(s.remoteBase, '/api/permissions/p1', { headers })).status).toBe(200);
-    expect((await request(s.remoteBase, '/api/permissions/p1/decision', { method: 'POST', body: { behavior: 'allow' }, headers })).status).toBe(200);
     expect(JSON.parse((await request(s.remoteBase, '/api/health', { headers })).body).pty).toBe(false);
     // Office-wide effects: phone cannot trigger them.
     expect((await request(s.remoteBase, '/api/fun/party', { method: 'POST', body: { enabled: true }, headers })).status).toBe(403);
-    // On local port, hook and interactive terminal continue as before.
-    expect((await request(s.localBase, '/api/permissions', { method: 'POST', body: {} })).status).toBe(200);
+    // On local port, the interactive terminal continues as before.
     expect((await request(s.localBase, '/api/pty')).status).toBe(200);
   });
 
   it('Habblaud World: no routes through phone port, even logged in with everything allowed and Host mocking localhost', async () => {
-    const s = await start(['permissions', 'messages', 'terminal', 'spawn']);
+    const s = await start(['terminal', 'spawn']);
     const cookie = await login(s.remoteBase);
     const headers = { Cookie: cookie, Host: 'localhost' };
     const routes: Array<[string, string]> = [
@@ -384,13 +358,13 @@ describe('remote port', () => {
   });
 
   it('new agent: only with spawn enabled on phone; host helper never through remote port', async () => {
-    const s = await start(['permissions']);
+    const s = await start([]);
     const cookie = await login(s.remoteBase);
     const body = { folder: '/Users/voce/projeto', prompt: 'hi' };
     expect((await request(s.remoteBase, '/api/spawn', { method: 'POST', body, headers: { Cookie: cookie } })).status).toBe(403);
     expect(JSON.parse((await request(s.remoteBase, '/api/access', { headers: { Cookie: cookie } })).body).spawn).toBe(false);
 
-    const t = await start(['permissions', 'spawn']);
+    const t = await start(['spawn']);
     const c2 = await login(t.remoteBase);
     expect(JSON.parse((await request(t.remoteBase, '/api/access', { headers: { Cookie: c2 } })).body).spawn).toBe(true);
     // Without host helper running: 409 with reason.
@@ -445,9 +419,7 @@ describe('remote port', () => {
     expect(loginPage.headers['x-frame-options']).toBe('DENY');
     expect((await request(h.remoteBase, '/api/snapshot')).status).toBe(401);
     expect((await request(h.remoteBase, '/api/stream')).status).toBe(401);
-    const decision = await request(h.remoteBase, '/api/permissions/p1/decision', { method: 'POST', body: { behavior: 'allow' } });
-    expect(decision.status).toBe(401);
-    expect(h.permissionCalls).toEqual([]);
+    expect((await request(h.remoteBase, '/api/rooms/rename', { method: 'POST', body: { id: 'r', name: 'n' } })).status).toBe(401);
   });
 
   it('without login: only manifest and icons pass (the rest redirects to /login)', async () => {
@@ -472,18 +444,11 @@ describe('remote port', () => {
     expect((await request(h.remoteBase, '/login', { headers: { Cookie: cookie } })).headers.location).toBe('/');
   });
 
-  it('logged in: approves permissions (default) and health indicates allowed features on this port', async () => {
+  it('logged in: health indicates allowed features on this port', async () => {
     const h = await start();
     const cookie = await login(h.remoteBase);
     const health = JSON.parse((await request(h.remoteBase, '/api/health', { headers: { Cookie: cookie } })).body);
-    expect(health).toMatchObject({ remote: true, permissions: true, messages: false, terminal: false });
-    const decision = await request(h.remoteBase, '/api/permissions/p1/decision', {
-      method: 'POST',
-      headers: { Cookie: cookie },
-      body: { behavior: 'allow' },
-    });
-    expect(decision.status).toBe(200);
-    expect(h.permissionCalls).toEqual(['remote POST /api/permissions/p1/decision']);
+    expect(health).toMatchObject({ remote: true, terminal: false });
   });
 
   it('logged in with Host mocking localhost: still cannot access unallowed features', async () => {
@@ -491,7 +456,6 @@ describe('remote port', () => {
     const cookie = await login(h.remoteBase);
     const headers = { Cookie: cookie, Host: 'localhost' };
     for (const [path, body] of [
-      ['/api/messages', { agentId: 'x', text: 'hi' }],
       ['/api/rooms/rename', { id: 'r', name: 'n' }],
     ] as const) {
       const r = await request(h.remoteBase, path, { method: 'POST', headers, body });
@@ -502,14 +466,13 @@ describe('remote port', () => {
     expect((await request(h.remoteBase, '/api/sessions/recent', { headers })).status).toBe(403);
   });
 
-  it('HABBLAUD_REMOTE_ALLOW=messages enables messages and "none" removes even permissions', async () => {
-    const withMessages = await start(['messages']);
-    const c1 = await login(withMessages.remoteBase);
-    expect((await request(withMessages.remoteBase, '/api/messages', { method: 'POST', headers: { Cookie: c1 }, body: {} })).status).toBe(200);
-    expect((await request(withMessages.remoteBase, '/api/permissions/p1/decision', { method: 'POST', headers: { Cookie: c1 }, body: {} })).status).toBe(403);
+  it('HABBLAUD_REMOTE_ALLOW=spawn enables spawn and "none" leaves the phone view-only', async () => {
+    const withSpawn = await start(['spawn']);
+    const c1 = await login(withSpawn.remoteBase);
+    expect(JSON.parse((await request(withSpawn.remoteBase, '/api/access', { headers: { Cookie: c1 } })).body).spawn).toBe(true);
     const viewOnly = await start([]);
     const c2 = await login(viewOnly.remoteBase);
-    expect((await request(viewOnly.remoteBase, '/api/permissions/p1/decision', { method: 'POST', headers: { Cookie: c2 }, body: {} })).status).toBe(403);
+    expect((await request(viewOnly.remoteBase, '/api/spawn', { method: 'POST', headers: { Cookie: c2 }, body: {} })).status).toBe(403);
     expect((await request(viewOnly.remoteBase, '/api/snapshot', { headers: { Cookie: c2 } })).status).toBe(200);
   });
 
@@ -523,72 +486,30 @@ describe('remote port', () => {
 describe('local port (unaltered)', () => {
   it('without login, local Host lock applies as before', async () => {
     const h = await start();
-    const ok = await request(h.localBase, '/api/permissions/p1/decision', { method: 'POST', body: { behavior: 'allow' } });
-    expect(ok.status).toBe(200);
-    const lanHost = await request(h.localBase, '/api/permissions/p1/decision', {
-      method: 'POST',
-      headers: { Host: '192.168.1.5:4747' },
-      body: { behavior: 'allow' },
-    });
+    const spawnBody = { folder: 'relative', prompt: '' };
+    expect((await request(h.localBase, '/api/spawn', { method: 'POST', body: spawnBody })).status).toBe(400);
+    const lanHost = await request(h.localBase, '/api/spawn', { method: 'POST', headers: { Host: '192.168.1.5:4747' }, body: spawnBody });
     expect(lanHost.status).toBe(403);
     expect(JSON.parse(lanHost.body).error).toMatch(/computer running Habblaud/);
-    expect(h.permissionCalls).toEqual(['local POST /api/permissions/p1/decision']);
     const health = JSON.parse((await request(h.localBase, '/api/health')).body);
-    expect(health).toMatchObject({ remote: false, permissions: true, messages: true });
-  });
-});
-
-/** Opens stream (SSE) and waits for first chunk; returns close handle. */
-function openStream(base: string, headers: Record<string, string>): Promise<{ status: number; close: () => void }> {
-  return new Promise((ok, fail) => {
-    const req = http.request(new URL('/api/stream', base), { headers }, (res) => {
-      res.once('data', () => ok({ status: res.statusCode ?? 0, close: () => req.destroy() }));
-      if (res.statusCode !== 200) ok({ status: res.statusCode ?? 0, close: () => req.destroy() });
-    });
-    req.on('error', fail);
-    req.end();
-  });
-}
-
-describe('who can respond (hook only waits if there is a responsive page)', () => {
-  it('logged-in phone with permissions counts as responsive page', async () => {
-    const h = await start(['permissions']);
-    const cookie = await login(h.remoteBase);
-    expect(h.hub.localSize).toBe(0);
-    const s = await openStream(h.remoteBase, { Cookie: cookie });
-    expect(s.status).toBe(200);
-    expect(h.hub.localSize).toBe(1);
-    s.close();
-  });
-
-  it('view-only phone does not count, even mocking local Host', async () => {
-    const h = await start([]);
-    const cookie = await login(h.remoteBase);
-    const s = await openStream(h.remoteBase, { Cookie: cookie, Host: 'localhost' });
-    expect(s.status).toBe(200);
-    expect(h.hub.localSize).toBe(0);
-    s.close();
+    expect(health).toMatchObject({ remote: false });
   });
 });
 
 describe('GET /api/access (what the page can do)', () => {
   it('remote port: allowed only; local port: everything via local Host; network Host on local: nothing', async () => {
-    const h = await start(['permissions']);
+    const h = await start([]);
     const cookie = await login(h.remoteBase);
     expect(JSON.parse((await request(h.remoteBase, '/api/access', { headers: { Cookie: cookie, Host: 'localhost' } })).body)).toEqual({
       remote: true,
       local: false,
-      permissions: true,
-      messages: false,
       terminal: false,
       spawn: false,
       world: false,
     });
-    expect(JSON.parse((await request(h.localBase, '/api/access')).body)).toEqual({ remote: false, local: true, permissions: true, messages: true, terminal: false, spawn: true, world: true });
+    expect(JSON.parse((await request(h.localBase, '/api/access')).body)).toEqual({ remote: false, local: true, terminal: false, spawn: true, world: true });
     expect(JSON.parse((await request(h.localBase, '/api/access', { headers: { Host: '192.168.1.5:4747' } })).body)).toMatchObject({
       local: false,
-      permissions: false,
-      messages: false,
       spawn: false,
       world: false,
     });

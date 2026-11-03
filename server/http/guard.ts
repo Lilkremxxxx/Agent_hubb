@@ -48,7 +48,7 @@ function isLoopbackName(name: string): boolean {
 
 /**
  * Local Host header (`localhost`, `*.localhost`, 127.x, or `[::1]`; port ignored)? Used by terminal,
- * permissions, and messages, which only serve requests opened from the computer itself: a LAN IP or a name
+ * and spawn, which only serve requests opened from the computer itself: a LAN IP or a name
  * from HABBLAUD_ALLOWED_HOSTS (proxy, tunnel) is not accepted. Missing or invalid: false.
  */
 export function isLoopbackHost(host: string | undefined): boolean {

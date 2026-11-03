@@ -30,16 +30,6 @@ export function bossPlan(snap: PlanSnap | null | undefined, office?: OfficeInfo)
   return any && roomTodo(any);
 }
 
-/** Who works through the to-do list of the office shown. */
-export function todoBoss(snap: Pick<OfficeSnapshot, 'agents' | 'team'> | null | undefined, office: OfficeInfo | undefined): AgentInfo | undefined {
-  return office ? officeBoss(snap, office) : snap?.agents.find((a) => a.boss);
-}
-
-/** The message "Continue the to-do" sends to the boss: a new item in the file does not wake it. */
-export function continueTodoRequest(): string {
-  return tr('Continue the to-do list in the HANDOFF file of this office: read it again, do the next open item, and mark it done when it is finished.');
-}
-
 /** The jobs of the office shown: a job from anywhere else (another session or folder, no office) is not its business. */
 export function officeItems<T extends Pick<JobBoardItem, 'office'>>(items: readonly T[], office: OfficeInfo | undefined): T[] {
   return items.filter((it) => jobInOffice(it, office));

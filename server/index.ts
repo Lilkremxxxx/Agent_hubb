@@ -8,9 +8,9 @@ import { isAbsolute, join } from 'node:path';
 import type { PtyInfo } from '../shared/types';
 import { isDefaultDir } from './accounts/detect';
 import { AccountsService } from './accounts/service';
-import { isTruthy, loadConfig, messagesOffReason, terminalOffReason, worldSocketUrl } from './config';
+import { isTruthy, loadConfig, terminalOffReason, worldSocketUrl } from './config';
 import { createApiHandler, sendJson } from './http/app';
-import { createRequestGuard, isLoopbackHost } from './http/guard';
+import { createRequestGuard } from './http/guard';
 import { createRemoteGate, isRemoteRequest, loadSecret, RemoteSessions, startRemoteListener, type RemoteListener } from './http/remote';
 import { Hub } from './http/sse';
 import { createStaticHandler } from './http/static';
@@ -25,10 +25,6 @@ import { claudeBinFrom, isExecutableFile, loadPty, PtyManager, type ScreenFactor
 import { loadHeadlessScreen } from './pty/screen';
 import { openMainAgent, SessionHistory } from './sources/history';
 import { HistorySet, SourceSet } from './sources/source';
-import { createPermissionRoutes } from './permissions/http';
-import { PermissionRegistry } from './permissions/registry';
-import { createMessageRoutes } from './messages/http';
-import { MessageRegistry } from './messages/registry';
 import { ClaudeWatcher } from './sources/watcher';
 import { AgySource, type AgySeat } from './sources/agy/source';
 import { CLAUDE_WORKER, seatSuffix, TeamService, workerAgentId } from './team';
@@ -45,10 +41,6 @@ import { createCliRunner, createOpener, SpawnService } from './spawn/spawn';
 import { runnableClaudeBin } from './claude-bin';
 import { AttachmentStore } from './spawn/attachments';
 import { recentFolders } from './spawn/folders';
-import { DictationService } from './dictation/dictation';
-import { createWhisperTranscriber, findWhisper } from './dictation/whisper';
-import { DeliveryIndex } from './deliveries/deliveries';
-import { FileFetcher } from './deliveries/fetcher';
 import { WorldClient } from './world/client';
 import { createWorldRoutes } from './world/http';
 import { WorldService } from './world/service';
@@ -67,7 +59,7 @@ const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
 
 // Office, accounts, and agent sources reference each other (change notifications / sources): late binding.
-const late: { office?: Office; agents?: SourceSet; permissions?: PermissionRegistry; messages?: MessageRegistry; ptys?: PtyManager; ptyOff?: string; workers?: WorkerService } = {};
+const late: { office?: Office; agents?: SourceSet; ptys?: PtyManager; ptyOff?: string; workers?: WorkerService } = {};
 // Habblaud World (server/world/): account and character on this computer. Enabled by default (server.habblaud.com, or
 // HABBLAUD_WORLD_URL); nothing leaves the computer before the user creates an account and signs in. HABBLAUD_WORLD=0
 // hides everything (404 routes and nothing in the UI); a rejected HABBLAUD_WORLD_URL keeps the feature disabled.
@@ -102,8 +94,6 @@ const office = new Office({
   sources: () => late.agents?.sources() ?? [],
   accountName: (id) => accounts.find(id)?.detected.name,
   terminal: config.terminal,
-  permissions: () => late.permissions?.snapshot() ?? new Map(),
-  messages: config.messages ? () => late.messages?.reachable() ?? new Set() : undefined,
   ptys: () => (late.ptys ? { status: late.ptys.status(), list: late.ptys.list() } : { status: { enabled: false, reason: late.ptyOff ?? tr('off') }, list: [] }),
   world: () => world?.meta() ?? { enabled: false, configured: false, state: 'off' },
 });
@@ -177,10 +167,7 @@ function agySeats(): AgySeat[] {
 team.start();
 late.office = office;
 late.agents = agents;
-// Page that can answer on behalf of the office: local Host on local port; on remote, only with permissions allowed.
-const hub = new Hub(office, {
-  canAnswer: (req) => (isRemoteRequest(req) ? !!config.remote?.allow.has('permissions') : isLoopbackHost(req.headers.host)),
-});
+const hub = new Hub(office);
 // Building in Habblaud World (world/uplink.ts): only with accepted world server. Connects automatically with approved
 // account, created character, terminal lock, and without pause; packet comes only from projection
 // (shared/world/projection.ts).
@@ -225,69 +212,18 @@ const terminals = config.terminal
 const history = config.terminal
   ? new HistorySet([new SessionHistory({ accounts: () => accounts.entries(), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) })])
   : undefined;
-// Deliveries: the end of each prompt, read from history transcripts (same lock as terminal). Delivered files
-// are read here (Node, or account directory mounted in Docker) or by the host helper.
-const deliveries = history
-  ? new DeliveryIndex({
-      sessions: () => history.list(),
-      resolve: (account, sessionId) => {
-        const r = history.resolve(account, sessionId);
-        return 'path' in r ? r : undefined;
-      },
-      isBusy: (id) => {
-        const st = office.list().find((a) => a.id === id)?.status;
-        return st === 'working' || st === 'waiting' || st === 'shell';
-      },
-      agentName: (id) => office.list().find((a) => a.id === id)?.name,
-    })
-  : undefined;
-const deliveryFiles = deliveries
-  ? new FileFetcher({
-      direct: !config.inDocker,
-      mapHostPath: (p) => {
-        for (const e of accounts.entries()) {
-          const host = e.detected.configDir.replace(/\/+$/, '');
-          if (host && p.startsWith(`${host}/`)) return `${e.dir.replace(/\/+$/, '')}${p.slice(host.length)}`;
-        }
-        return undefined;
-      },
-    })
-  : undefined;
-// Reply from the office (PermissionRequest hook): acts on sessions, so follows the same lock.
-const permissions = config.terminal
-  ? new PermissionRegistry({
-      office,
-      viewers: () => hub.localSize,
-      answerLater: () => !!config.remote?.allow.has('permissions'),
-      // Claude Code only: searching for the response given in the terminal reads its transcript format.
-      transcriptPathOf: (id) => claude.transcriptPathOf(id),
-    })
-  : undefined;
-late.permissions = permissions;
-// Messages from the office (plugin habblaud-mensagens): enter the session as if you typed them, so they
-// follow the same lock (and HABBLAUD_MENSAGENS=0 disables only them).
 // Interactive terminal and New agent: both run Claude Code on this computer, so require the same opt-in,
 // HABBLAUD_PTY=1 (accepts the same values as HABBLAUD_TERMINAL).
 const ptyFlag = process.env.HABBLAUD_PTY?.trim();
 const ptyOptIn = isTruthy(ptyFlag);
 // New agent from the office (Claude Code background session, or pre-filled Claude app screen): the
-// opt-in above plus the messages lock.
-const spawnOn = config.messages && ptyOptIn;
+// opt-in above plus the terminal lock.
+const spawnOn = config.terminal && ptyOptIn;
 const attachments = spawnOn ? new AttachmentStore() : undefined;
 const spawnBin = config.inDocker ? undefined : runnableClaudeBin(process.env);
 const spawn = spawnOn
   ? new SpawnService(config.inDocker ? { attachments } : { opener: createOpener(), cli: spawnBin ? createCliRunner(spawnBin) : undefined, attachments })
   : undefined;
-// Dictation: in Docker transcribed by the host helper; in Node, by the server if local Whisper is found.
-const whisper = config.messages && !config.inDocker ? findWhisper() : undefined;
-const dictation = config.messages
-  ? new DictationService(whisper && !('missing' in whisper) ? { transcriber: createWhisperTranscriber(whisper) } : {})
-  : undefined;
-const messages = config.messages
-  ? new MessageRegistry({ office })
-  : undefined;
-late.messages = messages;
-
 // Interactive terminal (open/take over sessions and stop agents): opt-in with HABBLAUD_PTY=1, local bind only,
 // outside Docker, with node-pty and claude executable in PATH.
 const claudeBinSetting = process.env.HABBLAUD_CLAUDE_BIN?.trim();
@@ -417,8 +353,6 @@ void agents.start();
 accounts.start();
 board.start();
 hub.start();
-permissions?.start();
-messages?.start();
 worldUplink?.start();
 // Hung workers: a faint ghost on the seat; nothing is stopped.
 const ghosts = new GhostWatch({
@@ -493,8 +427,6 @@ const api = createApiHandler({
   terminal: config.terminal,
   terminals,
   sessions: history,
-  permissions: permissions ? createPermissionRoutes(permissions) : undefined,
-  messages: messages ? createMessageRoutes(messages) : undefined,
   pty: ptys ? createPtyRoutes(ptys) : undefined,
   accountsApi: ptys
     ? createAccountsRoutes({
@@ -510,9 +442,6 @@ const api = createApiHandler({
     : undefined,
   spawn,
   attachments,
-  dictation,
-  deliveries,
-  files: deliveryFiles,
   spawnFolders: async () => {
     const snap = hub.current();
     const last = new Map<string, number>();
@@ -629,18 +558,12 @@ server.listen(config.port, config.host, () => {
   log.info(ptys ? tr('   Interactive terminal: on ({0}).', [claudeBin]) : tr('   Interactive terminal: {0}.', [ptyOff ?? tr('off')]));
   log.info(
     !spawn
-      ? tr('   New agent: off ({0}).', [!ptyOptIn ? tr('turn it on with HABBLAUD_PTY=1') : tr('same lock as messages')])
+      ? tr('   New agent: off ({0}).', [!ptyOptIn ? tr('turn it on with HABBLAUD_PTY=1') : tr('same lock as the terminal')])
       : config.inDocker
         ? tr('   New agent: on, via the host helper.')
         : spawnBin
           ? tr('   New agent: on ({0} --bg; a folder not yet trusted opens in the Claude app).', [spawnBin])
           : tr('   New agent: on, only via the Claude app (claude not found in PATH).'),
-  );
-  log.info(tr('   Reply from the office: {0}.', [config.terminal ? tr('on (needs the mod: npm run mod:install; or the old hook: npm run hooks:install)') : tr('off (same lock as the terminal)')]));
-  log.info(
-    config.messages
-      ? tr('   Messages from the office: on (needs the habblaud-mensagens plugin: npm run mod:install).')
-      : tr('   Messages from the office: off ({0}).', [messagesOffReason(process.env, config.host, config.inDocker)]),
   );
   if (config.world.warning) log.warn(`   ${config.world.warning}.`);
   log.info(
@@ -669,8 +592,6 @@ function shutdown(signal: string): void {
   ghosts.stop();
   hub.stop();
   terminals?.stop();
-  permissions?.stop();
-  messages?.stop();
   ptys?.stopAll();
   worldViewer?.stop();
   worldUplink?.stop();

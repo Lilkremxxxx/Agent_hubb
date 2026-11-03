@@ -4,31 +4,25 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { OfficeSnapshot } from '../../shared/types';
 import type { Office } from '../model/office';
-import { isLoopbackHost } from './guard';
 
 /** Overly slow client (buffer accumulated above this) is disconnected; EventSource reconnects. */
 const MAX_BUFFERED = 8 * 1024 * 1024;
 
 export class Hub {
   private clients = new Set<ServerResponse>();
-  /** Clients that opened the page via local Host (only ones allowed to answer permission requests). */
-  private local = new WeakSet<ServerResponse>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private pinger: ReturnType<typeof setInterval> | null = null;
   private lastFlush = 0;
   private unsubscribe: (() => void) | null = null;
   private readonly throttleMs: number;
   private readonly pingMs: number;
-  /** Who can answer for the office; default: local Host. Remote port (http/remote.ts) overrides rule. */
-  private readonly canAnswer: (req: IncomingMessage) => boolean;
 
   constructor(
     private readonly office: Office,
-    opts: { throttleMs?: number; pingMs?: number; canAnswer?: (req: IncomingMessage) => boolean } = {},
+    opts: { throttleMs?: number; pingMs?: number } = {},
   ) {
     this.throttleMs = opts.throttleMs ?? 200;
     this.pingMs = opts.pingMs ?? 15_000;
-    this.canAnswer = opts.canAnswer ?? ((req) => isLoopbackHost(req.headers.host));
   }
 
   start(): void {
@@ -52,13 +46,6 @@ export class Hub {
     return this.clients.size;
   }
 
-  /** Pages connected via local Host (localhost/127.x): who can answer for the office. */
-  get localSize(): number {
-    let n = 0;
-    for (const c of this.clients) if (this.local.has(c) && !c.destroyed && !c.writableEnded) n++;
-    return n;
-  }
-
   /** Connects a client: full snapshot + last 50 feed items, then live stream. */
   attach(req: IncomingMessage, res: ServerResponse): void {
     req.socket.setTimeout(0);
@@ -74,7 +61,6 @@ export class Hub {
     res.write(frame('snapshot', snapshot));
     res.write(frame('feed', this.office.recentFeed(50)));
     this.clients.add(res);
-    if (this.canAnswer(req)) this.local.add(res);
     const drop = () => this.clients.delete(res);
     req.on('close', drop);
     res.on('close', drop);

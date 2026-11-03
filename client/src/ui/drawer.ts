@@ -4,9 +4,7 @@ import { roomTheme } from '../art';
 import { createAvatarPlaceholder, updateAvatar } from './avatar';
 import { CharacterEditor } from './character-editor';
 import { AgyDefaultsPanel, AgyPanel, WorkerTerminalPanel } from './agy-panel';
-import { SessionControls } from './session-controls';
 import { AgyProgressView } from './agy-progress';
-import { MessageComposer } from './composer';
 import type { UiComponent, UiContext } from './context';
 import { copyText, h, iconButton, KeyedList, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import {
@@ -41,7 +39,6 @@ import {
   visibleShells,
 } from './model';
 import { access } from '../net/access';
-import { PermissionCard } from './permission';
 import { canRenameRoom } from './roomrename';
 import { sessionOfAgent, setWorker, workerOfAgent } from './workers-api';
 import { bossOfficeOf, officeForWorker, teamOffices } from './offices';
@@ -70,19 +67,6 @@ const TIMELINE_STEP = 15;
 const ROOM_FEED_LIMIT = 15;
 
 // ---------------------------------------------------------------- components
-
-/**
- * Quick orders for the boss: [button label, text sent to input]. Claude receives it as if typed
- * and uses agy-ask / claude-ask (skill agy-orchestrator) to command workers.
- */
-function bossOrders(): Array<[string, string]> {
-  return [
-    [tr('📋 Distribute'), tr('Split this task among the free workers (agy-ask / claude-ask with --role, in parallel) and bring me a summary: ')],
-    [tr('📊 Report'), tr('Workers report: what each one is doing, what finished, and how much quota is left (agy /usage for Antigravity workers).')],
-    [tr('🔍 Review'), tr('Ask a free worker (--role review, --mode plan) to review the last delivered job, and check the serious findings yourself.')],
-    [tr('🛑 Stop all'), tr('Stop every running worker job and tell me what was interrupted.')],
-  ];
-}
 
 function section(title: string, ...children: (Node | null)[]): { el: HTMLElement; title: HTMLElement; extra: HTMLElement } {
   const t = h('h3', { class: 'ui-sec__title', text: title });
@@ -243,16 +227,9 @@ class AgentView {
   private workerTermSec: ReturnType<typeof section>;
   private alert: HTMLElement;
   private alertText: HTMLElement;
-  /**
-   * Pending AskUserQuestion questions and options, read-only: with request in office (permission
-   * hook), the answer card appears instead of the alert.
-   */
+  /** Pending AskUserQuestion questions and options, read-only. */
   private alertQuestions: HTMLElement;
   private alertQuestionsKey = '';
-  /** Hint on how to answer questions from here (permissions plugin). */
-  private alertAnswerHint: HTMLElement;
-  /** Permission request (or question) to answer from here (replaces generic alert while active). */
-  private perm: PermissionCard;
   private shellBox: HTMLElement;
   private shellText: HTMLElement;
   private shellMood: HTMLElement;
@@ -264,18 +241,11 @@ class AgentView {
   private actTime: HTMLElement;
   private actDetails: HTMLDetailsElement;
   private actDetail: HTMLElement;
-  /** Send message to main agent via Habblaud (habblaud-mensagens plugin). */
-  private composer: MessageComposer;
-  private msgSec: ReturnType<typeof section>;
   /** Antigravity worker in manual mode: "Send a job" (ui/agy-panel.ts). */
   private agyPanel: AgyPanel;
   /** Antigravity worker: mode and effort for jobs that do not say (every worker, local only). */
   private agyDefaults: AgyDefaultsPanel;
   private agyDefaultsSec: ReturnType<typeof section>;
-  /** Claude Code session: model, effort and plan mode from the office (ui/session-controls.ts). */
-  private sessionCtl: SessionControls;
-  private sessionSec: ReturnType<typeof section>;
-  private orders: HTMLElement;
   private agySec: ReturnType<typeof section>;
   private agyProgress = new AgyProgressView();
   private agyProgressSec: ReturnType<typeof section>;
@@ -377,14 +347,13 @@ class AgentView {
 
     this.alertText = h('p', { class: 'ui-alert__text' });
     this.alertQuestions = h('div', { class: 'ui-ask', hidden: true });
-    this.alertAnswerHint = h('p', { class: 'ui-ask__answer-hint', hidden: true, text: tr('With the habblaud-permissoes plugin (npm run mod:install), you can answer questions from here.') });
     const alertIcon = h('span', { class: 'ui-alert__icon', attrs: { 'aria-hidden': 'true' } });
     alertIcon.innerHTML = ICONS.hand;
     this.alert = h(
       'div',
       { class: 'ui-alert', role: 'alert', hidden: true },
       alertIcon,
-      h('div', {}, h('strong', { class: 'ui-alert__title', text: tr('Needs you') }), this.alertText, this.alertQuestions, this.alertAnswerHint),
+      h('div', {}, h('strong', { class: 'ui-alert__title', text: tr('Needs you') }), this.alertText, this.alertQuestions),
     );
 
     // Waiting on shell: status box (with office waiting stage) and list of running commands.
@@ -409,35 +378,18 @@ class AgentView {
     this.actDetail = h('pre', { class: 'ui-mono' });
     this.actDetails = h('details', { class: 'ui-now__details' }, h('summary', { text: tr('Details') }), this.actDetail);
     const nowSec = section(tr('Now'), h('div', { class: 'ui-now' }, this.actIcon, h('div', { class: 'ui-now__body' }, this.actText, this.actTime)), this.actDetails);
-    this.composer = new MessageComposer(ctx, 'drawer');
-    // Quick orders for boss (Claude commanding Antigravity workers): prefill input with command.
-    this.orders = h(
-      'div',
-      { class: 'ui-boss-orders', hidden: true },
-      ...bossOrders().map(([label, text]) =>
-        h('button', { class: 'ui-btn ui-boss-orders__btn', type: 'button', text: label, title: text, on: { click: () => this.composer.prefill(text) } }),
-      ),
-    );
-    this.msgSec = section(tr('Send message'), this.orders, this.composer.el);
     this.agyPanel = new AgyPanel(ctx);
     this.agySec = section(tr('Send a job'), this.agyPanel.el);
     this.agyDefaults = new AgyDefaultsPanel(ctx);
     this.workerTerm = new WorkerTerminalPanel(ctx);
     this.workerTermSec = section(tr('🖥 Terminal'), this.workerTerm.el);
     this.agyDefaultsSec = section(tr('Defaults for jobs'), this.agyDefaults.el);
-    this.sessionCtl = new SessionControls(ctx);
-    this.sessionSec = section(tr('Model and effort'), this.sessionCtl.el);
     this.agyProgressSec = section(tr('Level'), this.agyProgress.el);
     // "hold Alt" notes (ui/hints.ts) on the section titles
-    this.msgSec.title.dataset.hint = tr('Types a message into this session, as if you wrote it in its terminal');
     this.agySec.title.dataset.hint = tr('Gives this worker a job, like the boss does with agy-ask / claude-ask');
     this.agyDefaultsSec.title.dataset.hint = tr("Mode and effort this worker uses when a job doesn't say");
-    this.sessionSec.title.dataset.hint = tr('Model and effort for this session only, from its next answer; new sessions keep your defaults');
     this.agyProgressSec.title.dataset.hint = tr("This worker's level, XP and badges, earned from finished jobs");
-    // On mobile, the box stays pinned to drawer footer while scrolling (styles.css, .ui-sec--msg).
-    this.msgSec.el.classList.add('ui-sec--msg');
     this.social = new SocialSection(ctx);
-    this.perm = new PermissionCard(ctx);
 
     this.tasksBar = createProgress(tr('Task progress'));
     const tasksList = h('ul', { class: 'ui-tasks' });
@@ -491,7 +443,6 @@ class AgentView {
       this.termBtn,
       this.termWhy,
       this.alert,
-      this.perm.el,
       this.shellBox,
       this.shellsSec.el,
       nowSec.el,
@@ -499,8 +450,6 @@ class AgentView {
       this.agyDefaultsSec.el,
       this.agySec.el,
       this.agyProgressSec.el,
-      this.sessionSec.el,
-      this.msgSec.el,
       this.social.el,
       this.tasksSec.el,
       this.teamSec.el,
@@ -720,8 +669,7 @@ class AgentView {
 
     // Alert.
     const waiting = a.status === 'waiting' && !!live;
-    this.perm.render(live);
-    setHidden(this.alert, !waiting || this.perm.visible);
+    setHidden(this.alert, !waiting);
     if (waiting) {
       const accName = account?.name ?? a.account;
       const where = tr('the {0} terminal', [accName]);
@@ -730,9 +678,6 @@ class AgentView {
     // AskUserQuestion questions (read-only).
     const asking = waiting && a.activity?.kind === 'ask' ? a.activity : undefined;
     this.renderQuestions(asking);
-    // Without request in office: can answer from here with plugin (local-only check, like the card).
-    const answerable = !!asking?.questions?.length && !this.perm.visible && !!this.ctx.store.snapshot?.meta.terminal && access().permissions;
-    setHidden(this.alertAnswerHint, !answerable);
 
     // Waiting on shell.
     setHidden(this.shellBox, !wait);
@@ -762,17 +707,6 @@ class AgentView {
     const detail = act?.detail ?? '';
     setHidden(this.actDetails, !detail);
     setText(this.actDetail, detail);
-
-    // Send message: only for present main agents (feature enabled and local page; without plugin, hint).
-    // (a worker takes jobs, not messages)
-    const composer = agy || workerSession ? 'off' : this.composer.render(live, this.id);
-    setHidden(this.msgSec.el, composer === 'off');
-    setText(this.msgSec.title, a.boss ? tr('Orders for the boss') : tr('Send message'));
-    setHidden(this.orders, !a.boss || !live || composer !== 'ready');
-    // Model, effort and plan mode: Claude Code sessions whose plugin is connected (same lock as messages).
-    const controls = composer === 'ready' && (a.provider ?? 'claude') === 'claude';
-    setHidden(this.sessionSec.el, !controls);
-    if (controls) this.sessionCtl.render(a);
 
     // Social life (personality, wallet, circles): only for agents currently in the office.
     if (live) this.social.render(a.id, now);

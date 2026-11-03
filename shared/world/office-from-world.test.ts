@@ -91,7 +91,6 @@ describe('officeFromBuilding', () => {
       startedAt: T0,
       version: '0.12.0',
       terminal: false,
-      messages: false,
       world: { enabled: true, configured: true, state: 'approved' },
     });
     expect(s.ptys).toBeUndefined();

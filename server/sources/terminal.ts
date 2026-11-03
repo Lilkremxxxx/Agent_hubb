@@ -277,7 +277,6 @@ function questionsText(raw: unknown): string {
 
 /**
  * Title and arguments of a tool call, in Claude Code style: "Bash(npm test)".
- * Also used by permission requests (server/permissions/).
  */
 export function toolView(name: string, input: Rec, cwd?: string): ToolView {
   const s = (k: string) => str(input[k]);

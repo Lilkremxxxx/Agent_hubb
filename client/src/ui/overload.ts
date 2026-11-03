@@ -1,7 +1,6 @@
 // "Boss overloaded" (toolbar button, shortcut H): Claude Code sessions whose context is getting full or that were
 // compacted (shared/overload.ts), the boss first. Long sessions get slow and forgetful, so the dialog suggests the
-// usual way out: ask the session to update the project's handoff file (through habblaud-mensagens, when the session
-// takes messages), then open a new session in the same folder, which reads the handoff and carries on.
+// usual way out: open a new session in the same folder.
 import type { AgentInfo, OfficeInfo, OfficeSnapshot } from '../../../shared/types';
 import { sessionLoad, type LoadLevel, type LoadThresholds, type SessionLoad } from '../../../shared/overload';
 import type { TerminalRouter, UiContext } from './context';
@@ -42,21 +41,12 @@ export function risenLoads(sessions: readonly LoadedSession[], told: Map<string,
   return risen;
 }
 
-/** The text sent to the session when you ask for a handoff. */
-export function handoffRequest(): string {
-  return tr(
-    'Your context is getting long. Update the handoff file of this project (HANDOFF*.md; create it if there is none): what is done, what is in progress, the next steps and anything a new session must know. Then tell me it is ready, and I will continue in a new session.',
-  );
-}
-
 export class OverloadDialog {
   readonly el: HTMLDialogElement;
   readonly button: HTMLButtonElement;
   private readonly list: HTMLElement;
-  private readonly status: HTMLElement;
   private titleEl!: HTMLElement;
   private sig = '';
-  private sent = new Set<string>();
   /** Bosses you were warned about, and at what level. */
   private readonly told = new Map<string, LoadLevel>();
 
@@ -68,7 +58,6 @@ export class OverloadDialog {
     this.button.hidden = true;
     const close = iconButton(ICONS.close, tr('Close (Esc)'), () => this.close(), 'ui-icon-btn--sm');
     this.list = h('ol', { class: 'ui-overload__list' });
-    this.status = h('p', { class: 'ui-overload__status ui-muted', role: 'status' });
     this.el = h(
       'dialog',
       { class: 'ui-dialog ui-overload', attrs: { 'aria-labelledby': 'ui-overload-title' } },
@@ -76,9 +65,8 @@ export class OverloadDialog {
       h(
         'div',
         { class: 'ui-overload__body' },
-        h('p', { text: tr('These sessions have a long context or were compacted: they get slower and forget earlier details. The usual way out: ask for a handoff, then continue in a new session in the same folder.') }),
+        h('p', { text: tr('These sessions have a long context or were compacted: they get slower and forget earlier details. The usual way out: continue in a new session in the same folder.') }),
         this.list,
-        this.status,
       ),
     ) as HTMLDialogElement;
     this.el.addEventListener('click', (e) => {
@@ -99,7 +87,6 @@ export class OverloadDialog {
 
   open(): void {
     this.sig = '';
-    setText(this.status, '');
     this.render();
     if (!this.el.open) this.el.showModal();
   }
@@ -158,7 +145,7 @@ export class OverloadDialog {
     const office = this.ctx.selectedOffice();
     setText(this.titleEl, office && teamOffices(this.ctx.store.snapshot?.team).length > 1 ? tr('🥵 Boss overloaded · {0}', [office.name]) : tr('🥵 Boss overloaded'));
     const now = this.ctx.now();
-    const sig = JSON.stringify([sessions.map((s) => [s.agent.id, s.agent.name, s.agent.canMessage, s.load]), [...this.sent], Math.floor(now / 60_000)]);
+    const sig = JSON.stringify([sessions.map((s) => [s.agent.id, s.agent.name, s.load]), Math.floor(now / 60_000)]);
     if (sig === this.sig) return;
     this.sig = sig;
     const term = this.ctx.terminals;
@@ -167,16 +154,6 @@ export class OverloadDialog {
       ...sessions.map(({ agent, load }) => {
         const room = this.ctx.store.snapshot?.rooms.find((r) => r.id === agent.roomId);
         const facts = [...this.facts(load), tr('open for {0}', [formatDuration(now - agent.startedAt)])];
-        const asked = this.sent.has(agent.id);
-        const ask = h('button', {
-          class: 'ui-btn',
-          type: 'button',
-          text: asked ? tr('✓ Handoff requested') : tr('✍️ Ask for a handoff'),
-          attrs: { 'data-hint': tr('Asks this session to write down its progress in the HANDOFF file, so a new session can carry on.') },
-          title: agent.canMessage ? handoffRequest() : tr('This session does not take messages from the office (habblaud-mensagens plugin).'),
-          on: { click: () => void this.askHandoff(agent) },
-        });
-        ask.disabled = asked || !agent.canMessage;
         const fresh = h('button', {
           class: 'ui-btn',
           type: 'button',
@@ -192,7 +169,7 @@ export class OverloadDialog {
           { class: `ui-overload__item is-${load.level}` },
           h('div', { class: 'ui-overload__who' }, h('strong', { text: `${agent.boss ? '👑 ' : ''}${agent.name}` }), h('span', { class: 'ui-muted', text: room?.name ?? '' })),
           h('p', { class: 'ui-overload__facts', text: `${load.level === 'overloaded' ? tr('Overloaded') : tr('Tired')} · ${facts.join(' · ')}` }),
-          h('div', { class: 'ui-overload__actions' }, ask, fresh),
+          h('div', { class: 'ui-overload__actions' }, fresh),
         );
       }),
     );
@@ -201,23 +178,6 @@ export class OverloadDialog {
   private newSession(term: TerminalRouter, cwd: string, account: string): void {
     this.close();
     term.newSession(cwd, account).catch((err: Error) => this.ctx.announce(tr("Didn't work: {0}", [err.message])));
-  }
-
-  private async askHandoff(agent: AgentInfo): Promise<void> {
-    setText(this.status, tr('Sending…'));
-    try {
-      const r = await this.ctx.store.sendMessage(agent.id, handoffRequest());
-      if ('error' in r) {
-        setText(this.status, tr('Not sent: {0}', [r.error]));
-        return;
-      }
-      this.sent.add(agent.id);
-      setText(this.status, tr('Sent to {0}. When the handoff is ready, open a new session in the same folder.', [agent.name]));
-      this.sig = '';
-      this.render();
-    } catch {
-      setText(this.status, tr('Not sent: no connection to Habblaud.'));
-    }
   }
 
   private renderButton(sessions: LoadedSession[]): void {

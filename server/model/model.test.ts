@@ -450,25 +450,6 @@ describe('Office', () => {
     expect(new Office({ ...deps, terminal: true }).commit().snapshot.meta.terminal).toBe(true);
     expect(new Office({ ...deps, terminal: false }).commit().snapshot.meta.terminal).toBe(false);
   });
-
-  it('canMessage: only present main agents seen connected by message registry; meta.messages when feature is enabled', () => {
-    const reach = new Set<string>();
-    const deps = { names: new NameStore(null), version: 't', startedAt: 0, accounts: () => [], sources: () => [], accountName: () => undefined };
-    const office = new Office({ ...deps, messages: () => reach });
-    office.addMain({ id: 'acc:1', account: 'acc', sessionId: 's1', cwd: '/p/a', role: 'Main agent', startedAt: 0, status: 'idle' });
-    office.addMain({ id: 'acc:2', account: 'acc', sessionId: 's2', cwd: '/p/a', role: 'Main agent', startedAt: 0, status: 'working' });
-    office.addSub({ id: 's1:sub', parentId: 'acc:1', sessionId: 's1', role: 'Explore', background: false, startedAt: 0 });
-    reach.add('acc:1').add('s1:sub');
-    office.markDirty();
-    const snap = office.commit().snapshot;
-    expect(snap.meta.messages).toBe(true);
-    expect(snap.agents.filter((a) => a.canMessage).map((a) => a.id)).toEqual(['acc:1']);
-    // Terminated session does not receive, even if registry has not noticed yet.
-    office.closeMain('acc:1');
-    expect(office.commit().snapshot.agents.filter((a) => a.canMessage)).toEqual([]);
-    // Without registry (disabled feature): meta.messages false.
-    expect(new Office(deps).commit().snapshot.meta.messages).toBe(false);
-  });
 });
 
 describe('Office: project character', () => {

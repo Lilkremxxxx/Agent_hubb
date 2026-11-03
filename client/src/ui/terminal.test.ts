@@ -220,11 +220,7 @@ describe('terminalFooter', () => {
   });
 
   it('waiting on you, idle, and ended', () => {
-    const perm = { id: 'p1', tool: 'Bash', title: 'Bash(ls)' } as unknown as NonNullable<AgentInfo['permission']>;
-    expect(terminalFooter(agent({ status: 'waiting', waitingFor: 'approve a permission', permission: perm }), [], now).text).toBe('Waiting on you: approve a permission');
-    expect(terminalFooter(agent({ status: 'waiting', waitingFor: 'approve a permission' }), [], now).text).toBe(
-      "Waiting on you: approve a permission · answer in Claude Code: this request didn't reach Habblaud or timed out",
-    );
+    expect(terminalFooter(agent({ status: 'waiting', waitingFor: 'approve a permission' }), [], now).text).toBe('Waiting on you: approve a permission');
     expect(terminalFooter(agent({ status: 'idle' }), [], now)).toEqual({ kind: 'idle', text: 'Waiting for the next prompt' });
     expect(terminalFooter(agent({ status: 'offline' }), [], now).kind).toBe('ended');
     expect(terminalFooter(agent({ kind: 'sub', status: 'done' }), [], now).kind).toBe('ended');

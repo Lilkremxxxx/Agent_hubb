@@ -28,11 +28,6 @@ export interface ServerConfig {
    * from the computer itself (see terminalOffReason). Locks everything that displays or acts on sessions.
    */
   terminal: boolean;
-  /**
-   * Messages across the office (POST /api/messages and habblaud-mensagens plugin inbox) enabled:
-   * terminal lock and HABBLAUD_MENSAGENS enabled (see messagesOffReason).
-   */
-  messages: boolean;
   /** Project root (where package.json lives); serves dist/client from here. */
   rootDir: string;
   version: string;
@@ -150,18 +145,6 @@ export function terminalOffReason(env: NodeJS.ProcessEnv, host: string, inDocker
 }
 
 /**
- * Why office messages stay disabled (undefined = enabled). They enter the session as if you typed
- * them, so they follow the terminal lock; HABBLAUD_MENSAGENS with any value other than
- * "enabled" (0, false, off, no...) disables only them.
- */
-export function messagesOffReason(env: NodeJS.ProcessEnv, host: string, inDocker: boolean): string | undefined {
-  const flag = env.HABBLAUD_MENSAGENS?.trim();
-  if (flag && !isTruthy(flag)) return `HABBLAUD_MENSAGENS=${flag}`;
-  const terminal = terminalOffReason(env, host, inDocker);
-  return terminal ? tr('same lock as the terminal: {0}', [terminal]) : undefined;
-}
-
-/**
  * Habblaud World server when HABBLAUD_WORLD_URL is missing or empty: World is on by default, but nothing
  * leaves the computer until the user creates an account and logs in (server/world/service.ts).
  * HABBLAUD_WORLD=0 disables all.
@@ -231,7 +214,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     dataDir: resolve(env.HABBLAUD_DATA_DIR?.trim() || (inDocker ? '/data' : join(home, '.habblaud'))),
     allowedHosts: parseAllowedHosts(env.HABBLAUD_ALLOWED_HOSTS),
     terminal: terminalOffReason(env, host, inDocker) === undefined,
-    messages: messagesOffReason(env, host, inDocker) === undefined,
     rootDir,
     version: pkg.version,
     agy: parseAgyConfig(env, home),

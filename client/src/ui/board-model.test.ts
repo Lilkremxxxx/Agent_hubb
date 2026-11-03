@@ -1,7 +1,7 @@
 // What the Board shows: the boss's to-do list and the important news.
 import { describe, expect, it } from 'vitest';
 import type { AgentInfo, OfficeInfo, OfficeSnapshot, RoomInfo } from '../../../shared/types';
-import { bossPlan, cacheLabel, hasBoard, importantNews, officeItems, todoBoss } from './board-model';
+import { bossPlan, cacheLabel, hasBoard, importantNews, officeItems } from './board-model';
 
 function agent(id: string, roomId: string, extra: Partial<AgentInfo> = {}): AgentInfo {
   return { id, kind: 'main', roomId, name: id, tasks: [], ...extra } as AgentInfo;
@@ -83,15 +83,5 @@ describe('cacheLabel', () => {
     expect(cacheLabel({ cacheRead: 12_000, cacheWrite: 3_000 }, fmt)).toBe('cache: 12k read, 3k written');
     expect(cacheLabel({ cacheRead: 12_000 }, fmt)).toBe('cache: 12k read');
     expect(cacheLabel({}, fmt)).toBe('');
-  });
-});
-
-describe('todoBoss', () => {
-  it("the office's own boss, else the only boss", () => {
-    const offices = [{ id: 'oa', name: 'A', folder: '/a', workers: [], bossAgentId: 'ba' }, { id: 'ob', name: 'B', folder: '/b', workers: [] }] as unknown as OfficeInfo[];
-    const s = snap([agent('ba', 'a', { boss: true }), agent('x', 'a')], [], { team: { workers: [], agy: [], offices } });
-    expect(todoBoss(s, offices[0])?.id).toBe('ba');
-    expect(todoBoss(s, offices[1])).toBeUndefined();
-    expect(todoBoss(s, undefined)?.id).toBe('ba');
   });
 });

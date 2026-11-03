@@ -8,8 +8,8 @@
 // Configuration (written by `npm run remote:setup`, scripts/remote-setup.ts):
 //   HABBLAUD_REMOTE_USER + HABBLAUD_REMOTE_PASSWORD_HASH  enable the port (hash is scrypt, see remote/password.ts;
 //                                                         plain-text password not accepted)
-//   HABBLAUD_REMOTE_ALLOW   what remote session can do besides view: permissions, messages, terminal ("none" = view
-//                           only). Default: permissions.
+//   HABBLAUD_REMOTE_ALLOW   what remote session can do besides view: terminal, spawn ("none" = view
+//                           only). Default: terminal.
 //   HABBLAUD_REMOTE_TLS_DIR directory with server.key, server.crt (and ca.crt, served at /remote/ca.crt). Default:
 //                           /remote-tls in Docker, ~/.habblaud/remote-tls/server in Node. Without certificate the port
 //                           does not start unless HABBLAUD_REMOTE_INSECURE_HTTP=1 (plain HTTP: password and cookie
@@ -30,9 +30,9 @@ import { parsePasswordHash, verifyPassword, type PasswordHash } from '../remote/
 import { hostAllowed } from './guard';
 import { getLocale, tr } from '../../shared/i18n';
 
-export type RemoteFeature = 'permissions' | 'messages' | 'terminal' | 'spawn';
+export type RemoteFeature = 'terminal' | 'spawn';
 
-const FEATURES: readonly RemoteFeature[] = ['permissions', 'messages', 'terminal', 'spawn'];
+const FEATURES: readonly RemoteFeature[] = ['terminal', 'spawn'];
 
 export interface RemoteTls {
   dir: string;
@@ -96,7 +96,7 @@ export function parseRemoteConfig(
 }
 
 export function parseAllow(raw: string | undefined): Set<RemoteFeature> {
-  if (raw === undefined || !raw.trim()) return new Set<RemoteFeature>(['permissions']);
+  if (raw === undefined || !raw.trim()) return new Set<RemoteFeature>(['terminal']);
   const out = new Set<RemoteFeature>();
   for (const part of raw.split(',')) {
     const p = part.trim().toLowerCase();

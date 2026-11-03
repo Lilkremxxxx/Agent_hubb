@@ -71,10 +71,9 @@ const SHORTCUTS: [string[], string][] = [
   [['F'], tr('Follow the selected agent')],
   [['T'], tr("Open or close the selected agent's terminal")],
   [['Ctrl+F'], tr('With the terminal focused: search the conversation (⌘F on Mac); Enter and Shift+Enter navigate')],
-  [['P'], tr('Go to the next permission request or question to answer from the office')],
   [['B'], tr("Board: tasks (todo and handoff), jobs given to the workers; 1 2 3 switch tabs")],
   [['R'], tr('Rules of the office shown: scope, rules, limits, the boss\'s proposals and what was refused')],
-  [['H'], tr('Boss overloaded: sessions with a long context, ask for a handoff and open a new session')],
+  [['H'], tr('Boss overloaded: sessions with a long context, open a new session')],
   [['O', '0'], tr('Building overview')],
   [['Esc'], tr('Close the terminal search, then the terminal; then the details panel and the selection')],
   [['['], tr('Show or hide the sidebar')],
@@ -206,13 +205,7 @@ export class HelpDialog {
               text: tr("In an agent's details, “Open terminal” shows the session's conversation as in Claude Code, live (requires local access, bind 127.0.0.1)."),
             }),
             h('li', {
-              text: tr('With the habblaud-mensagens plugin (npm run mod:install), you can send messages to the main agent from its details or from the box at the bottom of the terminal: the text enters the session as if you had typed it. Enter sends, Shift+Enter adds a line break.'),
-            }),
-            h('li', {
               text: tr('In the terminal: search (magnifier or Ctrl/⌘+F), the “All / Prompts only / No tools” filter and a copy button on each entry. The clock in the top bar opens the history of sessions from the last 7 days, including ended ones.'),
-            }),
-            h('li', {
-              text: tr('With the Habblaud mod installed (npm run mod:install, which includes the permissions plugin), an agent that “asks for permission” shows the command or edit in its details, along with the Approve, Deny and Answer in terminal buttons; an agent that asks a question shows the options (and an “Other” to write your own) so you can answer from here. The dialog stays open in the terminal: whichever answer comes first wins.'),
             }),
           ),
           shortcuts,

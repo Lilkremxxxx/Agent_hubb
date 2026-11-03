@@ -5,22 +5,22 @@ afterEach(() => setAccess(null));
 
 describe('access', () => {
   it('no server response: old rule (only the local machine acts)', async () => {
-    expect(fallbackAccess('localhost')).toMatchObject({ local: true, permissions: true });
-    expect(fallbackAccess('habblaud.localhost').permissions).toBe(true);
-    expect(fallbackAccess('192.168.1.10')).toMatchObject({ local: false, permissions: false, messages: false });
+    expect(fallbackAccess('localhost')).toMatchObject({ local: true, terminal: true });
+    expect(fallbackAccess('habblaud.localhost').terminal).toBe(true);
+    expect(fallbackAccess('192.168.1.10')).toMatchObject({ local: false, terminal: false });
     // Spawning a new agent is opt-in on the server: without response, never appears.
     expect(fallbackAccess('localhost').spawn).toBe(false);
     const failing = (() => Promise.reject(new Error('network'))) as unknown as typeof fetch;
     expect((await loadAccess(failing)).remote).toBe(false);
   });
-  it('with response: server response applies (logged-in phone approving)', async () => {
-    const body = { remote: true, local: false, permissions: true, messages: false, terminal: false, spawn: false };
+  it('with response: server response applies (logged-in phone with terminal allowed)', async () => {
+    const body = { remote: true, local: false, terminal: false, spawn: false };
     const ok = (() => Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))) as unknown as typeof fetch;
     expect(await loadAccess(ok)).toEqual(body);
-    expect(access().permissions).toBe(true);
+    expect(access().terminal).toBe(false);
   });
   it('re-reading access notifies only on change (terminal allowed with mobile page open)', async () => {
-    const base = { remote: true, local: false, permissions: true, messages: true, terminal: false, spawn: true };
+    const base = { remote: true, local: false, terminal: false, spawn: true };
     const reply = (b: object) => (() => Promise.resolve(new Response(JSON.stringify(b), { status: 200 }))) as unknown as typeof fetch;
     let calls = 0;
     const off = onAccessChange(() => calls++);

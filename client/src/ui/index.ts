@@ -18,12 +18,10 @@ import { Drawer } from './drawer';
 import { FeedPanel } from './feed';
 import { HelpDialog } from './help';
 import { HistoryPopover } from './history';
-import { Deliveries } from './deliveries';
 import { HoverTip } from './hovertip';
 import { hasRunningShells } from './model';
 import { Notifier } from './notify';
 import { ConnectionBanner, EmptyState, Splash } from './overlays';
-import { focusPermission, nextPermissionAgent } from './permission';
 import { loadPrefs, safeLocalStorage, savePrefs, worldOptionsFrom, type UiPrefs } from './prefs';
 import { SettingsPopover } from './settings';
 import { Sidebar } from './sidebar';
@@ -249,17 +247,12 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
     },
   };
   ctx.terminals = router;
-  // Deliveries: completed agent work (first button in group: most used on mobile).
-  const deliveries = new Deliveries(ctx, terminal);
-  topbar.panelGroup.prepend(deliveries.button);
-  // Deep links with ?agent= / ?delivery= (opens agent or delivery on load).
+  // Deep link with ?agent= (opens that agent on load).
   const openLink = (url: URL) => {
     const agent = url.searchParams.get('agent');
-    const delivery = url.searchParams.get('delivery');
-    if (!agent && !delivery) return;
+    if (!agent) return;
     const go = () => {
-      if (delivery) void deliveries.openById(delivery);
-      else if (agent && ctx.agent(agent)) ctx.select({ type: 'agent', id: agent }, { focus: true });
+      if (ctx.agent(agent)) ctx.select({ type: 'agent', id: agent }, { focus: true });
     };
     if (store.snapshot) go();
     else {
@@ -345,7 +338,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   const scrim = h('div', { class: 'ui-scrim', attrs: { 'aria-hidden': 'true' }, on: { click: () => ctx.togglePanel('sidebar', false) } });
 
   root.classList.add('ui-root');
-  root.append(officeTabs.el, topbar.el, sidebar.el, scrim, feed.el, drawer.el, terminal.el, pty.el, toasts.el, banner.el, update.el, empty.el, popups.el, tip.el, settings.el, worldDialog.el, history.el, deliveries.el, help.el, renamer.el, live, splash.el, hints.el);
+  root.append(officeTabs.el, topbar.el, sidebar.el, scrim, feed.el, drawer.el, terminal.el, pty.el, toasts.el, banner.el, update.el, empty.el, popups.el, tip.el, settings.el, worldDialog.el, history.el, help.el, renamer.el, live, splash.el, hints.el);
   area = new FreeArea(world, { root, topbar: topbar.el, sidebar: sidebar.el, drawer: drawer.el, feed: feed.el }, () => ({
     sidebar: panels.sidebar,
     feed: panels.feed,
@@ -354,7 +347,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   }));
   drawer.onLayoutChange = () => applyLayout();
 
-  const components: UiComponent[] = [topbar, sidebar, drawer, terminal, pty, history, deliveries, feed, toasts, settings, empty, banner, tip, notifier, splash, sound, worldDialog, popups, worldChip];
+  const components: UiComponent[] = [topbar, sidebar, drawer, terminal, pty, history, feed, toasts, settings, empty, banner, tip, notifier, splash, sound, worldDialog, popups, worldChip];
   if (scene) components.push(scene);
   root.append(worldSocial.el, jobBoard.el, overload.el, sidebar.dialogEl, officeTabs.dialog.el, officeTabs.menu.el, rules.el);
   components.push(worldSocial, jobBoard, overload, officeTabs, rules);
@@ -494,15 +487,6 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
         e.preventDefault();
         toggleTerminal();
         break;
-      case 'p':
-      case 'P': {
-        // Next permission request or question to answer from office (only navigates to it: never auto-approves).
-        e.preventDefault();
-        const next = nextPermissionAgent(store.snapshot?.agents ?? [], selection?.type === 'agent' ? selection.id : undefined);
-        if (next) focusPermission(ctx, next.id);
-        else ctx.announce(tr('No permission requests or questions to answer right now.'));
-        break;
-      }
       case 'o':
       case 'O':
         e.preventDefault();

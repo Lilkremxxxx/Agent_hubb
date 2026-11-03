@@ -6,7 +6,6 @@ import { h, iconButton, setAttr, setHidden, setText, setTitle, setVariant } from
 import { formatDuration, formatInt } from './format';
 import { FALLBACK_MARK, ICONS } from './icons';
 import { computeCounters, shellLine, shellWaitIn, shellWaitingAgents, waitingAgents, type Counters } from './model';
-import { focusPermission, nextPermissionAgent, permissionAgents } from './permission';
 import { VersionChip } from './version';
 import { wordmark } from './widgets';
 import { tr } from '../../../shared/i18n';
@@ -187,15 +186,7 @@ export class TopBar implements UiComponent {
     const waiting = this.counters.get('waiting')!.el as HTMLButtonElement;
     waiting.classList.toggle('is-active', c.waiting > 0);
     waiting.disabled = c.waiting === 0;
-    // Requests that can be answered from here (permission hook: permissions and questions): tooltip shows count.
-    const answerable = permissionAgents(snap?.agents ?? []).length;
-    waiting.classList.toggle('has-answer', answerable > 0);
-    setTitle(
-      waiting,
-      answerable
-        ? tr('{0}. {1} answered here: click to go to {2} (P).', [WAITING_HINT, answerable === 1 ? tr('1 request (permission or question) can be') : tr('{0} requests (permissions or questions) can be', [answerable]), answerable === 1 ? tr('it') : tr('each one')])
-        : tr('{0}. Click to go to the first one.', [WAITING_HINT]),
-    );
+    setTitle(waiting, tr('{0}. Click to go to the first one.', [WAITING_HINT]));
     this.renderShells(c.shells, now);
 
     this.version.render();
@@ -240,12 +231,7 @@ export class TopBar implements UiComponent {
   }
 
   private focusFirstWaiting(): void {
-    // Those with requests answerable from office come first (successive clicks cycle through all).
-    const agents = this.ctx.store.snapshot?.agents ?? [];
-    const sel = this.ctx.selection();
-    const next = nextPermissionAgent(agents, sel?.type === 'agent' ? sel.id : undefined);
-    if (next) return focusPermission(this.ctx, next.id);
-    const first = waitingAgents(agents)[0];
+    const first = waitingAgents(this.ctx.store.snapshot?.agents ?? [])[0];
     if (first) this.ctx.select({ type: 'agent', id: first.id }, { focus: true });
   }
 }

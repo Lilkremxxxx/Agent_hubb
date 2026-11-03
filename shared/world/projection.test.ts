@@ -129,7 +129,6 @@ function canaryOffice(): { rooms: RoomInfo[]; agents: AgentInfo[] } {
     lastEventAt: 1_700_000_000_456,
     statusSince: 1_700_000_000_789,
     role: 'CANARIO-PAPEL',
-    canMessage: true,
   };
   const agents = [
     agent(MAIN_ID, CANARY_ROOM, {

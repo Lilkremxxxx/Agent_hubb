@@ -5,7 +5,7 @@
 // Also handles reconnection: when browser gives up on stream (EventSource closed after HTTP error,
 // e.g. server restarting behind proxy), retries with exponential backoff.
 import type { AppearanceParts } from '../../../shared/appearance';
-import type { Activity, AgentDetail, AgentInfo, FeedItem, Notice, OfficeSnapshot, OutboxMessage, PermissionDecision, PermissionRequestInfo, RoomInfo, SessionCommand } from '../../../shared/types';
+import type { Activity, AgentDetail, AgentInfo, FeedItem, Notice, OfficeSnapshot, RoomInfo } from '../../../shared/types';
 import { tr } from '../../../shared/i18n';
 
 export type ConnectionState = 'connecting' | 'open' | 'closed';
@@ -177,38 +177,6 @@ export class OfficeStore {
   }
 
   /**
-   * Detail of a permission request (with arguments: command, diff...). Requests may arrive
-   * complete in snapshot; otherwise they come from GET /api/permissions/:id (local access only).
-   */
-  async permissionDetail(agentId: string, id: string): Promise<PermissionRequestInfo | undefined> {
-    const inline = this.agent(agentId)?.permission;
-    if (inline?.id === id && inline.input !== undefined) return inline;
-    const res = await fetch(`/api/permissions/${encodeURIComponent(id)}`);
-    if (!res.ok) return undefined;
-    return (await res.json()) as PermissionRequestInfo;
-  }
-
-  /**
-   * Replies to permission request from office. Returns undefined on success, or server error
-   * message (request already answered, non-local access...).
-   */
-  async decidePermission(id: string, d: PermissionDecision): Promise<string | undefined> {
-    const res = await fetch(`/api/permissions/${encodeURIComponent(id)}/decision`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(d),
-    });
-    if (res.ok) return undefined;
-    try {
-      const body = (await res.json()) as { error?: unknown };
-      if (typeof body.error === 'string') return body.error;
-    } catch {
-      // Non-JSON response (e.g. guard): uses default message.
-    }
-    return tr("Couldn't reply (error {0}).", [res.status]);
-  }
-
-  /**
    * Saves project character (PUT /api/agents/:id/character). Returns undefined on success, or error
    * message (name in use, non-local access...).
    */
@@ -262,50 +230,6 @@ export class OfficeStore {
     }
     if (res.ok) return typeof data?.stopped === 'number' ? { stopped: data.stopped } : {};
     return { error: typeof data?.error === 'string' ? data.error : tr('error {0}', [res.status]) };
-  }
-
-  // ---------------------------------------------------------------- messages across office
-
-  /**
-   * Sends message to an agent (POST /api/messages): created message (status `queued`) or server error
-   * (agent does not accept messages, queue full, non-local access...). No connection: throws.
-   */
-  async sendMessage(agentId: string, text: string): Promise<{ message: OutboxMessage } | { error: string }> {
-    const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, text }) });
-    let body: unknown;
-    try {
-      body = await res.json();
-    } catch {
-      // Non-JSON response (e.g. guard): fall back to default message.
-    }
-    if (res.status === 201 && body && typeof body === 'object') return { message: body as OutboxMessage };
-    const error = (body as { error?: unknown } | undefined)?.error;
-    return { error: typeof error === 'string' ? error : tr('error {0}', [res.status]) };
-  }
-
-  /**
-   * Changes a Claude Code session's model, effort or plan mode (POST /api/messages with `command`): the
-   * habblaud-mensagens plugin runs `/model`, `/effort` or `/plan` there. Same answers as sendMessage.
-   */
-  async sendCommand(agentId: string, command: SessionCommand): Promise<{ message: OutboxMessage } | { error: string }> {
-    const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, command }) });
-    let body: unknown;
-    try {
-      body = await res.json();
-    } catch {
-      // Non-JSON response (e.g. guard): fall back to default message.
-    }
-    if (res.status === 201 && body && typeof body === 'object') return { message: body as OutboxMessage };
-    const error = (body as { error?: unknown } | undefined)?.error;
-    return { error: typeof error === 'string' ? error : tr('error {0}', [res.status]) };
-  }
-
-  /** Status of a message (GET /api/messages/:id). null = server does not know it (404). No connection: throws. */
-  async messageStatus(id: string): Promise<OutboxMessage | null> {
-    const res = await fetch(`/api/messages/${encodeURIComponent(id)}`);
-    if (res.status === 404) return null;
-    if (!res.ok) throw new Error(tr('error {0}', [res.status]));
-    return (await res.json()) as OutboxMessage;
   }
 
   // ---------------------------------------------------------------- internal

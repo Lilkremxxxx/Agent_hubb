@@ -13,8 +13,6 @@ import type {
   Notice,
   NoticeLevel,
   OfficeSnapshot,
-  PermissionDecision,
-  PermissionRequestInfo,
   Provider,
   PtyInfo,
   PtyStatus,
@@ -32,7 +30,6 @@ import { SHELL_WAIT_TOOL, SPECIAL, type ShellOutcome } from '../../shared/activi
 import { nameKey, type AppearanceParts } from '../../shared/appearance';
 import { describeGitHubEvent, githubEventKey, RoomEffects, type GitHubEvent } from '../../shared/github';
 import { hash32 } from '../../shared/hash';
-import { applyPermission } from '../permissions/registry';
 import type { NameStore, StoredCharacter } from './names';
 import { normalizeCwd, roomDisplayNames, SlotAllocator } from './rooms';
 import { tr } from '../../shared/i18n';
@@ -74,13 +71,6 @@ export interface OfficeDeps {
   accountName: (id: string) => string | undefined;
   /** Terminal enabled (see OfficeSnapshot.meta.terminal and ServerConfig.terminal). */
   terminal?: boolean;
-  /** Pending permission requests per agent (PermissionRegistry.snapshot), added to snapshot. */
-  permissions?: () => ReadonlyMap<string, PermissionRequestInfo>;
-  /**
-   * Agents whose session is seen connected by message registry (MessageRegistry.reachable): become AgentInfo.canMessage.
-   * Absent = messages from office disabled (OfficeSnapshot.meta.messages).
-   */
-  messages?: () => ReadonlySet<string>;
   /** Interactive terminals (PtyManager): feature status and open terminals. */
   ptys?: () => { status: PtyStatus; list: PtyInfo[] };
   /** Habblaud World (WorldService.meta; see OfficeSnapshot.meta.world). */
@@ -583,21 +573,6 @@ export class Office {
     this.markDirty();
   }
 
-  /**
-   * Context window the Habblaud mod reports for a Claude Code session (AgentInfo.contextWindow): the main agent of that
-   * session id (and account, when given). Values outside 1k–100M are ignored.
-   */
-  setContextWindow(sessionId: string, account: string | undefined, window: number): void {
-    if (!Number.isInteger(window) || window < 1_000 || window > 100_000_000) return;
-    for (const rec of this.agents.values()) {
-      const info = rec.info;
-      if (info.kind !== 'main' || info.sessionId !== sessionId || (account && info.account !== account)) continue;
-      if (info.contextWindow === window) continue;
-      info.contextWindow = window;
-      this.markDirty();
-    }
-  }
-
   /** Job board of a room (RoomInfo.board; Antigravity workers). undefined deletes. */
   setBoard(roomId: string, board: JobBoard | undefined): void {
     if (JSON.stringify(this.boards.get(roomId)) === JSON.stringify(board)) return;
@@ -898,21 +873,6 @@ export class Office {
     rec.history = [...add, ...rec.history].sort((a, b) => a.at - b.at).slice(-HISTORY_LIMIT);
   }
 
-  // ---------------------------------------------------------------- permission requests (server/permissions)
-
-  /**
-   * Permission request notice (or AskUserQuestion prompt) from hook; uses "needs you" deduplication
-   * (same request, different path).
-   */
-  noticePermission(id: string, what: string, kind: 'permission' | 'question' = 'permission'): void {
-    const info = this.agents.get(id)?.info;
-    if (!info) return;
-    const room = this.roomName(info.roomId);
-    const text = kind === 'question' ? tr('❓ {0} has a question in {1}: {2}', [info.name, room, what]) : tr('🔐 {0} asks for permission in {1}: {2}', [info.name, room, what]);
-    this.notice('wait', id, 'alert', text, info.roomId);
-    this.markDirty();
-  }
-
   // ---------------------------------------------------------------- project character (editor)
 
   /** Chooses name and appearance for main agent `id` and saves as the room character. */
@@ -1065,11 +1025,7 @@ export class Office {
       const plan = this.plans.get(room.id);
       if (plan) room.plan = plan;
     }
-    const perms = this.deps.permissions?.();
-    const real = [...this.agents.values()].map((r) => applyPermission(cloneAgent(r.info), perms?.get(r.info.id)));
-    const reach = this.deps.messages?.();
-    // Messages from office: present main agents whose session has plugin connected. When feature is disabled, nobody receives.
-    for (const a of real) if (reach?.has(a.id) && a.kind === 'main' && a.status !== 'offline' && a.status !== 'done') a.canMessage = true;
+    const real = [...this.agents.values()].map((r) => cloneAgent(r.info));
     const trim = (a: AgentInfo): AgentInfo => (a.recent.length > SNAPSHOT_RECENT ? { ...a, recent: a.recent.slice(-SNAPSHOT_RECENT) } : a);
     const sessions = new Map<string, number>();
     for (const a of real) if (a.kind === 'main' && a.status !== 'offline') sessions.set(a.account, (sessions.get(a.account) ?? 0) + 1);
@@ -1089,7 +1045,6 @@ export class Office {
         version: this.deps.version,
         build: this.deps.build?.(),
         terminal: this.deps.terminal === true,
-        messages: this.deps.messages !== undefined,
         ...(ptys ? { pty: ptys.status } : {}),
         ...(this.deps.world ? { world: this.deps.world() } : {}),
       },

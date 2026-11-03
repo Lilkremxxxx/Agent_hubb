@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ModSummary, OfficeSnapshot, PermissionRequestInfo } from '../../shared/types';
+import type { OfficeSnapshot } from '../../shared/types';
 import { AccountsService } from '../accounts/service';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
@@ -301,78 +301,6 @@ describe('project character (PUT/DELETE /api/agents/:id/character)', () => {
     const get = await fetch(url());
     expect(get.status).toBe(405);
     expect(get.headers.get('allow')).toBe('PUT, DELETE');
-  });
-});
-
-describe('GET /api/mod/summary (Claude Code mod)', () => {
-  let env: Awaited<ReturnType<typeof start>>;
-  const perms = new Map<string, PermissionRequestInfo>();
-  const summary = async (query = ''): Promise<ModSummary> => (await (await fetch(`${env.base}/api/mod/summary${query}`)).json()) as ModSummary;
-
-  beforeEach(async () => {
-    perms.clear();
-    env = await start({}, { permissions: () => perms });
-    const now = Date.now();
-    // .claude:1 (session s1, /p/loja, working) comes from start(); its subagent waits in background.
-    env.office.addSub({ id: 's1:a1', parentId: '.claude:1', sessionId: 's1', role: 'Explore', background: true, startedAt: now });
-    env.office.setStatus('s1:a1', 'waiting', 'approve a permission');
-    // Another session of same account, waiting longer, and one from another account with same session id.
-    env.office.addMain({ id: '.claude:2', account: '.claude', sessionId: 's2', cwd: '/p/app', role: 'Main agent', startedAt: now, status: 'waiting', waitingFor: 'answer in the terminal' });
-    env.office.addMain({ id: '.claude-conta2:3', account: '.claude-conta2', sessionId: 's1', cwd: '/p/site', role: 'Main agent', startedAt: now, status: 'idle' });
-  });
-  afterEach(async () => {
-    await env.close();
-    env.cleanup();
-  });
-
-  it('without parameters: entire office (present, working, waiting from oldest to newest)', async () => {
-    const s = await summary();
-    expect(s).toMatchObject({ version: '9.9.9', agents: 4, working: 1 });
-    expect(s.waiting.map((w) => w.id).sort()).toEqual(['.claude:2', 's1:a1']);
-    const app = s.waiting.find((w) => w.id === '.claude:2')!;
-    expect(app).toEqual({ id: '.claude:2', name: app.name, room: 'app', account: '.claude', waitingFor: 'answer in the terminal', since: app.since, answerable: false });
-    expect(typeof app.since).toBe('number');
-    expect(s.waiting.map((w) => w.since)).toEqual([...s.waiting.map((w) => w.since!)].sort((a, b) => a - b));
-  });
-
-  it('?account&session: excludes caller session (main and subagents); same session in another account remains', async () => {
-    const s = await summary('?account=.claude&session=s1');
-    expect(s).toMatchObject({ agents: 2, working: 0 });
-    expect(s.waiting.map((w) => w.id)).toEqual(['.claude:2']);
-    // Session alone (without account) is also sufficient; account alone excludes nothing.
-    expect((await summary('?session=s1')).agents).toBe(1);
-    expect((await summary('?account=.claude')).agents).toBe(4);
-  });
-
-  it('?window: records the caller session context window on its main agent (same account only)', async () => {
-    await summary('?account=.claude&session=s1&window=1000000');
-    expect(env.office.get('.claude:1')?.contextWindow).toBe(1_000_000);
-    expect(env.office.get('s1:a1')?.contextWindow).toBeUndefined();
-    expect(env.office.get('.claude-conta2:3')?.contextWindow).toBeUndefined();
-    await summary('?account=.claude&session=s1&window=abc');
-    await summary('?account=.claude&session=s1&window=12');
-    expect(env.office.get('.claude:1')?.contextWindow).toBe(1_000_000);
-    expect((await snapshotOf(env.base)).agents.find((a) => a.id === '.claude:1')?.contextWindow).toBe(1_000_000);
-  });
-
-  it('answerable = has permission request answerable through office', async () => {
-    perms.set('.claude:2', { id: 'p1', tool: 'Bash', title: 'Bash(npm test)', text: 'Running tests', icon: '🧪', createdAt: Date.now(), expiresAt: Date.now() + 300_000 });
-    env.office.markDirty();
-    const s = await summary('?account=.claude&session=s1');
-    expect(s.waiting).toMatchObject([{ id: '.claude:2', answerable: true, waitingFor: 'answer in the terminal' }]);
-  });
-
-  it('closed agents excluded', async () => {
-    env.office.closeMain('.claude-conta2:3');
-    const s = await summary();
-    expect(s.agents).toBe(3);
-  });
-
-  it('GET/HEAD only (405 with Allow)', async () => {
-    const res = await fetch(`${env.base}/api/mod/summary`, { method: 'POST', headers: JSON_HEADERS, body: '{}' });
-    expect(res.status).toBe(405);
-    expect(res.headers.get('allow')).toBe('GET');
-    expect((await fetch(`${env.base}/api/mod/summary`, { method: 'HEAD' })).status).toBe(200);
   });
 });
 

@@ -28,10 +28,6 @@ export function sourceLabel(u: NonNullable<AccountInfo['usage']>): string {
  */
 export const USAGE_SETUP_STEPS: readonly [string, string][] = [
   [
-    'npm run mod:install',
-    tr('Recommended: installs the Habblaud mod in Claude Code (2.1.287 or newer), which streams 5 h and weekly usage live. Run it in the Habblaud folder, on the computer where Claude Code runs; in sessions already open, `/reload-plugins`.'),
-  ],
-  [
     'npm run usage:install',
     tr('On Claude Code older than 2.1.287: hooks a tap into the status line, which streams the same numbers live.'),
   ],
