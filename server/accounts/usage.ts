@@ -1,6 +1,4 @@
 // Plan usage (5h and weekly session) per account, from local sources:
-// - 'statusline': rate_limits that Claude Code sends to statusline, written by
-//   scripts/statusline-tap.mjs (recommended: live);
 // - 'cache': cachedUsageUtilization written by Claude Code itself (when running /usage);
 // - 'codex': rate_limits from Codex session files, pushed by Codex source (AccountsService.setUsage).
 // The source with the newest numbers always wins (highest fetchedAt). None of them reads credentials

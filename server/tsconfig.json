@@ -4,8 +4,6 @@
     "lib": ["ES2023"],
     "types": ["node"]
   },
-  // Host TypeScript scripts (docker-up, installers for statusline tap, permission hook, mod, and
-  // Codex hooks, Codex message helper, mock timelapse generator, release publisher) are also
-  // checked.
-  "include": [".", "../shared", "../scripts/docker-up.ts", "../scripts/statusline-install.ts", "../scripts/hooks-install.ts", "../scripts/mod-install.ts", "../scripts/codex-install.ts", "../scripts/codex-bridge.ts", "../scripts/remote-setup.ts", "../scripts/remote-mdns.ts", "../scripts/demo-timeline.ts", "../scripts/release.ts"]
+  // Host TypeScript scripts (remote access setup and mDNS) are also checked.
+  "include": [".", "../shared", "../scripts/remote-setup.ts", "../scripts/remote-mdns.ts"]
 }

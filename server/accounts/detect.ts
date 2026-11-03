@@ -1,5 +1,5 @@
 // Detection of Claude Code accounts (one config dir per account) and their metadata.
-// Pure Node without dependencies: also imported by scripts/docker-up.ts (via tsx) on the host.
+// Pure Node without dependencies.
 // A Codex directory (CODEX_HOME, e.g.: ~/.codex) also has `sessions/` and is excluded (isCodexHome): Codex
 // accounts are discovered by the Codex source and enter AccountsService with `provider: 'codex'`.
 //
