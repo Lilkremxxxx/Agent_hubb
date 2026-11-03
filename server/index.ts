@@ -254,7 +254,7 @@ async function appointAgyBoss(officeId: string | undefined, acc: string, cwd?: s
 
 /**
  * An Antigravity boss's terminal (the open one, or a new idle agy: no prompt, no quota), in its office's folder;
- * AGY_BOSS=1 makes agy load the boss's rules (agy-hub), AGY_OFFICE names the office for agy-ask.
+ * AGY_BOSS=1 marks the boss (no plugin loads rules from it yet), AGY_OFFICE names the office for agy-ask.
  */
 function openAgyBossTerminal(officeId: string, acc: string, cwd?: string): PtyInfo {
   const agentId = `agy:${acc}`;

@@ -155,7 +155,7 @@ describe('WorkerService', () => {
     const r = await t.svc.ask({ worker: 'acc2', prompt: 'Say pong', mode: 'plan', effort: 'low', role: 'qa', by: 'boss', callerPid: 41, max: 200 });
     expect(r).toMatchObject({ ok: true, job: { status: 'working', role: 'qa', by: 'boss' } });
     expect(t.open.get('agy:acc2')).toMatchObject({ file: '/bin/agy-as', args: ['acc2', '-i', 'Say pong', '--mode', 'plan', '--effort', 'low'] });
-    expect(t.open.get('agy:acc2')?.env).toMatchObject({ AGY_OFFICE: 'main', AGY_WORKER: 'acc2' });
+    expect(t.open.get('agy:acc2')?.env).not.toHaveProperty('AGY_OFFICE');
     t.svc.tick();
     expect(t.svc.jobs()[0].status).toBe('working');
     t.agyWrites(answer('x'.repeat(500)));

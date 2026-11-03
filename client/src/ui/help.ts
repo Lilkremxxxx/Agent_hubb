@@ -96,12 +96,12 @@ const GUIDE: [string, string[]][] = [
     tr('A worker can serve several offices. It then has a character in each, named "(2)", and a busy worker refuses new jobs.'),
   ]],
   [tr('📨 Giving work'), [
-    tr('Directly: type in the boss\'s terminal, or send a message from its details. It starts right away.'),
+    tr('Directly: type in the boss\'s terminal. It starts right away.'),
     tr('To a worker: Send a job in its details, without going through the boss.'),
   ]],
   [tr('🥵 A tired boss (H)'), [
     tr('A long context or repeated compactions make a session slow and forgetful. A notice tells you when a boss passes a limit.'),
-    tr('Click the notice, press Ask for a handoff so it writes down its progress, then New session here to carry on.'),
+    tr('Click the notice, open the boss\'s terminal and ask it to write down its progress, then New session here to carry on.'),
     tr('Set the limits in Settings › Boss overloaded.'),
   ]],
   [tr('☕ Reading the characters'), [

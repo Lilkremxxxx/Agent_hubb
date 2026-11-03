@@ -486,7 +486,7 @@ export class WorkerService {
       if (j.mode) args.push('--mode', j.mode);
       if (j.effort) args.push('--effort', j.effort);
       if (j.model) args.push('--model', j.model);
-      const info = this.open(s, args, j.cwd, j.office ? { AGY_OFFICE: j.office, AGY_WORKER: t.id } : undefined);
+      const info = this.open(s, args, j.cwd);
       j.ptyPid = info.pid;
       return info;
     }

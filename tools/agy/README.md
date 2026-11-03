@@ -31,7 +31,7 @@ any repository.
 |---|---|
 | `bin/agy-as` | Runs `agy` in one account's profile (own HOME, D-Bus, keyring) |
 | `bin/worker-ask` | `agy-ask` and `claude-ask`: give a job, print its answer |
-| `agy-plugin/` | `agy-boss` (loads the boss rules from `docs/boss-rules-from-fork.md`) |
+| `agy-plugin/` | `agy-boss`. Nothing installs it now; `docs/boss-rules-from-fork.md` is the reference kept for a later plan |
 | `skills/` | `agy-orchestrator`, for a Claude Code boss |
 
 ## Using it

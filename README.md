@@ -67,8 +67,8 @@ You need:
 - The **Antigravity CLI (`agy`)** in `~/.local/bin`, only if you want Antigravity workers.
 
 ```bash
-git clone https://github.com/zafkielzz/Vi-Habblaud.git
-cd Vi-Habblaud
+# clone this repository, then enter its folder
+cd <folder>
 npm install && npm run build && npm run office
 tools/agy/install.sh     # agy-ask, claude-ask, agy-as and the skills
 ```
@@ -100,7 +100,7 @@ says so: add it.
 ## Run it every day
 
 ```bash
-cd Vi-Habblaud
+cd <folder>
 npm run office
 ```
 
@@ -115,8 +115,6 @@ git pull
 npm install
 npm run office
 ```
-
-Sessions closed this way come back with `claude --resume`. The log is `~/.habblaud/office.log`.
 
 Sessions closed this way come back with `claude --resume`. The log is `~/.habblaud/office.log`.
 
@@ -137,7 +135,7 @@ repository, so they stay on your machine.
 | Overload thresholds, language, sounds | Settings on the page |
 | Default mode and effort of a worker | A worker's drawer › "Defaults for jobs" |
 | Display name of an account | `~/.agy_profiles/names.conf` (`acc2 Alice`) |
-| How the boss and the workers behave | `docs/boss-rules-from-fork.md` |
+| Reference for the boss and worker rules (kept for a later plan; nothing loads it yet) | `docs/boss-rules-from-fork.md` |
 | The skills a Claude Code boss uses | `tools/agy/skills/` |
 | The scripts | `tools/agy/bin/`. They are linked, so an edit applies at once |
 | How it starts | `scripts/office.sh`; for the port, `HABBLAUD_PORT=4800 npm run office` |
@@ -145,8 +143,6 @@ repository, so they stay on your machine.
 
 See [`tools/agy/README.md`](tools/agy/README.md) for the worker commands, and [Development](#development) to work on the
 code.
-
-The rest of this file comes from Habblaud and still applies to the office itself.
 
 ## What it looks like
 
@@ -265,13 +261,9 @@ certificate), checking the fingerprint the setup showed.
   address creates a new CA (install the certificate on the phone again).
 - **Own address** (e.g. `myclaude.home`): goes into the certificate, but the phone only finds it with an entry in the
   router's DNS pointing to the computer's IP. `<name>.local` works without configuring anything.
-- **What the phone can do:** by default, view and use the terminal. `HABBLAUD_REMOTE_ALLOW` in `.env` accepts
+- **What the phone can do:** by default, view only. `HABBLAUD_REMOTE_ALLOW` in `.env` accepts
   `terminal` and `spawn`, separated by commas, or `none` (view only). The interactive terminal never works from the
   phone.
-- **New agent** (the **+** button): starts a Claude Code session in the background on the computer (`claude --bg`, in
-  the chosen folder), which shows up in the office. **It is on under `npm run office` and off under `npm start`:** it needs `HABBLAUD_PTY=1` (the same opt-in as
-  the [interactive terminal](#interactive-terminal-take-over-new-session-and-end)) and, from the phone, `spawn` in
-  `HABBLAUD_REMOTE_ALLOW` too.
 - **Session:** 30 days; changing the password (running the setup again) ends all of them, and **Settings › Phone
   access › Sign out** ends the one on that device. After 5 wrong passwords in a row, each new attempt waits from 1 s up to 5 min.
 - **Turn off:** `npm run remote:setup -- --off`, then restart.
@@ -364,7 +356,7 @@ The conversation is read-only.
 
 Since the terminal (and the history) shows the whole conversation, it only exists when Habblaud is reachable **only from the
 computer it runs on** (the default), and it only opens through `http://localhost` or `http://127.0.0.1`. With the port open to the network
-(`HABBLAUD_BIND=0.0.0.0` or `HABBLAUD_HOST=0.0.0.0`), it stays off. Details in
+(`HABBLAUD_HOST=0.0.0.0`), it stays off. Details in
 [Privacy and security](#privacy-and-security).
 
 ### Interactive terminal (take over, new session and end)
@@ -429,6 +421,7 @@ calls in the transcripts (`gh pr create`, `gh pr merge`, `git push`, `gh run wat
 Each event also creates a notice ("🎉 Danilo opened PR #12 in habblaud", "🚨 CI failed in habblaud (feat/x)") and goes
 into the feed. Only what happens live livens up the room: whatever was already in the transcripts when Habblaud opened only goes to the
 history. With "reduce motion" turned on in the system, nothing flashes or spins.
+
 ## Accounts and usage (5-hour and weekly)
 
 If you use more than one Claude Code account (for example, a `c` shortcut with `~/.claude` and a `d` with
@@ -469,9 +462,9 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` | Where Habblaud keeps its own data (character and room names). |
 | `HABBLAUD_ALLOWED_HOSTS` | — | Extra names accepted in the address (e.g. `my-pc.local`), besides `localhost` and IPs. |
 | `HABBLAUD_TERMINAL` | on (local access only) | `0` turns off the terminal and the character editor. With the port exposed they're already off, with no way to turn them on. |
-| `HABBLAUD_PTY` | on under `npm run office`, off otherwise | `1` turns on the interactive terminal (open, take over and end Claude Code sessions from the office; local access only) and **New agent**. |
-| `HABBLAUD_CLAUDE_BIN` | `claude` from PATH | The Claude Code executable that the interactive terminal and New agent run. |
-| `HABBLAUD_REMOTE_ALLOW` | `terminal` | What the [phone with login](#phone-with-login-and-https) can do: `terminal`, `spawn` (comma-separated) or `none`. The other `HABBLAUD_REMOTE_*` are in that section. |
+| `HABBLAUD_PTY` | on under `npm run office`, off otherwise | `1` turns on the interactive terminal (open, take over and end Claude Code sessions from the office; local access only). |
+| `HABBLAUD_CLAUDE_BIN` | `claude` from PATH | The Claude Code executable that the interactive terminal runs. |
+| `HABBLAUD_REMOTE_ALLOW` | `none` (view only) | What the [phone with login](#phone-with-login-and-https) can do: `terminal`, `spawn` (comma-separated) or `none`. The other `HABBLAUD_REMOTE_*` are in that section. |
 | `HABBLAUD_LANG` | system language, otherwise `en` | Language of the texts the server builds (activities, notices, logs): `en` or `vi`. The interface follows the browser or the choice in Settings › Language. See [Languages](#languages). |
 | `HABBLAUD_ACCOUNTS` | — | JSON to customize name, letter or color, matched by the account folder name. E.g. `[{"id":".claude-conta2","name":"Work","short":"T","color":"#5cc97b"}]`. |
 | `HABBLAUD_AGY` | on | `0` turns off the Antigravity workers. |
@@ -546,9 +539,6 @@ tools/    agy: worker scripts (agy-ask, claude-ask, agy-as) and the skills
   what is allowed comes from `HABBLAUD_REMOTE_ALLOW`, never from the Host header; the interactive terminal, the
   character editor and renaming rooms never work through it. Whoever has the password gets what you allowed: choose a
   strong one and allow only what you need. The CA key stays in `~/.habblaud/remote-tls/ca`.
-- **New agent, opt-in:** with `HABBLAUD_PTY=1`, the office starts Claude Code sessions with the request you wrote, in
-  the folder you choose — the same warning as the interactive terminal applies. Attachments are written to
-  `~/.habblaud/attachments/` (folder 700, files 600).
 - **Character editor, local only:** saving or going back to random changes the office and writes to `names.json`, so it
   follows the same safeguard as the terminal (local bind, local `Host`, no proxies or tunnels): without it, the pencil doesn't show up
   and the server answers `403`. Changes require JSON and a local origin. `HABBLAUD_TERMINAL=0` turns it off too.

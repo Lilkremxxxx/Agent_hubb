@@ -23,7 +23,9 @@ import {
   SESSION_MS,
   type RemoteFeature,
 } from './remote';
+import type { SessionLookup } from '../sources/source';
 import { Hub } from './sse';
+import { TerminalStreams } from './terminal';
 import { hashPassword, parsePasswordHash } from '../remote/password';
 import { SpawnService } from '../spawn/spawn';
 
@@ -52,11 +54,11 @@ describe('parseRemoteConfig', () => {
     const insecure = parseRemoteConfig({ ...base, HABBLAUD_REMOTE_INSECURE_HTTP: '1' }, false, () => false).config;
     expect(insecure?.tls).toBeUndefined();
   });
-  it('starts with defaults: port 4748, terminal only, certificate in default folder', () => {
+  it('starts with defaults: port 4748, view only, certificate in default folder', () => {
     const { config } = parseRemoteConfig({ ...base, HOME: '/h' }, false, TLS_FILES);
     expect(config).toMatchObject({ port: 4748, host: '0.0.0.0', user: 'ana' });
     expect(config?.tls?.certFile).toBe('/h/.habblaud/remote-tls/server/server.crt');
-    expect([...config!.allow]).toEqual(['terminal']);
+    expect([...config!.allow]).toEqual([]);
   });
   it('in Docker ignores port and host (container always listens on 0.0.0.0:4748) and reads cert from /remote-tls', () => {
     const env = { ...base, HABBLAUD_REMOTE_PORT: '9999', HABBLAUD_REMOTE_HOST: '10.0.0.1' };
@@ -68,7 +70,8 @@ describe('parseRemoteConfig', () => {
   it('HABBLAUD_REMOTE_ALLOW: lists, ignores unknown names, "none" = view only', () => {
     expect([...parseAllow('spawn, Terminal, bogus')]).toEqual(['spawn', 'terminal']);
     expect([...parseAllow('none')]).toEqual([]);
-    expect([...parseAllow('')]).toEqual(['terminal']);
+    expect([...parseAllow('')]).toEqual([]);
+    expect([...parseAllow(undefined)]).toEqual([]);
   });
 });
 
@@ -200,6 +203,9 @@ async function start(allow: RemoteFeature[] = []): Promise<Harness> {
     version: '9.9.9',
     inDocker: true,
     terminal: true,
+    // Stubs: enough for the terminal and session-history routes to answer once the remote session is allowed.
+    terminals: new TerminalStreams({ office, transcriptPathOf: () => undefined, parserFor: () => undefined }),
+    sessions: { list: async () => [], resolve: () => ({ ok: false, status: 404, error: 'unknown' }) } as unknown as SessionLookup,
     spawn,
     pty: (req, res, path) => {
       req.resume();
@@ -413,6 +419,19 @@ describe('remote port', () => {
     expect((await request(h.remoteBase, '/api/sessions/recent', { headers })).status).toBe(403);
   });
 
+  it('HABBLAUD_REMOTE_ALLOW unset refuses conversation reads; --allow terminal grants them', async () => {
+    const unset = await start([...parseAllow(undefined)]);
+    const c1 = await login(unset.remoteBase);
+    for (const path of ['/api/agents/x/terminal', '/api/sessions/recent']) {
+      expect((await request(unset.remoteBase, path, { headers: { Cookie: c1 } })).status, path).toBe(403);
+    }
+    const granted = await start([...parseAllow('terminal')]);
+    const c2 = await login(granted.remoteBase);
+    for (const path of ['/api/agents/x/terminal', '/api/sessions/recent']) {
+      expect((await request(granted.remoteBase, path, { headers: { Cookie: c2 } })).status, path).not.toBe(403);
+    }
+  });
+
   it('HABBLAUD_REMOTE_ALLOW=spawn enables spawn and "none" leaves the phone view-only', async () => {
     const withSpawn = await start(['spawn']);
     const c1 = await login(withSpawn.remoteBase);
@@ -453,7 +472,7 @@ describe('GET /api/access (what the page can do)', () => {
       terminal: false,
       spawn: false,
     });
-    expect(JSON.parse((await request(h.localBase, '/api/access')).body)).toEqual({ remote: false, local: true, terminal: false, spawn: true });
+    expect(JSON.parse((await request(h.localBase, '/api/access')).body)).toEqual({ remote: false, local: true, terminal: true, spawn: true });
     expect(JSON.parse((await request(h.localBase, '/api/access', { headers: { Host: '192.168.1.5:4747' } })).body)).toMatchObject({
       local: false,
       spawn: false,

@@ -57,7 +57,7 @@ Turns on phone access (https://<name>.local) with username, password and HTTPS.
   --name <name>        address <name>.local (default: habblaud)
   --domain <address>   own address, e.g. myclaude.home (needs an entry in the router's DNS)
   --port <n>           port on the computer (default: 443 if free, otherwise 4748)
-  --allow <list>       what the phone can do: terminal, spawn, none (default: terminal)
+  --allow <list>       what the phone can do: terminal, spawn, none (default: none, view only)
   --password-stdin     reads the password from standard input (automation) instead of asking
   --no-service         doesn't install the <name>.local announcement service (run npm run remote:mdns yourself)
   --off                turns off phone access (removes the lines from .env and the service; keeps the CA)`);
