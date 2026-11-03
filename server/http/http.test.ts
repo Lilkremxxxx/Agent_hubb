@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ModSummary, OfficeSnapshot, PermissionRequestInfo, UpdateStatus } from '../../shared/types';
+import type { ModSummary, OfficeSnapshot, PermissionRequestInfo } from '../../shared/types';
 import { AccountsService } from '../accounts/service';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
@@ -138,30 +138,6 @@ describe('API HTTP', () => {
     expect((await fetch(`${env.base}/api/agents/does-not-exist`)).status).toBe(404);
     const health = await (await fetch(`${env.base}/api/health`)).json();
     expect(health).toMatchObject({ ok: true, version: '9.9.9', demo: false, docker: false, terminal: false, accounts: [{ id: '.claude', usageStatus: 'disabled' }] });
-  });
-
-  it('GET /api/updates and POST /api/updates/check without checker: off', async () => {
-    expect(await (await fetch(`${env.base}/api/updates`)).json()).toEqual({ version: '9.9.9', state: 'off', available: false });
-    const check = await fetch(`${env.base}/api/updates/check`, { method: 'POST', headers: JSON_HEADERS, body: '{}' });
-    expect(await check.json()).toMatchObject({ state: 'off' });
-    expect((await fetch(`${env.base}/api/updates/check`)).status).toBe(405);
-    expect(((await (await fetch(`${env.base}/api/health`)).json()) as { updates: unknown }).updates).toEqual({ state: 'off', available: false });
-  });
-
-  it('with checker: GET returns status and POST requests manual check', async () => {
-    const status: UpdateStatus = { state: 'ok', repo: 'owner/name', checkedAt: 1, latest: '10.0.0', url: 'https://github.com/owner/name/releases/tag/v10.0.0', available: true };
-    const calls: { manual?: boolean }[] = [];
-    const other = await start({ updates: { status: () => status, check: async (o) => (calls.push(o), status) } });
-    try {
-      expect(await (await fetch(`${other.base}/api/updates`)).json()).toEqual({ version: '9.9.9', ...status });
-      const res = await fetch(`${other.base}/api/updates/check`, { method: 'POST', headers: JSON_HEADERS, body: '{}' });
-      expect(await res.json()).toMatchObject({ latest: '10.0.0', available: true });
-      expect(calls).toEqual([{ manual: true }]);
-      expect(((await (await fetch(`${other.base}/api/health`)).json()) as { updates: unknown }).updates).toEqual({ state: 'ok', latest: '10.0.0', available: true });
-    } finally {
-      await other.close();
-      other.cleanup();
-    }
   });
 
   it('terminal disabled: 403 JSON and meta.terminal false', async () => {

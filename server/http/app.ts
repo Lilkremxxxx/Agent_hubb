@@ -2,7 +2,7 @@
 import type { OfficeRules, RuleFor } from '../../shared/rules';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { NAME_MAX, parseAppearanceParts, parseCharacterName, parseSeed } from '../../shared/appearance';
-import type { AccessInfo, AgentInfo, ModSummary, OfficeSnapshot, PtyInfo, SourceInfo, UpdateStatus, WorkerJob } from '../../shared/types';
+import type { AccessInfo, AgentInfo, ModSummary, OfficeSnapshot, PtyInfo, SourceInfo, WorkerJob } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
 import { handleCodexEvent } from '../codex/http';
 import type { DayStatsService } from '../history/daystats';
@@ -130,11 +130,6 @@ export interface ApiDeps {
   };
   /** "My day" statistics (GET /api/stats, http/stats.ts). */
   stats?: DayStatsService;
-  /** Check for new versions on GitHub (GET /api/updates, POST /api/updates/check; updates/checker.ts). */
-  updates?: {
-    status(): UpdateStatus;
-    check(opts: { manual?: boolean }): Promise<UpdateStatus>;
-  };
   /**
    * Remote port with login (http/remote.ts): `is` indicates if request arrived through it (already authenticated);
    * `allows`, what HABBLAUD_REMOTE_ALLOW allows. Remote request never trusted by Host: only by what `allows` permits.
@@ -260,11 +255,6 @@ export function readJson(req: IncomingMessage, max = MAX_BODY): Promise<unknown>
     });
     req.on('error', fail);
   });
-}
-
-/** Summary of update check for /api/health. */
-function updatesSummary(s: UpdateStatus | undefined): { state: UpdateStatus['state']; latest?: string; available: boolean } {
-  return s ? { state: s.state, latest: s.latest, available: s.available } : { state: 'off', available: false };
 }
 
 /** Subagents nested deeper than this do not exist in practice; limit prevents loop on invalid parentId. */
@@ -477,7 +467,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           pty: !!deps.pty && !remote,
           messages: !!deps.messages && (!remote || trusted(req, 'messages')),
           codexEvents: !!deps.codexLive,
-          updates: updatesSummary(deps.updates?.status()),
           sources: deps.sources(),
           accounts: accounts.allEntries().map((a) =>
             a.provider === 'claude'
@@ -965,26 +954,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (isRemote(req)) sendJson(res, 403, { error: tr('not allowed over remote access (see HABBLAUD_REMOTE_ALLOW)') });
       else handleDemo(req, res).catch((err) => fail(res, err));
-      return true;
-    }
-    if (path === '/api/updates') {
-      if (!isRead) methodNotAllowed(res, 'GET');
-      else sendJson(res, 200, { version: deps.version, ...(deps.updates?.status() ?? { state: 'off', available: false }) });
-      return true;
-    }
-    if (path === '/api/updates/check') {
-      // "Check now": checks GitHub (at most once every 30 s) and returns updated status.
-      if (method !== 'POST') methodNotAllowed(res, 'POST');
-      else {
-        req.resume();
-        const updates = deps.updates;
-        if (!updates) sendJson(res, 200, { version: deps.version, state: 'off', available: false });
-        else
-          updates
-            .check({ manual: true })
-            .then((status) => sendJson(res, 200, { version: deps.version, ...status }))
-            .catch((err) => fail(res, err));
-      }
       return true;
     }
     if (deps.timeline?.(req, res, url)) return true;

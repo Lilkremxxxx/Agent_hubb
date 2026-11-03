@@ -12,5 +12,5 @@ fi
 npm run build --silent
 log="$HOME/.habblaud/office.log"
 mkdir -p "${log%/*}"
-HABBLAUD_PTY=1 HABBLAUD_WORLD=0 HABBLAUD_UPDATE_CHECK=0 setsid nohup node dist/server/index.js > "$log" 2>&1 < /dev/null &
+HABBLAUD_PTY=1 HABBLAUD_WORLD=0 setsid nohup node dist/server/index.js > "$log" 2>&1 < /dev/null &
 echo "The office is starting: $url (log: $log)"

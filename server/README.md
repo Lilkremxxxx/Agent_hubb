@@ -78,11 +78,9 @@ turns into a party) or 10 min. Push only notifies. The same CI seen again within
 | `GET /api/stats/days?tz=<IANA>` | `StatsDaysResponse`: days with real data (and demo, if enabled), most recent first |
 | `GET /api/timeline/days` | `{recording, days:[{day, bytes, from, to}]}`: days recorded for timelapse, most recent to oldest |
 | `GET /api/timeline/:dia` | Day file (`AAAA-MM-DD`) in JSONL (`application/x-ndjson`, gzip if accepted); 400 for invalid day, 404 without recording |
-| `GET /api/health` | `{ok, version, demo, docker, terminal, permissions, messages, updates:{state, latest, available}, sources, accounts:[{id, usageStatus}]}` |
+| `GET /api/health` | `{ok, version, demo, docker, terminal, permissions, messages, sources, accounts:[{id, usageStatus}]}` |
 | `POST /api/demo` | `{enabled: boolean}` enables/disables simulated agents (mixed with real ones) |
 | `GET /api/mod/summary?account=&session=` | `ModSummary` for Claude Code mod: `{version, agents, working, waiting:[{id, name, room, account, waitingFor, since, answerable}]}`, without demo and excluding caller session (see below) |
-| `GET /api/updates` | `{version, ...UpdateStatus}`: running version and result of new version check (see below) |
-| `POST /api/updates/check` | "Check now": queries GitHub (at most once every 30 s) and returns `{version, ...UpdateStatus}` |
 | `/api/world/*` | Habblaud World (account, character and building; enabled by default, `HABBLAUD_WORLD=0` disables): local port with local `Host` only; see below |
 | `POST /api/permissions` | (hook) registers a permission request: `201 {id, expiresAt}` or `200 {skip}`; local bind only (see below) |
 | `GET /api/permissions/:id/wait` | (hook) long-poll up to 25 s (`?timeout=` in seconds): `{status: 'pending' \| 'decided' \| 'released', ...}` |
@@ -100,19 +98,6 @@ Edge (`http/guard.ts`, applies to API, statics, and Vite): `Host` must be `local
 from `HABBLAUD_ALLOWED_HOSTS` (against DNS rebinding) → otherwise 403; `POST` on `/api/*` requires `Content-Type:
 application/json` (415) and same-origin or local `Origin` (403), against CSRF. JSON responses are sent with `nosniff`
 and `Cross-Origin-Resource-Policy: same-origin`, no CORS.
-
-## New version
-
-`updates/checker.ts` queries `GET https://api.github.com/repos/<owner>/<name>/releases/latest`, without token, 5 s after
-startup and every 6 h thereafter (1 h after a failure). The repository comes from the `repository` field of
-`package.json` (a fork only needs to change that field). The query sends `If-None-Match` with the previous ETag, since a
-304 response does not consume the 60 queries/hour limit without token. The result (`repo`, `checkedAt`, `etag`,
-`latest`, `url`, `publishedAt`) is saved in `<dataDir>/updates.json`, so a restart does not repeat queries prematurely.
-The tag must follow semver (`v1.2.3` or `1.2.3-beta.1`) and is compared against the `package.json` version. Responses:
-404 = no release (`ok` without `latest`); 403/429 = GitHub limit (`error`). On failure, the last known release remains
-valid. Status goes in the snapshot under `meta.updates` (`UpdateStatus` in `shared/types.ts`) and is republished when it
-changes. The release link is only passed if from the repository itself on GitHub. A newly found version is logged once.
-`HABBLAUD_UPDATE_CHECK=0` disables it (`state: 'off'`, no queries).
 
 Each version has its section in `CHANGELOG.md`; a test fails if the `package.json` version lacks a section, and `npm run
 release` (`scripts/release.ts`) creates the tag and release using its section text as release notes.
@@ -488,7 +473,6 @@ geometry in `shared/world/city.ts` (source of truth; world server keeps exact co
 | `HABBLAUD_CLAUDE_DIRS` | — | Comma-separated config dirs; overrides detection (`~/.claude*` with `projects/` or `sessions/` + `CLAUDE_CONFIG_DIR`) |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` (Docker: `/data`) | Habblaud state (project names and characters persisted in `names.json`, timeline in `timeline/`, My day stats in `stats/`, last version check in `updates.json`) |
 | `HABBLAUD_TIMELINE` | enabled | `0` disables timelapse timeline recording |
-| `HABBLAUD_UPDATE_CHECK` | enabled | `0` disables new version checks (releases from `package.json` repo on GitHub, every 6 h) |
 | `HABBLAUD_LANG` | system language (`LC_ALL`/`LANG`/Intl) | Language of server-assembled texts: `pt-BR` or `fr` (shared/i18n.ts) |
 | `HABBLAUD_DEMO` | disabled | `1` enables demo mode on startup |
 | `HABBLAUD_IN_DOCKER` | auto (`/.dockerenv`) | `1` = skip PID checks (they belong to host) |
@@ -553,7 +537,6 @@ The repository is also a Claude Code plugin marketplace (`.claude-plugin/marketp
 - `permissions/` — answering from office (permissions and questions): request registry (`registry.ts`), routes
   (`http.ts`), and transcript call search (`transcript.ts`).
 - `messages/` — messages from office: queue, session presence, and timeouts (`registry.ts`) and routes (`http.ts`).
-- `updates/` — new version checks on GitHub releases (`checker.ts`).
 - `world/` — Habblaud World: session in `world.json` (`settings.ts`), world server client (`client.ts`), ALTCHA
   (`altcha.ts`), account (`service.ts`), `/api/world/*` routes (`http.ts`), and building in world (`uplink.ts`, with
   `ids.ts`, `tokens.ts`, `theme.ts`, and `signals.ts`).

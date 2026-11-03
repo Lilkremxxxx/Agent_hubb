@@ -48,7 +48,6 @@ import { RulesLog } from './rules-log';
 import { rulesText } from '../shared/rules';
 import { CodexSource } from './sources/codex/source';
 import { createBuildReader, readBuildInfo } from './build';
-import { UpdateChecker } from './updates/checker';
 import { tr } from '../shared/i18n';
 import type { WorldLocale } from '../shared/world/protocol';
 import { createCliRunner, createOpener, SpawnService } from './spawn/spawn';
@@ -80,15 +79,6 @@ roomAliases.load();
 
 // Office, accounts, and agent sources reference each other (change notifications / sources): late binding.
 const late: { office?: Office; agents?: SourceSet; permissions?: PermissionRegistry; messages?: MessageRegistry; ptys?: PtyManager; ptyOff?: string; workers?: WorkerService } = {};
-// New version: checks the latest release on GitHub every 6 h (HABBLAUD_UPDATE_CHECK=0 turns it off).
-const updates = new UpdateChecker({
-  current: config.version,
-  repo: config.repo,
-  enabled: config.updateCheck,
-  file: join(config.dataDir, 'updates.json'),
-  onChange: () => late.office?.markDirty(),
-});
-updates.load();
 // Habblaud World (server/world/): account and character on this computer. Enabled by default (server.habblaud.com, or
 // HABBLAUD_WORLD_URL); nothing leaves the computer before the user creates an account and signs in. HABBLAUD_WORLD=0
 // hides everything (404 routes and nothing in the UI); a rejected HABBLAUD_WORLD_URL keeps the feature disabled.
@@ -126,7 +116,6 @@ const office = new Office({
   permissions: () => late.permissions?.snapshot() ?? new Map(),
   messages: config.messages ? () => late.messages?.reachable() ?? new Set() : undefined,
   ptys: () => (late.ptys ? { status: late.ptys.status(), list: late.ptys.list() } : { status: { enabled: false, reason: late.ptyOff ?? tr('off') }, list: [] }),
-  updates: () => updates.status(),
   world: () => world?.meta() ?? { enabled: false, configured: false, state: 'off' },
 });
 // Agent sources, one per tool (sources/source.ts): Claude Code's and, after it, Codex's (when Codex
@@ -138,7 +127,7 @@ const agents = new SourceSet([claude]);
 const codexDirs = config.codex ? discoverCodexDirs(process.env, config.home) : [];
 const codex = codexDirs.length ? new CodexSource({ accounts, office, dirs: codexDirs, env: process.env, home: config.home }) : undefined;
 if (codex) agents.add(codex);
-// Board › Tasks and News (server/board.ts): each room's handoff file and today's commits, plus what sources report.
+// Board › Tasks (server/board.ts): each room's handoff file.
 const board = new BoardService({ office, folders: () => team.offices.map((o) => o.folder) });
 // Antigravity CLI workers (sources/agy/): every profile in ~/.agy_profiles is an account, the ones registered in the
 // team are workers in config.agy.room; HABBLAUD_AGY=0 turns it off. Linux only (reads /proc).
@@ -152,9 +141,6 @@ const agy = config.agy.enabled && process.platform === 'linux'
       home: config.home,
       usageMs: config.agy.usageMs,
       jobsDir: join(config.dataDir, 'agy-jobs'),
-      news: (item) => {
-        if (board.feed.add(item)) board.publish();
-      },
     })
   : undefined;
 if (agy) agents.add(agy);
@@ -484,27 +470,19 @@ if (timeline) {
 permissions?.start();
 messages?.start();
 stats.start();
-updates.start();
 worldUplink?.start();
-// Hung workers: a faint ghost on the seat and one line on the Board; nothing is stopped.
+// Hung workers: a faint ghost on the seat; nothing is stopped.
 const ghosts = new GhostWatch({
   office,
   candidates: () => [...(agy?.ghostCandidates() ?? []), ...(workers?.ghostCandidates() ?? [])],
-  news: (item) => {
-    if (board.feed.add(item)) board.publish();
-  },
+  news: () => undefined,
 });
 ghosts.start();
-// New rule violations: one Board news item each, and the offices again (their logs, the rules boards flash).
+// New rule violations: the offices again (their logs, the rules boards flash).
 const rulesTimer = setInterval(() => {
   try {
     const fresh = rulesLog.poll();
     if (!fresh.length) return;
-    for (const v of fresh) {
-      const name = team.officeOf(v.office)?.name ?? v.office;
-      board.feed.add({ id: `rule:${v.at}:${v.office}:${v.who}:${v.kind}`, at: v.at, kind: 'rule', icon: '📜', text: tr('{0} stopped by the rules of {1}', [v.who, name]), detail: v.detail });
-    }
-    board.publish();
     team.publish();
   } catch (err) {
     log.warnOnce(`rules:${errMsg(err)}`, tr('Reading the rules log failed: {0}', [errMsg(err)]));
@@ -596,7 +574,6 @@ const api = createApiHandler({
   },
   codexLive,
   stats,
-  updates,
   remote: config.remote ? { is: isRemoteRequest, allows: (f) => config.remote!.allow.has(f) } : undefined,
   world: world ? createWorldRoutes(world, worldViewer, worldSocial) : undefined,
 });
@@ -755,11 +732,6 @@ server.listen(config.port, config.host, () => {
             config.terminal ? '' : tr(' (read-only: the terminal lock is off)'),
           ]),
   );
-  log.info(
-    updates.enabled
-      ? tr('   New version: checking github.com/{0} releases every 6 h.', [config.repo])
-      : tr('   New version: check off ({0}).', [config.repo ? 'HABBLAUD_UPDATE_CHECK' : tr('package.json has no GitHub repository')]),
-  );
 });
 
 let shuttingDown = false;
@@ -780,7 +752,6 @@ function shutdown(signal: string): void {
   permissions?.stop();
   messages?.stop();
   ptys?.stopAll();
-  updates.stop();
   worldViewer?.stop();
   worldUplink?.stop();
   world?.stop();

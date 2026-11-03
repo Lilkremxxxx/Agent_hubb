@@ -34,7 +34,6 @@ import { TERMINAL_UNAVAILABLE_HINT, TerminalPanel } from './terminal';
 import { PtyPanel } from './pty';
 import { TimelapsePlayer } from './timelapse';
 import { Toasts } from './toasts';
-import { UpdateToaster } from './version';
 import { TopBar } from './topbar';
 import { UpdateBanner } from './update';
 import { WorldPopups } from './world/world-popups';
@@ -285,7 +284,6 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   drawer = new Drawer(ctx, terminal, pty);
   const feed = new FeedPanel(ctx);
   const toasts = new Toasts(ctx);
-  const updateToaster = new UpdateToaster(ctx, (n) => toasts.push(n));
   // Habblaud World (in development): dedicated window (top bar button) and release popups, only when
   // meta.world is enabled. Settings only receives the theme hint in Appearance.
   const hw = worldSource(store);
@@ -369,7 +367,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   }));
   drawer.onLayoutChange = () => applyLayout();
 
-  const components: UiComponent[] = [topbar, sidebar, drawer, terminal, pty, history, deliveries, feed, toasts, settings, empty, banner, tip, notifier, splash, timelapse, sound, day, updateToaster, worldDialog, popups, worldChip];
+  const components: UiComponent[] = [topbar, sidebar, drawer, terminal, pty, history, deliveries, feed, toasts, settings, empty, banner, tip, notifier, splash, timelapse, sound, day, worldDialog, popups, worldChip];
   if (scene) components.push(scene);
   root.append(worldSocial.el, jobBoard.el, overload.el, sidebar.dialogEl, officeTabs.dialog.el, officeTabs.menu.el, rules.el);
   components.push(worldSocial, jobBoard, overload, officeTabs, rules);

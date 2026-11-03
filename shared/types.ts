@@ -339,34 +339,6 @@ export interface RoomEffect {
   agentId?: string;
 }
 
-/**
- * Update check: server checks the latest GitHub repository release (server/updates/checker.ts)
- * and compares it to current version.
- */
-export interface UpdateStatus {
-  /**
-   * - off: check disabled (HABBLAUD_UPDATE_CHECK=0 or package.json without GitHub repository);
-   * - pending: not checked yet;
-   * - ok: checked (with or without published release);
-   * - error: last attempt failed (no internet, GitHub rate limit...).
-   */
-  state: 'off' | 'pending' | 'ok' | 'error';
-  /** Checked repository, "owner/name". */
-  repo?: string;
-  /** Last successful check (epoch ms). */
-  checkedAt?: number;
-  /** Latest release version, without "v" (absent: no published release). */
-  latest?: string;
-  /** Latest release page on GitHub. */
-  url?: string;
-  /** Latest release publication (epoch ms). */
-  publishedAt?: number;
-  /** Latest release is newer than current version. */
-  available: boolean;
-  /** Failure reason (state "error"). */
-  error?: string;
-}
-
 export interface SourceInfo {
   /** Account label (config dir basename). */
   label: string;
@@ -589,8 +561,6 @@ export interface OfficeSnapshot {
      * with node-pty and local access. Absent = feature disabled.
      */
     pty?: PtyStatus;
-    /** GitHub new version check (absent in tests and timelapse). */
-    updates?: UpdateStatus;
     /**
      * Habblaud World (server/world/): `enabled` = section appears (HABBLAUD_WORLD is not 0 and world server was
      * accepted: default server.habblaud.com or valid HABBLAUD_WORLD_URL; rejected, feature disabled and nothing

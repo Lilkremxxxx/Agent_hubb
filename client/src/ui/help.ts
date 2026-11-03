@@ -87,7 +87,7 @@ const SHORTCUTS: [string[], string][] = [
   [['L'], tr("Open or close the day's timelapse")],
   [['P'], tr('Go to the next permission request or question to answer from the office')],
   [['M'], tr('My day: where the time went (working, waiting on you...)')],
-  [['B'], tr("Board: tasks (todo and handoff), jobs given to the workers, today's news; 1 2 3 switch tabs")],
+  [['B'], tr("Board: tasks (todo and handoff), jobs given to the workers; 1 2 3 switch tabs")],
   [['R'], tr('Rules of the office shown: scope, rules, limits, the boss\'s proposals and what was refused')],
   [['H'], tr('Boss overloaded: sessions with a long context, ask for a handoff and open a new session')],
   [['O', '0'], tr('Building overview')],
@@ -134,7 +134,6 @@ const GUIDE: [string, string[]][] = [
   [tr('📋 The Board (B)'), [
     tr("The to-do list is the \"Next steps\" list of the office's HANDOFF file: the boss and you edit the same list."),
     tr("The workers' jobs are this office's only, with their tokens and cache. A job from anywhere else is not listed."),
-    tr('The news shows failed jobs, quota hits, hung workers, rule refusals and who needs you.'),
   ]],
   [tr('📜 Office rules (R)'), [
     tr('Each office sets where its agents may edit, what they may never read, which commands are forbidden, and job and quota limits.'),

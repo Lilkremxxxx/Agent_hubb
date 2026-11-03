@@ -22,7 +22,6 @@ import type {
   ShellJob,
   SourceInfo,
   TaskItem,
-  UpdateStatus,
   WorkerProgress,
   JobBoard,
   HandoffPlan,
@@ -83,8 +82,6 @@ export interface OfficeDeps {
    * Absent = messages from office disabled (OfficeSnapshot.meta.messages).
    */
   messages?: () => ReadonlySet<string>;
-  /** New version check on GitHub (see OfficeSnapshot.meta.updates). */
-  updates?: () => UpdateStatus;
   /** Interactive terminals (PtyManager): feature status and open terminals. */
   ptys?: () => { status: PtyStatus; list: PtyInfo[] };
   /** Habblaud World (WorldService.meta; see OfficeSnapshot.meta.world). */
@@ -1173,7 +1170,6 @@ export class Office {
         terminal: this.deps.terminal === true,
         messages: this.deps.messages !== undefined,
         ...(ptys ? { pty: ptys.status } : {}),
-        updates: this.deps.updates?.(),
         ...(this.deps.world ? { world: this.deps.world() } : {}),
       },
     };

@@ -760,12 +760,11 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_CODEX` | on | `0` turns off Codex in the office. |
 | `HABBLAUD_CODEX_DIRS` | automatic detection | Codex folders, comma-separated (instead of `~/.codex*` and `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` from PATH (on Windows, `codex.exe`) | The Codex binary that delivers the messages (`codex queue`), in Node mode or in `npm run codex:bridge`. |
-| `HABBLAUD_UPDATE_CHECK` | on | `0` turns off the new-version check (a request to the repository's releases on GitHub every 6 h). |
 | `HABBLAUD_LANG` | system language, otherwise `en` | Language of the texts the server builds (activities, notices, logs): `en` or `vi`. The interface follows the browser or the choice in Settings › Language. See [Languages](#languages). |
 | `HABBLAUD_ACCOUNTS` | — | JSON to customize name, letter or color, matched by the account folder name. E.g. `[{"id":".claude-conta2","name":"Trabalho","short":"T","color":"#5cc97b"}]`. |
 
 **In Docker**, `HABBLAUD_PORT`, `HABBLAUD_BIND`, `HABBLAUD_ALLOWED_HOSTS`, `HABBLAUD_DEMO`, `HABBLAUD_TERMINAL`,
-`HABBLAUD_MENSAGENS`, `HABBLAUD_CODEX`, `HABBLAUD_UPDATE_CHECK`, `HABBLAUD_LANG`, `HABBLAUD_PTY`, the `HABBLAUD_WORLD*` and the
+`HABBLAUD_MENSAGENS`, `HABBLAUD_CODEX`, `HABBLAUD_LANG`, `HABBLAUD_PTY`, the `HABBLAUD_WORLD*` and the
 `HABBLAUD_REMOTE_*` apply (in `.env` or in the environment), as do `HABBLAUD_CLAUDE_DIRS`, `HABBLAUD_CODEX_DIRS`, `HABBLAUD_USAGE_DIR` and
 `HABBLAUD_ACCOUNTS` (read by `docker:up` on the host); the rest are fixed inside the container. Options: `npm run docker:up -- --no-build` (starts without rebuilding),
 `npm run docker:down` (stops) and `npm run docker:logs` (follows the logs).
@@ -970,10 +969,7 @@ metadata (letter, email, organization) is read on the host by `docker:up` and pa
   folder: whatever is in it (including after a `git pull`) is what runs. The messages plugin
   (`habblaud-mensagens`) is separate precisely because it acts: it types into the session what you sent from the office.
 - **Local only, by default:** the server only accepts connections from the computer it runs on; opening it to the local network is optional.
-  There's no telemetry. The only external call is the new-version check: every 6 hours, an anonymous request,
-  with no token, to the public GitHub API (`api.github.com/repos/marmottajr/habblaud/releases/latest`). It doesn't send anything
-  about your sessions; GitHub only sees your IP and the version in use, which goes in the `User-Agent`.
-  `HABBLAUD_UPDATE_CHECK=0` turns off the request.
+  There's no telemetry.
   [Habblaud World](#habblaud-world) (on by default) only sends something to the world server after you create an
   account and sign in, and only what is listed in [what leaves your computer](docs/world/privacidade.md);
   `HABBLAUD_WORLD=0` turns it all off.

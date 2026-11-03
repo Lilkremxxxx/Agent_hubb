@@ -1,11 +1,11 @@
-// Board › Tasks and News per room: handoff plans and today's commits, published to the Office.
+// Board › Tasks per room: handoff plans, published to the Office.
 import { mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BoardService } from './board';
 import type { Office } from './model/office';
-import type { HandoffPlan, NewsItem } from '../shared/types';
+import type { HandoffPlan } from '../shared/types';
 
 let dir = '';
 afterEach(() => dir && rmSync(dir, { recursive: true, force: true }));
@@ -13,27 +13,21 @@ afterEach(() => dir && rmSync(dir, { recursive: true, force: true }));
 const NOW = new Date(2026, 9, 27, 15, 0).getTime();
 
 describe('BoardService', () => {
-  it("reads each room's handoff plan and today's commits; publishes the feed only when it changed", async () => {
+  it("reads each room's handoff plan", async () => {
     dir = mkdtempSync(join(tmpdir(), 'board-'));
     writeFileSync(join(dir, 'HANDOFF.md'), '## Next steps\n- Ship the board\n');
     const plans = new Map<string, HandoffPlan | undefined>();
-    const published: NewsItem[][] = [];
     const office = {
       roomList: () => [
         { id: 'r1', path: dir, name: 'proj' },
         { id: 'r2', path: join(dir, 'missing'), name: 'gone' },
       ],
       setPlan: (id: string, p: HandoffPlan | undefined) => plans.set(id, p),
-      setNews: (items: NewsItem[]) => published.push(items),
     } as unknown as Office;
-    const commits = async (path: string) => (path === dir ? [{ hash: 'abcdef1234', at: NOW - 60_000, author: 'Nam', subject: 'Board tabs' }] : []);
-    const board = new BoardService({ office, now: () => NOW, commits });
+    const board = new BoardService({ office, now: () => NOW });
     await board.poll();
     expect(plans.get('r1')?.items).toEqual([{ text: 'Ship the board' }]);
     expect(plans.get('r2')).toBeUndefined();
-    expect(published).toEqual([[{ id: 'commit:abcdef1234', at: NOW - 60_000, kind: 'commit', icon: '📝', text: 'Board tabs', detail: 'proj · Nam · abcdef1', roomId: 'r1' }]]);
-    await board.poll();
-    expect(published).toHaveLength(1);
   });
 
   it('edits the to-do list in the HANDOFF file; refuses (and reloads) when the file changed meanwhile; starts one', () => {
@@ -63,8 +57,8 @@ describe('BoardService', () => {
     dir = mkdtempSync(join(tmpdir(), 'board-'));
     writeFileSync(join(dir, 'HANDOFF.md'), '## Next steps\n- One\n');
     let folders = [dir, '', join(dir, 'missing')];
-    const office = { roomList: () => [], setPlan: () => undefined, setNews: () => undefined } as unknown as Office;
-    const board = new BoardService({ office, now: () => NOW, commits: async () => [], folders: () => folders });
+    const office = { roomList: () => [], setPlan: () => undefined } as unknown as Office;
+    const board = new BoardService({ office, now: () => NOW, folders: () => folders });
     await board.poll();
     expect(board.folderPlan(dir)?.items).toEqual([{ text: 'One' }]);
     expect(board.folderPlan(join(dir, 'missing'))).toBeUndefined();

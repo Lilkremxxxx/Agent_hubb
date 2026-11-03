@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url';
 import { discoverClaudeDirs } from './accounts/detect';
 import { parseAllowedHosts } from './http/guard';
 import { parseRemoteConfig, type RemoteConfig } from './http/remote';
-import { parseGithubRepo } from './updates/checker';
 import { tr } from '../shared/i18n';
 
 export interface ServerConfig {
@@ -41,10 +40,6 @@ export interface ServerConfig {
   /** Project root (where package.json lives); serves dist/client from here. */
   rootDir: string;
   version: string;
-  /** GitHub repository ("owner/repo", from package.json `repository` field) where new releases are published. */
-  repo?: string;
-  /** Checks GitHub for new releases (server/updates/checker.ts); HABBLAUD_UPDATE_CHECK=0 disables it. */
-  updateCheck: boolean;
   /** Observes Codex sessions (sources/codex/); HABBLAUD_CODEX=0 disables it. */
   codex: boolean;
   /**
@@ -105,11 +100,11 @@ export function findRoot(from: string): string {
   return resolve(from, '..');
 }
 
-/** Version and repository from package.json. */
-function readPackage(rootDir: string): { version: string; repo?: string } {
+/** Version from package.json. */
+function readPackage(rootDir: string): { version: string } {
   try {
-    const pkg = JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8')) as { version?: unknown; repository?: unknown };
-    return { version: typeof pkg.version === 'string' ? pkg.version : '0.0.0', repo: parseGithubRepo(pkg.repository) };
+    const pkg = JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8')) as { version?: unknown };
+    return { version: typeof pkg.version === 'string' ? pkg.version : '0.0.0' };
   } catch {
     return { version: '0.0.0' };
   }
@@ -247,8 +242,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     timeline: !env.HABBLAUD_TIMELINE?.trim() || isTruthy(env.HABBLAUD_TIMELINE),
     rootDir,
     version: pkg.version,
-    repo: pkg.repo,
-    updateCheck: !env.HABBLAUD_UPDATE_CHECK?.trim() || isTruthy(env.HABBLAUD_UPDATE_CHECK),
     codex: !env.HABBLAUD_CODEX?.trim() || isTruthy(env.HABBLAUD_CODEX),
     agy: parseAgyConfig(env, home),
     remote: remote.config,
