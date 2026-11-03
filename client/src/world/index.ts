@@ -65,17 +65,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   const soundCbs = new Set<(c: SoundCue) => void>();
   const roomMenuCbs = new Set<(roomId: string, at: { x: number; y: number }) => void>();
   const boardCbs = new Set<(roomId: string) => void>();
-  const rulesCbs = new Set<(officeId: string) => void>();
-  /** Office whose reception rules poster is under the point (canvas CSS px), if any. */
-  const rulesAt = (sx: number, sy: number): string | null => {
-    const w = camera.screenToWorld(sx, sy);
-    for (const vis of renderer.areas.values()) {
-      const rb = renderer.rulesBoard(vis.id);
-      const r = rb?.rect;
-      if (r && w.x >= r.x && w.x <= r.x + r.w && w.y >= r.y && w.y <= r.y + r.h) return rb.office;
-    }
-    return null;
-  };
   /** Room whose job board is under the point (canvas CSS px), if any. */
   const boardAt = (sx: number, sy: number): string | null => {
     const w = camera.screenToWorld(sx, sy);
@@ -248,9 +237,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       // job board opens enlarged (in UI); an agent in front of it takes the click
       const board = hit?.type !== 'agent' && boardCbs.size ? boardAt(at.x, at.y) : null;
       if (board) return boardCbs.forEach((cb) => cb(board));
-      // the reception rules poster opens the office rules
-      const rules = hit?.type !== 'agent' && rulesCbs.size ? rulesAt(at.x, at.y) : null;
-      if (rules) return rulesCbs.forEach((cb) => cb(rules));
       // Clicking already selected agent again: they react (sim.poke, just for fun).
       if (hit?.type === 'agent' && selection?.type === 'agent' && selection.id === hit.id) sim.poke(hit.id);
       setSelection(hit);
@@ -461,10 +447,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     onBoardOpen: (cb) => {
       boardCbs.add(cb);
       return () => void boardCbs.delete(cb);
-    },
-    onRulesOpen: (cb) => {
-      rulesCbs.add(cb);
-      return () => void rulesCbs.delete(cb);
     },
     onSocialEvent: (cb) => {
       socialCbs.add(cb);

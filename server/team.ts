@@ -20,9 +20,8 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import type { AgentInfo, HandoffPlan, OfficeInfo, TeamInfo, WorkerKind } from '../shared/types';
 import type { Office } from './model/office';
 import { normalizeCwd } from './model/rooms';
-import { FOLDER_CLASH, folderRelation, isDiskRoot, writeFolderClash } from '../shared/folders';
+import { FOLDER_CLASH, folderRelation, isDiskRoot } from '../shared/folders';
 import { pidAlive } from './sources/registry';
-import { normPath, parseRules, RULES_MAX, type OfficeRules, type RuleFor, type RuleViolation } from '../shared/rules';
 import { tr } from '../shared/i18n';
 
 /** How often the crowns are put back on the right heads (sessions come, go and resume). */
@@ -58,8 +57,6 @@ export interface OfficeRecord {
   boss?: BossRecord;
   /** Registered workers (WorkerId). */
   workers: string[];
-  /** The office rules (shared/rules.ts); absent = the defaults (written only once the user or a boss changes them). */
-  rules?: OfficeRules;
 }
 
 export interface TeamFile {
@@ -137,7 +134,7 @@ export function parseTeam(text: string): TeamFile {
     if (!o || typeof o.id !== 'string' || !OFFICE_ID.test(o.id) || offices.some((x) => x.id === o.id)) continue;
     const boss = parseBoss(o.boss as Partial<BossRecord> | undefined);
     const folder = typeof o.folder === 'string' && isAbsolute(o.folder) ? officeFolder(o.folder) : '';
-    offices.push({ id: o.id, name: typeof o.name === 'string' && o.name.trim() ? o.name.trim().slice(0, 40) : o.id, folder, workers: workerList(o.workers), ...(boss ? { boss } : {}), ...(o.rules ? { rules: parseRules(o.rules) } : {}) });
+    offices.push({ id: o.id, name: typeof o.name === 'string' && o.name.trim() ? o.name.trim().slice(0, 40) : o.id, folder, workers: workerList(o.workers), ...(boss ? { boss } : {}) });
   }
   if (!offices.length) offices.push({ id: FIRST_OFFICE, name: 'Office', folder: '', workers: [] });
   return { offices };
@@ -162,8 +159,6 @@ export interface TeamServiceOptions {
    * (sources add or remove characters; each Antigravity boss gets one and a terminal).
    */
   onWorkers?: (workers: readonly string[], agyBosses: readonly string[]) => void;
-  /** The office's recent rule violations (server/rules-log.ts), newest first. */
-  violations?: (officeId: string) => RuleViolation[];
   /** An office was deleted (its running jobs are cancelled). */
   onDeleteOffice?: (id: string) => void;
   /** Worker sessions and jobs for the snapshot (server/workers). */
@@ -386,73 +381,6 @@ export class TeamService {
     return { ok: true };
   }
 
-  /** The office's rules (the defaults until changed). */
-  rulesOf(officeId: string | undefined): OfficeRules | undefined {
-    const o = this.officeOf(officeId);
-    return o ? (o.rules ?? parseRules(undefined)) : undefined;
-  }
-
-  /**
-   * The user saves the office's rules. `rev`: the revision they were edited from (an older one = 409, nothing written).
-   * The boss's proposals are kept as they are on the server. An extra write folder may not overlap another office's.
-   */
-  setRules(officeId: string | undefined, raw: unknown, rev: number): TeamResult {
-    const o = this.officeOf(officeId);
-    if (!o) return { ok: false, status: 404, error: tr('office not found: {0}', [officeId ?? '']) };
-    const cur = this.rulesOf(o.id)!;
-    if (rev !== cur.rev) return { ok: false, status: 409, error: tr('the rules changed meanwhile: reload them') };
-    const next = parseRules(raw);
-    const home = this.opts.home ?? homedir();
-    for (const w of next.scope.write) {
-      const p = normPath(w, home);
-      if (p === '/' || p === normPath(home, home)) return { ok: false, status: 400, error: tr('{0} is too wide to be a write folder', [w]) };
-      const other = writeFolderClash(p, this.team.offices, o.id);
-      if (other) return { ok: false, status: 409, error: tr('{0} overlaps the folder of {1}', [w, other.name]) };
-    }
-    o.rules = { ...next, proposals: cur.proposals, rev: cur.rev + 1 };
-    this.changed();
-    return { ok: true };
-  }
-
-  /** A boss suggests a rule (the user accepts or rejects it in the page). */
-  proposeRule(officeId: string | undefined, p: { text: string; for?: RuleFor; why?: string; by?: string }): TeamResult {
-    const o = this.officeOf(officeId);
-    if (!o) return { ok: false, status: 404, error: tr('office not found: {0}', [officeId ?? '']) };
-    const cur = this.rulesOf(o.id)!;
-    const text = p.text.replace(/\s+/g, ' ').trim().slice(0, RULES_MAX.text);
-    if (!text) return { ok: false, status: 400, error: tr('the rule is empty') };
-    if (cur.proposals.some((x) => x.text === text) || cur.items.some((x) => x.text === text)) return { ok: true };
-    const ids = new Set([...cur.items, ...cur.proposals].map((x) => x.id));
-    let n = cur.proposals.length + 1;
-    while (ids.has(`p${n}`)) n++;
-    const by = p.by?.trim().slice(0, 80) || o.boss?.name || 'boss';
-    const proposal = { id: `p${n}`, text, for: p.for ?? 'all', by, at: (this.opts.now ?? Date.now)(), ...(p.why?.trim() ? { why: p.why.trim().slice(0, RULES_MAX.text) } : {}) };
-    o.rules = { ...cur, proposals: [...cur.proposals, proposal].slice(-RULES_MAX.proposals), rev: cur.rev + 1 };
-    this.changed();
-    return { ok: true };
-  }
-
-  /** The user accepts (it becomes a rule, on) or rejects a boss's proposal. */
-  decideRule(officeId: string | undefined, id: string, accept: boolean): TeamResult {
-    const o = this.officeOf(officeId);
-    if (!o) return { ok: false, status: 404, error: tr('office not found: {0}', [officeId ?? '']) };
-    const cur = this.rulesOf(o.id)!;
-    const p = cur.proposals.find((x) => x.id === id);
-    if (!p) return { ok: false, status: 404, error: tr('proposal not found: {0}', [id]) };
-    if (accept && cur.items.length >= RULES_MAX.items) return { ok: false, status: 409, error: tr('too many rules: remove one first') };
-    const ids = new Set(cur.items.map((x) => x.id));
-    let n = cur.items.length + 1;
-    while (ids.has(`r${n}`)) n++;
-    o.rules = {
-      ...cur,
-      items: accept ? [...cur.items, { id: `r${n}`, text: p.text, for: p.for, on: true }] : cur.items,
-      proposals: cur.proposals.filter((x) => x !== p),
-      rev: cur.rev + 1,
-    };
-    this.changed();
-    return { ok: true };
-  }
-
   /** Declares (or moves) the office's folder. */
   setFolder(officeId: string | undefined, folder: string): TeamResult {
     const o = this.officeOf(officeId);
@@ -572,9 +500,7 @@ export class TeamService {
   }
 
   private info(o: OfficeRecord): OfficeInfo {
-    const out: OfficeInfo = { id: o.id, name: o.name, folder: o.folder, workers: [...o.workers], rules: o.rules ?? parseRules(undefined) };
-    const violations = this.opts.violations?.(o.id);
-    if (violations?.length) out.violations = violations;
+    const out: OfficeInfo = { id: o.id, name: o.name, folder: o.folder, workers: [...o.workers] };
     const workersRoom = this.workersRoomOf(o.id);
     if (workersRoom) out.workersRoomId = normalizeCwd(workersRoom);
     const agents = this.opts.office.list();

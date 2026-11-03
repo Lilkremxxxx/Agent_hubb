@@ -72,7 +72,6 @@ const SHORTCUTS: [string[], string][] = [
   [['T'], tr("Open or close the selected agent's terminal")],
   [['Ctrl+F'], tr('With the terminal focused: search the conversation (⌘F on Mac); Enter and Shift+Enter navigate')],
   [['B'], tr("Board: tasks (todo and handoff), jobs given to the workers; 1 2 3 switch tabs")],
-  [['R'], tr('Rules of the office shown: scope, rules, limits, the boss\'s proposals and what was refused')],
   [['H'], tr('Boss overloaded: sessions with a long context, open a new session')],
   [['O', '0'], tr('Building overview')],
   [['Esc'], tr('Close the terminal search, then the terminal; then the details panel and the selection')],
@@ -118,12 +117,6 @@ const GUIDE: [string, string[]][] = [
   [tr('📋 The Board (B)'), [
     tr("The to-do list is the \"Next steps\" list of the office's HANDOFF file: the boss and you edit the same list."),
     tr("The workers' jobs are this office's only, with their tokens and cache. A job from anywhere else is not listed."),
-  ]],
-  [tr('📜 Office rules (R)'), [
-    tr('Each office sets where its agents may edit, what they may never read, which commands are forbidden, and job and quota limits.'),
-    tr('Writing outside the office folder: a boss asks you first, a worker is refused. /tmp and the boss\'s own memory folder stay free.'),
-    tr('This stops mistakes, not a determined script: a program the agent writes itself can still get around it.'),
-    tr('A boss can only propose a rule; you accept it here. A refusal shows on the Board.'),
   ]],
   [tr('🥵 A tired boss (H)'), [
     tr('A long context or repeated compactions make a session slow and forgetful. A notice tells you when a boss passes a limit.'),

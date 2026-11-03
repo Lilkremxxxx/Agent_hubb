@@ -32,8 +32,6 @@ import { GhostWatch } from './workers/ghosts';
 import { WorkerService, type WorkerTarget } from './workers/service';
 import { BoardService } from './board';
 import { agyProfilesRoot } from './sources/agy/profiles';
-import { RulesLog } from './rules-log';
-import { rulesText } from '../shared/rules';
 import { createBuildReader, readBuildInfo } from './build';
 import { tr } from '../shared/i18n';
 import type { WorldLocale } from '../shared/world/protocol';
@@ -119,11 +117,8 @@ const agy = config.agy.enabled && process.platform === 'linux'
 if (agy) agents.add(agy);
 // The offices (server/team.ts): one team per project folder (its boss and registered workers), in
 // ~/.agy_profiles/team.json, where agy-ask reads it too (without Antigravity, in the data dir: only the bosses matter).
-// Office rules' refusals (rules-log.jsonl next to team.json, written by agy-ask and the rules hook of agy-hub).
-const rulesLog = new RulesLog(join(agy ? agyRoot : config.dataDir, 'rules-log.jsonl'));
 const team = new TeamService({
   office,
-  violations: (id) => rulesLog.of(id),
   folderPlan: (folder) => board.folderPlan(folder),
   file: join(agy ? agyRoot : config.dataDir, 'team.json'),
   // Each office's building has its workers room: the first one is the Antigravity room, the others "<it>@<office>".
@@ -139,7 +134,6 @@ const team = new TeamService({
   },
   onDeleteOffice: (id) => {
     late.workers?.cancel({ office: id });
-    rulesLog.dropOffice(id);
   },
   extra: () => (late.workers ? { sessions: late.workers.sessionList(), jobs: late.workers.jobs() } : {}),
 });
@@ -293,7 +287,6 @@ const workers = ptys
         }),
       agyBin,
       claudeBin: claudeBin ?? 'claude',
-      rulesHook: [process.env.HABBLAUD_RULES_HOOK?.trim(), join(config.home, '.local', 'bin', 'rules-hook')].find((p) => p && existsSync(p)),
       room: config.agy.room,
       logFile: join(agyRoot, 'agy-ask.log.jsonl'),
       onChange: () => team.publish(),
@@ -361,17 +354,6 @@ const ghosts = new GhostWatch({
   news: () => undefined,
 });
 ghosts.start();
-// New rule violations: the offices again (their logs, the rules boards flash).
-const rulesTimer = setInterval(() => {
-  try {
-    const fresh = rulesLog.poll();
-    if (!fresh.length) return;
-    team.publish();
-  } catch (err) {
-    log.warnOnce(`rules:${errMsg(err)}`, tr('Reading the rules log failed: {0}', [errMsg(err)]));
-  }
-}, 2_000);
-rulesTimer.unref?.();
 const ticker = setInterval(() => {
   try {
     office.tick();
@@ -394,14 +376,6 @@ const api = createApiHandler({
     renameOffice: (office, name) => team.renameOffice(office, name),
     setFolder: (office, folder) => team.setFolder(office, folder),
     deleteOffice: (office) => team.deleteOffice(office),
-    setRules: (office, rules, rev) => team.setRules(office, rules, rev),
-    proposeRule: (office, p) => team.proposeRule(office, p),
-    decideRule: (office, id, accept) => team.decideRule(office, id, accept),
-    rulesView: (id, who) => {
-      const o = team.officeOf(id);
-      const rules = team.rulesOf(id);
-      return o && rules ? { office: o.id, name: o.name, folder: o.folder, rules, text: rulesText(o, rules, who) } : undefined;
-    },
   },
   workers: workers
     ? {
@@ -585,7 +559,6 @@ function shutdown(signal: string): void {
   shuttingDown = true;
   log.info(tr('Shutting down ({0})…', [signal]));
   clearInterval(ticker);
-  clearInterval(rulesTimer);
   agents.stop();
   accounts.stop();
   board.stop();

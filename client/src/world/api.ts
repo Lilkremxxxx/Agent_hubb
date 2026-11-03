@@ -88,8 +88,6 @@ export interface WorldApi {
   onRoomContextMenu?(cb: (roomId: string, at: { x: number; y: number }) => void): () => void;
   /** (Optional, additive) Click on room task board (Antigravity workers): room id. */
   onBoardOpen?(cb: (roomId: string) => void): () => void;
-  /** (Optional, additive) Click on the office rules poster of a building's reception: the office id. */
-  onRulesOpen?(cb: (officeId: string) => void): () => void;
   /** (Optional, additive) Social events (matches and bets) for the feed. */
   onSocialEvent?(cb: (e: SocialEvent) => void): () => void;
   /**

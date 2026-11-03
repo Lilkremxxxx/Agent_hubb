@@ -8,7 +8,6 @@ import { h, setText } from './dom';
 import { plural } from './format';
 import { statusLabel } from './model';
 import { folderOverlap, officeBoss, teamOffices } from './offices';
-import { scopeLine } from './rules-model';
 import { tr } from '../../../shared/i18n';
 
 type SummarySnap = Pick<OfficeSnapshot, 'agents' | 'rooms' | 'accounts'> & Partial<Pick<OfficeSnapshot, 'team'>>;
@@ -25,8 +24,6 @@ export interface OfficeSummary {
   running: number;
   /** The to-do list (its folder's HANDOFF file); absent = no list yet. */
   todo?: { done: number; total: number; next?: string };
-  /** Its rules' scope in one line (rules-model.ts scopeLine); absent = a server without rules. */
-  scope?: string;
   /** Another office whose folder overlaps this one's (a team file from before that was refused). */
   overlap?: string;
 }
@@ -61,7 +58,6 @@ export function officeSummary(snap: SummarySnap | null | undefined, office: Offi
     workers: office.workers.map((w) => workerShortName(snap, w)),
     running,
     ...(items.length ? { todo: { done: items.filter((t) => t.done).length, total: items.length, ...(next ? { next } : {}) } } : {}),
-    ...(office.rules ? { scope: scopeLine(office) } : {}),
     ...(overlap ? { overlap: overlap.name } : {}),
   };
 }
@@ -94,7 +90,6 @@ export interface OfficeMenuEnv {
   changeFolder(id: string): void;
   copyFolder(id: string): void;
   openBoard?(id: string): void;
-  openRules?(id: string): void;
   addBoss?(id: string): void;
   addWorker?(id: string): void;
   create(): void;
@@ -110,7 +105,6 @@ export const OFFICE_MENU_ITEMS: OfficeMenuBuilder[] = [
   (o, env) => ({ id: 'folder', label: o.folder ? tr('Change folder…') : tr('Choose its folder…'), disabled: env.locked, run: () => env.changeFolder(o.id) }),
   (o, env) => ({ id: 'copy', label: tr('Copy folder path'), disabled: o.folder ? '' : tr('No folder yet'), run: () => env.copyFolder(o.id) }),
   (o, env) => (env.openBoard ? { id: 'board', label: tr('📋 Open the Board on this office'), separator: true, run: () => env.openBoard!(o.id) } : null),
-  (o, env) => (env.openRules ? { id: 'rules', label: tr('📜 Rules…'), disabled: o.rules ? '' : tr('This Habblaud server does not keep office rules yet'), run: () => env.openRules!(o.id) } : null),
   (o, env) => (env.addBoss && env.bossBlocked !== undefined ? { id: 'boss', label: tr('＋ Boss…'), disabled: env.locked || env.bossBlocked, run: () => env.addBoss!(o.id) } : null),
   (o, env) => (env.addWorker && env.workerBlocked !== undefined ? { id: 'worker', label: tr('＋ Worker…'), disabled: env.locked || env.workerBlocked, run: () => env.addWorker!(o.id) } : null),
   (_o, env) => ({ id: 'new', label: tr('＋ New office…'), separator: true, disabled: env.locked, run: () => env.create() }),
@@ -240,7 +234,6 @@ export class OfficeMenu {
       line(tr('Workers'), s.workers.length ? `${s.workers.length} · ${s.workers.join(', ')}` : tr('none'), !s.workers.length),
       line(tr('Running'), s.running ? plural(s.running, tr('job'), tr('jobs')) : tr('no job'), !s.running),
       line(tr('To-do'), todo, !s.todo),
-      ...(s.scope ? [line(tr('Scope'), s.scope)] : []),
       ...(s.overlap ? [h('p', { class: 'ui-officemenu__warn', text: tr('⚠ Its folder overlaps the folder of {0}: change one of them.', [s.overlap]) })] : []),
     );
     for (const v of this.head.querySelectorAll<HTMLElement>('.ui-officemenu__value')) v.title = v.textContent ?? '';

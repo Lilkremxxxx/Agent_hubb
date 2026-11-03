@@ -3,7 +3,6 @@
 // has a standing terminal to watch. The boss gives jobs through agy-ask / claude-ask; here you give them too and cancel them.
 // Errors become Error with the server's message (a BUSY answer's `message`, else `error`).
 import type { AgentInfo, OfficeInfo, PtyInfo, TeamInfo, WorkerId, WorkerJob, WorkerKind, WorkerSession } from '../../../shared/types';
-import type { OfficeRules } from '../../../shared/rules';
 import { tr } from '../../../shared/i18n';
 
 /** A refusal from the server, with its HTTP status (e.g. 409 = changed meanwhile). */
@@ -51,19 +50,6 @@ export async function appointAgyBoss(acc: string, cwd?: string, office?: string)
 /** Registers (on) or removes (off) a worker of an office. */
 export function setWorker(worker: WorkerId, on: boolean, office?: string): Promise<unknown> {
   return post('/api/team', { ...inOffice(office), worker, on });
-}
-
-/**
- * Saves an office's rules (scope, items, limits; the proposals stay the server's). `rev`: the version edited; an older
- * one is refused with ApiError status 409.
- */
-export function saveRules(office: string, rules: Pick<OfficeRules, 'scope' | 'items' | 'limits'>, rev: number): Promise<unknown> {
-  return post('/api/team', { office, rules, rev });
-}
-
-/** Accepts (it becomes a rule) or rejects a rule the boss proposed. */
-export function answerProposal(office: string, proposal: string, accept: boolean): Promise<unknown> {
-  return post('/api/team', { office, proposal, accept });
 }
 
 /** A new office: a name and its project folder (absolute, not another office's). */

@@ -44,7 +44,6 @@ import { attachKonami } from './konami';
 import { HintOverlay } from './hints';
 import { JobBoardDialog } from './job-board';
 import { OfficeTabs } from './office-tabs';
-import { RulesDialog } from './rules-dialog';
 import { OverloadDialog } from './overload';
 import { OFFICE_KEY, officeFocus, officeOfSelection, pickOffice, sameFocus, teamOffices, type OfficeFocus } from './offices';
 import { tr } from '../../../shared/i18n';
@@ -317,12 +316,6 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   const officeTabs = new OfficeTabs(ctx);
   jobBoard.onDeclareFolder = (id) => officeTabs.editFolder(id);
   officeTabs.onOpenBoard = () => jobBoard.open();
-  // 📜 Rules of the office shown (toolbar, R), or of an office from its tab menu, its dialog or its reception board.
-  const rules = new RulesDialog(ctx);
-  topbar.addPanelButton(rules.button);
-  officeTabs.onOpenRules = (id) => rules.open(id);
-  officeTabs.dialog.onOpenRules = (id) => rules.open(id);
-  world.onRulesOpen?.((id) => rules.open(id));
   // The tab menu's ＋ Boss / ＋ Worker are the sidebar's (their dialog explains what is missing, e.g. no PTY).
   officeTabs.team = {
     open: (kind) => sidebar.dialogs.open(kind),
@@ -349,8 +342,8 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
 
   const components: UiComponent[] = [topbar, sidebar, drawer, terminal, pty, history, feed, toasts, settings, empty, banner, tip, notifier, splash, sound, worldDialog, popups, worldChip];
   if (scene) components.push(scene);
-  root.append(worldSocial.el, jobBoard.el, overload.el, sidebar.dialogEl, officeTabs.dialog.el, officeTabs.menu.el, rules.el);
-  components.push(worldSocial, jobBoard, overload, officeTabs, rules);
+  root.append(worldSocial.el, jobBoard.el, overload.el, sidebar.dialogEl, officeTabs.dialog.el, officeTabs.menu.el);
+  components.push(worldSocial, jobBoard, overload, officeTabs);
 
   // ---------------------------------------------------------------- batched per-frame rendering
   let rafId = 0;
@@ -502,11 +495,6 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
       case 'H':
         e.preventDefault();
         overload.toggle();
-        break;
-      case 'r':
-      case 'R':
-        e.preventDefault();
-        rules.toggle();
         break;
       case '[':
         e.preventDefault();

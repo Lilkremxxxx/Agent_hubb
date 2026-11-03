@@ -44,7 +44,7 @@ the job fails in ~15 s saying so: ask the user to open claude there once).
 | --- | --- | --- |
 | 0 | done, answer printed | check it, use it |
 | 1 | failed / timeout / error (message on stderr) | read the message; retry once or do it yourself |
-| 2 | refused by the team rule, or by the office rules ("office rules of …": folder, job limit, quota) | do not retry, do not work around it (below; office rules: skill `office-rules`) |
+| 2 | refused by the team rule | do not retry, do not work around it |
 | 3 | BUSY: the worker is on another job | ask again when that job is over, or give the job to another worker |
 | 4 | the user cancelled the job from the office | do not resend it unasked; tell the user |
 
@@ -144,7 +144,7 @@ Do not let workers chat freely: no one supervises it, loops burn two accounts' q
 3. **Direct** (`herdr agent prompt` from one worker to another) only for a tight loop such as implement -> run tests -> fix, with a hard cap (e.g. 3 rounds). Not verified that workers can call `herdr` (they have no Herdr skill); test once before relying on it.
 
 ## Roles and modes
-Workers are named `<acc>-<role>` from `~/.agy_profiles/roles.conf` (e.g. `acc2-impl`, `acc3-qa`, `acc4-review`); pick the worker by role, not pane id. After any (re)start run `agy-sync` (names + default mode). Change mode in-session with `agy-mode <name> default|accept-edits|auto|plan` (shift+tab cycle; idle agents only). Check the mode before sending write work: `--mode` at launch is not always applied. Worker answer rules live in `worker-rules/GEMINI.md` (symlinked to each profile as `GEMINI.md`). Workers commit locally only; you review and push.
+Workers are named `<acc>-<role>` from `~/.agy_profiles/roles.conf` (e.g. `acc2-impl`, `acc3-qa`, `acc4-review`); pick the worker by role, not pane id. After any (re)start run `agy-sync` (names + default mode). Change mode in-session with `agy-mode <name> default|accept-edits|auto|plan` (shift+tab cycle; idle agents only). Check the mode before sending write work: `--mode` at launch is not always applied. Workers commit locally only; you review and push.
 
 ## Rules
 - agy `idle`/`done` does NOT prove the worker finished: Antigravity can sit idle while background tasks or subagents still run. Read the answer before reporting done.

@@ -12,7 +12,6 @@ import { copyText, h, iconButton, KeyedList, setAttr, setHidden, setText, setTit
 import { ICONS } from './icons';
 import { OfficeMenu, type OfficeMenuEnv } from './office-menu';
 import { folderOverlap, folderProblem, normFolder, teamOffices } from './offices';
-import { scopeLine } from './rules-model';
 import { loadFolders, shortPath, spawnFolders, type FolderOption } from './spawn';
 import { folderChoices, folderTaken, folderWhy } from './team-dialogs';
 import { createOffice, deleteOffice, renameOffice, setOfficeFolder } from './workers-api';
@@ -35,8 +34,6 @@ export class OfficeTabs implements UiComponent {
   readonly menu: OfficeMenu;
   /** Opens the Board (on the office shown); set by ui/index.ts. */
   onOpenBoard?: () => void;
-  /** Opens the 📜 Rules dialog of an office; set by ui/index.ts. */
-  onOpenRules?: (officeId: string) => void;
   /** The sidebar's ＋ Boss / ＋ Worker (on the office shown), and why each cannot be used now ('' = it can). */
   team?: { open: (kind: 'boss' | 'workers') => void; blocked: (kind: 'boss' | 'workers') => string };
   private readonly tabs: KeyedList<OfficeInfo, HTMLButtonElement>;
@@ -170,7 +167,6 @@ export class OfficeTabs implements UiComponent {
         if (folder) void copyText(folder).then((ok) => this.ctx.announce(ok ? tr('Folder path copied.') : tr("Couldn't copy the folder path.")));
       },
       ...(this.onOpenBoard ? { openBoard: (id: string) => onOffice(id, () => this.onOpenBoard!()) } : {}),
-      ...(this.onOpenRules ? { openRules: (id: string) => this.onOpenRules!(id) } : {}),
       ...(team ? { addBoss: (id: string) => onOffice(id, () => team.open('boss')), addWorker: (id: string) => onOffice(id, () => team.open('workers')) } : {}),
       create: () => this.dialog.openCreate(),
       remove: (id) => void this.dialog.confirmDelete(id),
@@ -212,11 +208,6 @@ export class OfficeDialog implements UiComponent {
   private readonly status: HTMLElement;
   private readonly submit: HTMLButtonElement;
   private readonly remove: HTMLButtonElement;
-  /** The rules' scope in one line, with a link to the 📜 Rules dialog (editing an office whose server keeps rules). */
-  private readonly scope: HTMLElement;
-  private readonly scopeText: HTMLElement;
-  /** Opens the 📜 Rules dialog of an office; set by ui/index.ts. */
-  onOpenRules?: (officeId: string) => void;
   /** '' = a new office. */
   private officeId = '';
   private folder = '';
@@ -248,20 +239,6 @@ export class OfficeDialog implements UiComponent {
     // A real submit button: with two text fields, Enter only submits a form that has one.
     this.submit = h('button', { class: 'ui-btn ui-btn--primary', type: 'submit' });
     this.remove = h('button', { class: 'ui-btn ui-officedlg__delete', type: 'button', text: tr('Delete this office'), on: { click: () => void this.confirmDelete(this.officeId) } });
-    this.scopeText = h('span');
-    const rulesLink = h('button', {
-      class: 'ui-btn ui-btn--sm',
-      type: 'button',
-      text: tr('📜 Rules…'),
-      on: {
-        click: () => {
-          const id = this.officeId;
-          this.close();
-          this.onOpenRules?.(id);
-        },
-      },
-    });
-    this.scope = h('p', { class: 'ui-officedlg__scope', hidden: true }, this.scopeText, rulesLink);
     const form = h(
       'form',
       {
@@ -279,7 +256,6 @@ export class OfficeDialog implements UiComponent {
       h('p', { class: 'ui-teamdlg__label', text: tr('Project folder') }),
       this.folderBox,
       this.other,
-      this.scope,
       this.status,
       h('div', { class: 'ui-teamdlg__actions ui-officedlg__actions' }, this.remove, this.submit),
     );
@@ -323,7 +299,7 @@ export class OfficeDialog implements UiComponent {
   render(): void {
     if (!this.el.open) return;
     const offices = this.ctx.store.snapshot?.team?.offices ?? [];
-    const sig = JSON.stringify([this.officeId, this.folder, this.busy, this.folders.length, offices.map((o) => [o.id, o.name, o.folder, o.rules?.rev])]);
+    const sig = JSON.stringify([this.officeId, this.folder, this.busy, this.folders.length, offices.map((o) => [o.id, o.name, o.folder])]);
     if (sig === this.sig) return;
     this.sig = sig;
     const office = offices.find((o) => o.id === this.officeId);
@@ -340,9 +316,6 @@ export class OfficeDialog implements UiComponent {
     );
     setText(this.submit, office ? tr('Save') : tr('＋ Create the office'));
     setHidden(this.remove, !office);
-    setHidden(this.scope, !office?.rules || !this.onOpenRules);
-    setText(this.scopeText, office?.rules ? tr('Rules: {0}', [scopeLine(office)]) : '');
-    if (office?.rules) this.scopeText.title = scopeLine(office);
     this.remove.disabled = this.busy || offices.length <= 1;
     setTitle(this.remove, offices.length <= 1 ? tr('The last office cannot be deleted') : tr('Its boss steps down and its running jobs are cancelled'));
     // The folders: the office's own first, then the recent projects; another office's folder cannot be picked.

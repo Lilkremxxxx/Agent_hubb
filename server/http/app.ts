@@ -1,5 +1,4 @@
 // API routes (/api/*). JSON responses; unknown routes -> 404 JSON.
-import type { OfficeRules, RuleFor } from '../../shared/rules';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { NAME_MAX, parseAppearanceParts, parseCharacterName, parseSeed } from '../../shared/appearance';
 import type { AccessInfo, PtyInfo, SourceInfo, WorkerJob } from '../../shared/types';
@@ -82,12 +81,6 @@ export interface ApiDeps {
     renameOffice: (office: string | undefined, name: string) => TeamResult;
     setFolder: (office: string | undefined, folder: string) => TeamResult;
     deleteOffice: (office: string) => TeamResult;
-    /** Office rules (shared/rules.ts): the user saves them; a boss proposes one; the user accepts or rejects it. */
-    setRules?: (office: string | undefined, rules: unknown, rev: number) => TeamResult;
-    proposeRule?: (office: string | undefined, p: { text: string; for?: RuleFor; why?: string; by?: string }) => TeamResult;
-    decideRule?: (office: string | undefined, id: string, accept: boolean) => TeamResult;
-    /** GET /api/team/rules?office=&who=: what a script needs (tools/agy). */
-    rulesView?: (office: string | undefined, who: 'boss' | 'workers') => { office: string; name: string; folder: string; rules: OfficeRules; text: string } | undefined;
   };
   /** Worker terminals (/api/workers/*, server/workers): jobs, cancel; this computer only. */
   workers?: {
@@ -504,25 +497,11 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       }
       return true;
     }
-    if (path === '/api/team/rules') {
-      // The office's rules and the text agents read: {office, name, folder, rules, text}; this computer only.
-      if (method !== 'GET') methodNotAllowed(res, 'GET');
-      else if (!deps.team?.rulesView) sendJson(res, 404, { error: tr('unknown route') });
-      else if (isRemote(req) || !trusted(req)) sendJson(res, 403, { error: denied(req, tr('office rules only from this computer (http://localhost)')) });
-      else {
-        const q = new URL(req.url ?? '', 'http://x').searchParams;
-        const v = deps.team.rulesView(q.get('office') ?? undefined, q.get('who') === 'boss' ? 'boss' : 'workers');
-        if (v) sendJson(res, 200, v);
-        else sendJson(res, 404, { error: tr('office not found: {0}', [q.get('office') ?? '']) });
-      }
-      return true;
-    }
     if (path === '/api/team') {
       // Every change names its `office` (id; absent = the first office): {office, boss: agentId | null, pendingAccount?}
       // appoints its boss (pendingAccount = a session just opened with POST /api/pty, not in the office yet); {office,
       // bossAgy, cwd?} an Antigravity boss; {office, worker, on} (un)registers a worker; {office, rename} / {office,
-      // folder}; {createOffice: {name, folder}} -> {office}; {deleteOffice: id}; office rules: {office, rules, rev} (the
-      // user saves them), {office, propose: {text, for?, why?, by?}} (a boss suggests one), {office, proposal, accept}.
+      // folder}; {createOffice: {name, folder}} -> {office}; {deleteOffice: id}.
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (!deps.team) sendJson(res, 404, { error: tr('unknown route') });
       else if (isRemote(req) || !trusted(req)) sendJson(res, 403, { error: denied(req, tr('changing the team only from this computer (http://localhost)')) });
@@ -541,11 +520,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
               rename?: unknown;
               folder?: unknown;
               deleteOffice?: unknown;
-              rules?: unknown;
-              rev?: unknown;
-              propose?: { text?: unknown; for?: unknown; why?: unknown; by?: unknown };
-              proposal?: unknown;
-              accept?: unknown;
             };
             const t = deps.team!;
             if (b.office !== undefined && typeof b.office !== 'string') throw new HttpError(400, tr('invalid office'));
@@ -558,23 +532,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
               if (!c.ok) throw new HttpError(c.status, c.error);
               return sendJson(res, 200, { ok: true, office: c.office });
             }
-            if (b.rules !== undefined) {
-              if (!t.setRules || typeof b.rules !== 'object' || typeof b.rev !== 'number') throw new HttpError(400, tr('expected {office, rules, rev}'));
-              r = t.setRules(office, b.rules, b.rev);
-            } else if (b.propose) {
-              const { text, why, by } = b.propose;
-              const f = b.propose.for;
-              if (!t.proposeRule || typeof text !== 'string') throw new HttpError(400, tr('expected {office, propose: {text}}'));
-              r = t.proposeRule(office, {
-                text,
-                ...(f === 'boss' || f === 'workers' || f === 'all' ? { for: f } : {}),
-                ...(typeof why === 'string' ? { why } : {}),
-                ...(typeof by === 'string' ? { by } : {}),
-              });
-            } else if (typeof b.proposal === 'string') {
-              if (!t.decideRule || typeof b.accept !== 'boolean') throw new HttpError(400, tr('expected {office, proposal, accept}'));
-              r = t.decideRule(office, b.proposal, b.accept);
-            } else if (typeof b.deleteOffice === 'string') r = t.deleteOffice(b.deleteOffice);
+            if (typeof b.deleteOffice === 'string') r = t.deleteOffice(b.deleteOffice);
             else if (typeof b.rename === 'string') r = t.renameOffice(office, b.rename);
             else if (typeof b.folder === 'string') r = t.setFolder(office, b.folder);
             else if (typeof b.bossAgy === 'string') {

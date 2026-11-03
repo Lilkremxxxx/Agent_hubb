@@ -16,12 +16,9 @@ import { drawFxBanner } from './github-fx';
 import type { HeadInfo, Renderer } from './renderer';
 import type { AgentGhost, JobBoard, Provider } from '../../../../shared/types';
 import { jobBoardParts } from './job-board';
-import { rulesBoardHead } from './rules-board';
 
 /** Minimum job board height on screen (CSS px) to render text on it. */
 const JOB_BOARD_MIN_PX = 40;
-/** Minimum rules poster width on screen (CSS px) to write its header. */
-const RULES_BOARD_MIN_PX = 44;
 import { tr } from '../../../../shared/i18n';
 import { CHAR_FADE } from './office-dim';
 import { coreBase, isArea, RECEPTION_ID } from '../layout/core';
@@ -472,9 +469,6 @@ export class Overlay {
       // Antigravity workers' job board: text when readable
       const jb = room?.info.board ? this.renderer.jobBoardRect(vis) : null;
       if (jb && room?.info.board && (!anim || anim.sign >= 1)) this.drawJobBoardText(jb, room.info.board, zoom);
-      // the office rules poster in a reception
-      const rb = room ? null : this.renderer.rulesBoard(vis.id);
-      if (rb) this.drawRulesBoardText(rb.rect, rb.board.rules, zoom);
       if (room ? readable : zoom >= 1.4) continue;
       const cx = this.sx((r.x + r.w / 2) * TILE);
       const cy = this.sy(r.y * TILE + 6);
@@ -521,27 +515,6 @@ export class Overlay {
     });
     ctx.restore();
     this.place(x, y, jb.w * zoom, jb.h * zoom);
-  }
-
-  /** The rules poster's header ("📜 Rules · 3"), only when zoomed enough to read. */
-  private drawRulesBoardText(r: { x: number; y: number; w: number; h: number }, rules: number, zoom: number): void {
-    const head = rulesBoardHead(r);
-    if (head.h * zoom < 8 || r.w * zoom < RULES_BOARD_MIN_PX) return;
-    const x = this.sx(head.x);
-    const y = this.sy(head.y);
-    if (x > this.camera.viewW || y > this.camera.viewH || x + head.w * zoom < 0 || y + head.h * zoom < 0) return;
-    const { ctx } = this;
-    ctx.save();
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'center';
-    let size = Math.max(6, Math.round(head.h * zoom * 0.7));
-    const text = tr('📜 Rules · {0}', [rules]);
-    let font = `600 ${size}px ${UI_FONT}`;
-    while (size > 6 && this.measure(font, text) > head.w * zoom - 4) font = `600 ${--size}px ${UI_FONT}`;
-    ctx.font = font;
-    ctx.fillStyle = '#fff6df';
-    ctx.fillText(text, x + (head.w * zoom) / 2, y + (head.h * zoom) / 2);
-    ctx.restore();
   }
 
   /** Overhead icon height, including the "!" bubble over whoever saw CI fail (render/github-fx.ts). */

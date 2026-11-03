@@ -33,12 +33,3 @@ export function folderRelation(f: string, other: string): FolderRelation {
  * another), so every room belongs to one office only. Team files from before this rule still load (folderOverlap warns).
  */
 export const FOLDER_CLASH: ReadonlySet<FolderRelation> = new Set<FolderRelation>(['same', 'inside', 'contains']);
-
-/**
- * The other office whose folder an extra write folder of an office's rules (OfficeRules.scope.write) overlaps: a rule
- * may not open another office's folder to editing. Paths as given ("~/…" only compares with "~/…" folders: the server
- * checks them expanded).
- */
-export function writeFolderClash<O extends { id: string; folder: string }>(path: string, offices: readonly O[], self: string): O | undefined {
-  return offices.find((o) => o.id !== self && o.folder && folderRelation(path, o.folder) !== '');
-}

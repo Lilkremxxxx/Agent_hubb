@@ -1,6 +1,6 @@
 // Office folders compared the same way by the server and the page.
 import { describe, expect, it } from 'vitest';
-import { FOLDER_CLASH, folderRelation, isDiskRoot, trimFolder, writeFolderClash } from './folders';
+import { FOLDER_CLASH, folderRelation, isDiskRoot, trimFolder } from './folders';
 
 describe('office folders', () => {
   it('trims trailing separators but keeps a disk root', () => {
@@ -24,12 +24,7 @@ describe('office folders', () => {
     expect(folderRelation('', '/w')).toBe('');
   });
 
-  it('office folders never overlap; an extra write folder may not reach another office', () => {
+  it('office folders never overlap', () => {
     expect([...FOLDER_CLASH].sort()).toEqual(['contains', 'inside', 'same']);
-    const offices = [{ id: 'a', folder: '/w/a' }, { id: 'b', folder: '/w/b' }];
-    expect(writeFolderClash('/w/b/docs', offices, 'a')?.id).toBe('b');
-    expect(writeFolderClash('/w', offices, 'a')?.id).toBe('b');
-    expect(writeFolderClash('/w/a/x', offices, 'a')).toBeUndefined();
-    expect(writeFolderClash('/tmp/out', offices, 'a')).toBeUndefined();
   });
 });

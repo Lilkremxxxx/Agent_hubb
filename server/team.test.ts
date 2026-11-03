@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { officeSlug, parseTeam, seatSuffix, teamSeats, TeamService } from './team';
 import { NameStore } from './model/names';
 import type { HandoffPlan } from '../shared/types';
-import { defaultRules } from '../shared/rules';
 import { Office } from './model/office';
 
 const T0 = 1_700_000_000_000;
@@ -190,7 +189,7 @@ describe('TeamService: workers', () => {
       ['acc2', 'acc3', 'acc10'],
     ]);
     expect(t.office.commit().snapshot.team).toEqual({
-      offices: [{ id: 'main', name: 'Office', folder: '', workers: ['acc2', 'acc3', 'acc10'], workersRoomId: '/w/agy-hub', rules: defaultRules() }],
+      offices: [{ id: 'main', name: 'Office', folder: '', workers: ['acc2', 'acc3', 'acc10'], workersRoomId: '/w/agy-hub' }],
       workers: ['acc2', 'acc3', 'acc10'],
       agy: ['acc1', 'acc2', 'acc3', 'acc10'].map((acc) => ({ acc, account: `agy:${acc}` })),
       claude: [
@@ -408,62 +407,5 @@ describe('TeamService: buildings', () => {
     expect([agent('.claude:2'), agent('.claude:3'), agent('agy:acc1@fin'), agent('.claude:1')]).toEqual(['fin', 'fin', 'fin', undefined]);
     expect(snap.team?.offices?.map((o) => o.workersRoomId)).toEqual(['/w/agy-hub', '/w/agy-hub@fin']);
     expect(b.seats().map((x) => x.agentId)).toEqual(['agy:acc1', 'agy:acc2', 'agy:acc1@fin']);
-  });
-});
-
-describe('TeamService: office rules', () => {
-  it('defaults until changed; the user saves with the rev; an older rev is refused; saved in team.json', () => {
-    const t = setup();
-    const s = t.team();
-    const id = s.offices[0].id;
-    expect(s.rulesOf(id)).toMatchObject({ rev: 0, scope: { commands: ['git push', 'sudo'] } });
-    expect(s.setRules(id, { scope: { write: ['/w/out'], deny: [], commands: ['rm -rf'] }, items: [{ text: 'Be short', for: 'workers' }] }, 0)).toEqual({ ok: true });
-    expect(s.rulesOf(id)).toMatchObject({ rev: 1, scope: { write: ['/w/out'], commands: ['rm -rf'] }, items: [{ text: 'Be short', for: 'workers', on: true }] });
-    expect(s.setRules(id, { items: [] }, 0)).toMatchObject({ ok: false, status: 409 });
-    expect(t.saved().offices[0].rules).toMatchObject({ rev: 1, items: [{ text: 'Be short' }] });
-    // read back after a restart
-    expect(t.team().rulesOf(id)).toMatchObject({ rev: 1, scope: { write: ['/w/out'] } });
-  });
-
-  it('an extra write folder may not overlap another office, nor be the whole disk or home', () => {
-    const t = setup();
-    const s = t.team();
-    const a = s.offices[0].id;
-    s.setFolder(a, '/w/a');
-    expect(s.createOffice('B', '/w/b')).toMatchObject({ ok: true });
-    expect(s.setRules(a, { scope: { write: ['/w/b/out'] } }, 0)).toMatchObject({ ok: false, status: 409, error: expect.stringContaining('B') });
-    expect(s.setRules(a, { scope: { write: ['/w'] } }, 0)).toMatchObject({ ok: false, status: 409 });
-    expect(s.setRules(a, { scope: { write: ['/'] } }, 0)).toMatchObject({ ok: false, status: 400 });
-    expect(s.setRules(a, { scope: { write: ['/w/c'] } }, 0)).toEqual({ ok: true });
-  });
-
-  it('a boss proposes (no duplicates, kept on save); the user accepts (a rule, on) or rejects', () => {
-    const t = setup();
-    const s = t.team();
-    const id = s.offices[0].id;
-    expect(s.proposeRule(id, { text: '  Run   tests before reporting ', why: 'flaky', by: 'Raul' })).toEqual({ ok: true });
-    expect(s.proposeRule(id, { text: 'Run tests before reporting' })).toEqual({ ok: true });
-    expect(s.proposeRule(id, { text: 'No force push', for: 'workers' })).toEqual({ ok: true });
-    const r = s.rulesOf(id)!;
-    expect(r.proposals.map((p) => [p.id, p.text, p.by, p.why])).toEqual([['p1', 'Run tests before reporting', 'Raul', 'flaky'], ['p2', 'No force push', 'boss', undefined]]);
-    // the user's save keeps the proposals as they are on the server
-    expect(s.setRules(id, { ...r, proposals: [] }, r.rev)).toEqual({ ok: true });
-    expect(s.rulesOf(id)!.proposals).toHaveLength(2);
-    expect(s.decideRule(id, 'p1', true)).toEqual({ ok: true });
-    expect(s.decideRule(id, 'p2', false)).toEqual({ ok: true });
-    expect(s.decideRule(id, 'p2', false)).toMatchObject({ ok: false, status: 404 });
-    const after = s.rulesOf(id)!;
-    expect(after.proposals).toEqual([]);
-    expect(after.items.map((i) => [i.text, i.on])).toContainEqual(['Run tests before reporting', true]);
-    expect(after.items.some((i) => i.text === 'No force push')).toBe(false);
-  });
-
-  it('the snapshot carries each office its rules and its violations', () => {
-    const t = setup();
-    const s = new (t.team().constructor as typeof TeamService)({ office: t.office, file: t.file, profiles: () => [], seed: () => [], violations: (id) => [{ at: T0, office: id, who: 'acc1', kind: 'cwd', detail: '/etc', by: 'ask' }] });
-    s.publish();
-    const o = t.office.commit().snapshot.team?.offices?.[0];
-    expect(o?.rules?.rev).toBe(0);
-    expect(o?.violations).toEqual([{ at: T0, office: o?.id, who: 'acc1', kind: 'cwd', detail: '/etc', by: 'ask' }]);
   });
 });

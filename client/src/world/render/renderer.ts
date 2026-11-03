@@ -2,7 +2,6 @@
 // depth-sorted -> light/darkness -> icons. The screen-space pass (crisp
 // text) is in overlay.ts.
 import { drawJobBoard } from './job-board';
-import { drawRulesBoard } from './rules-board';
 import { TILE, type ArtModule, type CharacterFrameRequest, type IconName, type ScreenMode, type Sprite } from '../../art/api';
 import type { Energy } from '../../../../shared/energy';
 import type { SeasonalTheme, WorldOptions } from '../api';
@@ -16,11 +15,11 @@ import { screenModeFor } from '../sim/behavior';
 import type { Character } from '../sim/character';
 import type { RoomState } from '../sim/room-state';
 import { cobwebScale, hourglassIcon, HOURGLASS_FLIP_MS, STORM_LIFT } from '../sim/shell';
-import { RULES_FLASH_MS, type OfficeRulesBoard, type Sim } from '../sim/sim';
+import type { Sim } from '../sim/sim';
 import { isArea, RECEPTION_ID } from '../layout/core';
 import { buildAnim, furnitureScale, NO_ANIM, sweepDelay, type BuildAnim } from './anim';
 import { daylightModeOf, parseHourParam } from './daylight';
-import { reducedMotion, RoomFxRenderer } from './github-fx';
+import { RoomFxRenderer } from './github-fx';
 import { Lighting } from './lighting';
 import { CHAR_FADE, FocusDim, ROOM_VEIL_ALPHA, ROOM_VEIL_RGB } from './office-dim';
 import { Particles } from './particles';
@@ -623,12 +622,6 @@ export class Renderer {
     ctx.drawImage(vis.walls, p.x, p.y - WALL_MARGIN + rise);
     // dynamic wall items
     for (const w of vis.wallItems) this.drawWallItem(vis, w, now, hour, rise);
-    // a building's reception: the office rules poster hangs over the (static) painting
-    const rb = this.rulesBoard(vis.id);
-    if (rb) {
-      const flash = Math.max(0, rb.board.flashUntil - now) / RULES_FLASH_MS;
-      this.safe(() => drawRulesBoard(ctx, { ...rb.rect, y: rb.rect.y + rise }, rb.board.rules, flash, now, reducedMotion()));
-    }
     ctx.globalAlpha = 1;
     if (vis.sign && anim.sign > 0) {
       const slide = Math.round((1 - anim.sign) * -18);
@@ -795,23 +788,6 @@ export class Renderer {
     const o = wallItemOrigin(w, s.base);
     const b = opaqueBounds(s.base.canvas);
     return { x: o.x + b.x, y: o.y + b.y, w: b.w, h: b.h };
-  }
-
-  /**
-   * The rules poster of a reception (its building's office has rules; never in a visit, where the stamp board uses the
-   * painting): where it hangs (the painting's place, a little taller to fit a few lines) and what it shows.
-   */
-  rulesBoard(areaId: string): { office: string; rect: { x: number; y: number; w: number; h: number }; board: OfficeRulesBoard } | null {
-    if (this.sim.visit || !isArea(areaId, RECEPTION_ID)) return null;
-    const vis = this.areas.get(areaId);
-    if (!vis) return null;
-    const office = this.officeAt(vis.layout.rect.x);
-    const board = office ? this.sim.officeRules(office) : undefined;
-    const r = board ? this.paintingRect(areaId) : null;
-    if (!board || !r) return null;
-    const w = Math.max(r.w, 18);
-    const h = Math.max(r.h, 22);
-    return { office, rect: { x: Math.round(r.x + (r.w - w) / 2), y: Math.round(r.y + r.h - h), w, h }, board };
   }
 
   /**

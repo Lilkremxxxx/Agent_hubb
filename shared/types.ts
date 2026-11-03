@@ -4,7 +4,6 @@
 // Evolution rule: changes here must be ADDITIVE (new optional fields).
 // Renaming/removing fields breaks server, world, and UI simultaneously.
 
-import type { OfficeRules, RuleViolation } from './rules';
 import type { AppearanceParts } from './appearance';
 import type { WorldMeta } from './world/api';
 
@@ -478,10 +477,6 @@ export interface OfficeInfo {
   pendingBoss?: string;
   /** The appointed boss's name, when its session is closed (the crown and the CLI rule wait for it). */
   waitingBoss?: string;
-  /** The office rules ("Nội quy", shared/rules.ts); absent = an older server. */
-  rules?: OfficeRules;
-  /** Its refusals of the last days (newest first, at most 50; shared/rules.ts RuleViolation). */
-  violations?: RuleViolation[];
   /** "Next steps" of the HANDOFF file in its folder, read even while nobody works there (no room yet). */
   plan?: HandoffPlan;
 }

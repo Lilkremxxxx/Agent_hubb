@@ -50,16 +50,6 @@ export type WorldEffect =
 
 export { SHELL_DONE_TOOL } from './shell';
 
-/** How long a reception rules poster glows red after a new violation. */
-export const RULES_FLASH_MS = 5000;
-
-/** An office's rules poster (its reception): active rules, the newest violation seen, and until when it flashes. */
-export interface OfficeRulesBoard {
-  rules: number;
-  lastViolation: number;
-  flashUntil: number;
-}
-
 /** How `Sim` runs (fixed at creation). */
 export interface SimMode {
   /**
@@ -131,8 +121,6 @@ export class Sim {
   offices: string[] = [''];
   /** Office names (the building signs). */
   officeNames = new Map<string, string>();
-  /** Each office's rules poster in its reception (offices whose server sends rules). */
-  private readonly rulesBoards = new Map<string, OfficeRulesBoard>();
   /** Width (columns) given to each building: it grows with its rooms; only the last building shrinks back. */
   private widths = new Map<string, number>();
   readonly finder: PathFinder;
@@ -212,7 +200,6 @@ export class Sim {
 
     // ---- buildings (one per office) and rooms
     let layoutDirty = this.syncOffices(snap);
-    this.syncRules(snap, first);
     const listed = new Set<string>();
     // arrival order (server slot): on initial load rooms occupy slots 0, 1, 2... in this order
     for (const r of [...snap.rooms].sort((a, b) => a.slot - b.slot)) {
@@ -334,32 +321,6 @@ export class Sim {
     if (ids.length === this.offices.length && ids.every((id, i) => id === this.offices[i])) return false;
     this.offices = ids;
     return true;
-  }
-
-  /**
-   * The reception rules posters: active rules per office, and a short flash when a violation newer than the last one
-   * seen arrives (not on the first snapshot: old violations do not flash).
-   */
-  private syncRules(snap: OfficeSnapshot, first: boolean): void {
-    const seen = new Set<string>();
-    for (const o of snap.team?.offices ?? []) {
-      if (!o.rules) continue;
-      seen.add(o.id);
-      const last = o.violations?.[0]?.at ?? 0;
-      const prev = this.rulesBoards.get(o.id);
-      const fresh = !first && !!prev && last > prev.lastViolation;
-      this.rulesBoards.set(o.id, {
-        rules: o.rules.items.filter((r) => r.on).length,
-        lastViolation: Math.max(last, prev?.lastViolation ?? 0),
-        flashUntil: fresh ? this.now + RULES_FLASH_MS : (prev?.flashUntil ?? 0),
-      });
-    }
-    for (const id of [...this.rulesBoards.keys()]) if (!seen.has(id)) this.rulesBoards.delete(id);
-  }
-
-  /** The rules poster of an office's reception; undefined = no poster (no rules from the server). */
-  officeRules(office: string): OfficeRulesBoard | undefined {
-    return this.rulesBoards.get(office);
   }
 
   /** The building of an office id (absent or unknown = the first one). */
