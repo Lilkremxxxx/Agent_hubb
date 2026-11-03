@@ -92,7 +92,6 @@ export class SettingsPopover implements UiComponent {
   private bubbles: ReturnType<typeof segmented<UiPrefs['bubbles']>>;
   private liveliness: ReturnType<typeof segmented<UiPrefs['liveliness']>>;
   private daylight: ReturnType<typeof segmented<UiPrefs['daylight']>>;
-  private theme: ReturnType<typeof segmented<UiPrefs['theme']>>;
   private language: ReturnType<typeof segmented<LanguageChoice>>;
   private soundGroup: SoundSettingsGroup;
   /** "Boss overloaded" thresholds; shares shown in %. */
@@ -143,12 +142,6 @@ export class SettingsPopover implements UiComponent {
       (v) => ctx.updatePrefs({ daylight: v }),
     );
     this.daylight.row.append(h('span', { class: 'ui-set__hint', text: tr('Automatic: the sky, lights and sun in the windows follow local time.') }));
-    this.theme = segmented<UiPrefs['theme']>(
-      tr('Office theme'),
-      [['auto', tr('Automatic')], ['none', tr('None')], ['christmas', tr('Christmas')], ['halloween', tr('Halloween')]],
-      (v) => ctx.updatePrefs({ theme: v }),
-    );
-    this.theme.row.append(h('span', { class: 'ui-set__hint', text: tr('Automatic: Halloween in October and Christmas from November 1 to December 26; the rest of the year, the original look. None: always the original.') }));
     this.soundGroup = new SoundSettingsGroup(ctx, sound);
     const pct = (label: string) => numberField(label, SHARE_RANGE.min * 100, SHARE_RANGE.max * 100, () => this.saveLoad());
     const count = (label: string) => numberField(label, COMPACTS_RANGE.min, COMPACTS_RANGE.max, () => this.saveLoad());
@@ -196,7 +189,6 @@ export class SettingsPopover implements UiComponent {
       'div',
       { class: 'ui-popover ui-settings', role: 'dialog', tabIndex: -1, attrs: { 'aria-label': tr('Settings'), id: 'ui-settings', popover: 'auto' } },
       h('div', { class: 'ui-popover__head' }, h('h2', { text: tr('Settings') }), close),
-      h('div', { class: 'ui-set-group' }, h('h3', { text: tr('Appearance') }), this.theme.row),
       h(
         'div',
         { class: 'ui-set-group' },
@@ -289,7 +281,6 @@ export class SettingsPopover implements UiComponent {
     this.bubbles.set(p.bubbles);
     this.liveliness.set(p.liveliness);
     this.daylight.set(p.daylight);
-    this.theme.set(p.theme);
     if (!Object.values(this.loadFields).includes(document.activeElement as HTMLInputElement)) this.showLoad(p.overload);
     this.language.set(savedLanguage());
     this.soundGroup.render();

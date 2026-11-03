@@ -13,7 +13,6 @@ export interface UiPrefs {
   liveliness: WorldOptions['liveliness'];
   /** Day/night cycle: automatic (local time), always day, or always night. */
   daylight: DaylightMode;
-  theme: NonNullable<WorldOptions['theme']>;
   /** Synthesized sounds (master switch; off by default). */
   sound: boolean;
   /** Master volume and sound categories. */
@@ -33,7 +32,6 @@ export const DEFAULT_PREFS: UiPrefs = {
   bubbles: DEFAULT_WORLD_OPTIONS.bubbles,
   liveliness: DEFAULT_WORLD_OPTIONS.liveliness,
   daylight: 'auto',
-  theme: 'auto',
   sound: false,
   sounds: DEFAULT_SOUND_SETTINGS,
   browserNotifications: false,
@@ -59,7 +57,6 @@ export function sanitizePrefs(raw: unknown): UiPrefs {
     liveliness: oneOf(o.liveliness, ['calm', 'normal', 'lively'] as const, d.liveliness),
     // legacy preferences: disabled "day and night" toggle becomes "always day"
     daylight: oneOf(o.daylight, ['auto', 'day', 'night'] as const, o.dayNight === false ? 'day' : d.daylight),
-    theme: oneOf(o.theme, ['auto', 'none', 'christmas', 'halloween'] as const, d.theme),
     sound: bool(o.sound, d.sound),
     sounds: sanitizeSoundSettings(o.sounds),
     browserNotifications: bool(o.browserNotifications, d.browserNotifications),
@@ -92,7 +89,7 @@ export function savePrefs(storage: StorageLike | null, prefs: UiPrefs): void {
 
 /** Preferences subset consumed by the world (canvas). */
 export function worldOptionsFrom(p: UiPrefs): Partial<WorldOptions> {
-  return { showNames: p.showNames, bubbles: p.bubbles, liveliness: p.liveliness, dayNight: p.daylight !== 'day', daylight: p.daylight, theme: p.theme, overload: p.overload };
+  return { showNames: p.showNames, bubbles: p.bubbles, liveliness: p.liveliness, dayNight: p.daylight !== 'day', daylight: p.daylight, overload: p.overload };
 }
 
 /** localStorage with protection against browsers that throw an exception when accessing it. */

@@ -3,7 +3,7 @@
 import * as artModule from '../art';
 import { TILE, type ArtModule } from '../art/api';
 import type { OfficeStore } from '../net/store';
-import { DEFAULT_WORLD_OPTIONS, seasonalThemeFor, type Selection, type SoundCue, type WorldApi, type WorldFocus, type WorldOptions } from './api';
+import { DEFAULT_WORLD_OPTIONS, type Selection, type SoundCue, type WorldApi, type WorldFocus, type WorldOptions } from './api';
 import { loadWorldAssets, type WorldAssets } from './assets';
 import { Camera, overviewFrame } from './camera';
 import { createDebug, type WorldDebug } from './debug';
@@ -300,7 +300,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
       if (canvas.clientWidth !== camera.viewW || canvas.clientHeight !== camera.viewH || dpr !== camera.dpr) resize();
       sim.update(dt, now);
-      renderer.sync(seasonalThemeFor(options.theme, new Date()));
+      renderer.sync();
       if (sim.building.cols !== lastCols) {
         lastCols = sim.building.cols;
         updateBounds();

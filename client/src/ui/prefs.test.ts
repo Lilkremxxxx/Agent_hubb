@@ -66,7 +66,7 @@ describe('preferences', () => {
   });
 
   it('extracts only world options', () => {
-    expect(worldOptionsFrom({ ...DEFAULT_PREFS, daylight: 'day' })).toEqual({ showNames: true, bubbles: 'important', liveliness: 'normal', dayNight: false, daylight: 'day', theme: 'auto', overload: DEFAULT_THRESHOLDS });
+    expect(worldOptionsFrom({ ...DEFAULT_PREFS, daylight: 'day' })).toEqual({ showNames: true, bubbles: 'important', liveliness: 'normal', dayNight: false, daylight: 'day', overload: DEFAULT_THRESHOLDS });
     expect(worldOptionsFrom({ ...DEFAULT_PREFS, daylight: 'night' })).toMatchObject({ dayNight: true, daylight: 'night' });
   });
   it('day/night cycle: validates mode and migrates legacy switch', () => {
@@ -76,16 +76,6 @@ describe('preferences', () => {
     expect(sanitizePrefs({ dayNight: false }).daylight).toBe('day');
     expect(sanitizePrefs({ dayNight: true }).daylight).toBe('auto');
     expect(sanitizePrefs({ dayNight: false, daylight: 'night' }).daylight).toBe('night');
-  });
-  it('themes: preserves legacy preferences and recovers from invalid values', () => {
-    expect(sanitizePrefs({ daylight: 'night' })).toMatchObject({ theme: 'auto', daylight: 'night' });
-    expect(sanitizePrefs({ theme: 'invalid' }).theme).toBe('auto');
-    for (const theme of ['christmas', 'halloween', 'none', 'auto'] as const) {
-      const st = memoryStorage();
-      savePrefs(st, { ...DEFAULT_PREFS, theme });
-      expect(loadPrefs(st).theme).toBe(theme);
-      expect(worldOptionsFrom(loadPrefs(st)).theme).toBe(theme);
-    }
   });
   it('sounds: off by default; volume and categories validated', () => {
     expect(DEFAULT_PREFS.sound).toBe(false);

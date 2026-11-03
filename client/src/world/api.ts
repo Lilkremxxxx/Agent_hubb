@@ -19,26 +19,8 @@ export interface WorldOptions {
   dayNight: boolean;
   /** (Optional, additive) Day/night cycle: auto, always day, or always night. Takes precedence over `dayNight`. */
   daylight?: DaylightMode;
-  /** Visual theme: auto (follows calendar; see seasonalThemeFor), none, Christmas, or Halloween. */
-  theme?: OfficeTheme;
   /** (Optional, additive) When a session shows as tired or overloaded; absent = the defaults. */
   overload?: LoadThresholds;
-}
-
-/** Theme rendered by renderer: original office ('none') or a seasonal one. */
-export type SeasonalTheme = 'none' | 'christmas' | 'halloween';
-export type OfficeTheme = 'auto' | SeasonalTheme;
-
-/**
- * Theme rendered on a given date (local time). In auto mode: Halloween from October 1 to 31, Christmas from
- * November 1 to December 26, and original office the rest of the year.
- */
-export function seasonalThemeFor(theme: OfficeTheme | undefined, date: Date): SeasonalTheme {
-  if (theme && theme !== 'auto') return theme;
-  const month = date.getMonth();
-  if (month === 9) return 'halloween';
-  if (month === 10 || (month === 11 && date.getDate() <= 26)) return 'christmas';
-  return 'none';
 }
 
 /** Day/night cycle: follows local time, or fixed to day or night. */
@@ -126,5 +108,4 @@ export const DEFAULT_WORLD_OPTIONS: WorldOptions = {
   liveliness: 'normal',
   followSelected: false,
   dayNight: true,
-  theme: 'auto',
 };
