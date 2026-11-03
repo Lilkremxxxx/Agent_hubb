@@ -33,8 +33,6 @@ export interface ServerConfig {
    * terminal lock and HABBLAUD_MENSAGENS enabled (see messagesOffReason).
    */
   messages: boolean;
-  /** Records office timeline for timelapse (<dataDir>/timeline); HABBLAUD_TIMELINE=0 disables it. */
-  timeline: boolean;
   /** Project root (where package.json lives); serves dist/client from here. */
   rootDir: string;
   version: string;
@@ -234,7 +232,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     allowedHosts: parseAllowedHosts(env.HABBLAUD_ALLOWED_HOSTS),
     terminal: terminalOffReason(env, host, inDocker) === undefined,
     messages: messagesOffReason(env, host, inDocker) === undefined,
-    timeline: !env.HABBLAUD_TIMELINE?.trim() || isTruthy(env.HABBLAUD_TIMELINE),
     rootDir,
     version: pkg.version,
     agy: parseAgyConfig(env, home),

@@ -37,9 +37,7 @@
 //   scene is open or not (and to scene as well); `summary.seen` and `unblock` dispatch via `sendCity`.
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { dayKeyOf, systemTimeZone } from '../../shared/daystats';
 import { tr } from '../../shared/i18n';
-import { isDemoId } from '../../shared/timeline';
 import type { AgentInfo } from '../../shared/types';
 import type { WorldBuildingMeta, WorldBuildingStatus, WorldBuildingStop, WorldLastUplink, WorldUplinkAck } from '../../shared/world/api';
 import { projectWithReport } from '../../shared/world/projection';
@@ -245,8 +243,8 @@ export class BuildingUplink {
     this.timers = o.timers ?? NODE_TIMERS;
     this.random = o.random ?? Math.random;
     this.ids = o.ids ?? new WorldIds();
-    const tz = systemTimeZone();
-    this.signals = new AgentSignals((t) => dayKeyOf(t, tz));
+    const dayFmt = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' });
+    this.signals = new AgentSignals((t) => dayFmt.format(t));
     this.socketFactory = o.socket ?? ((url) => new WebSocket(url) as unknown as SocketLike);
   }
 
@@ -691,9 +689,9 @@ export class BuildingUplink {
     this.signals.observe(this.realAgents(), this.now());
   }
 
-  /** Office agents eligible for uplink (demo mode agents excluded). */
+  /** Office agents eligible for uplink. */
   private realAgents(): AgentInfo[] {
-    return this.o.agents().filter((a) => !isDemoId(a.id));
+    return [...this.o.agents()];
   }
 
   /** State changed: projects after `debounceMs` from first change without resetting wait, respecting `minGapMs`. */

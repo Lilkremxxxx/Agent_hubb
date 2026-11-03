@@ -15,9 +15,6 @@ import { createRemoteGate, isRemoteRequest, loadSecret, RemoteSessions, startRem
 import { Hub } from './http/sse';
 import { createStaticHandler } from './http/static';
 import { TerminalStreams } from './http/terminal';
-import { createTimelineHandler } from './http/timeline';
-import { TIMELINE_DIR, TimelineRecorder } from './history/timeline';
-import { DayStatsService } from './history/daystats';
 import { errMsg, log } from './log';
 import { NameStore } from './model/names';
 import { Office } from './model/office';
@@ -48,7 +45,6 @@ import { createCliRunner, createOpener, SpawnService } from './spawn/spawn';
 import { runnableClaudeBin } from './claude-bin';
 import { AttachmentStore } from './spawn/attachments';
 import { recentFolders } from './spawn/folders';
-import { isDemoId } from '../shared/timeline';
 import { DictationService } from './dictation/dictation';
 import { createWhisperTranscriber, findWhisper } from './dictation/whisper';
 import { DeliveryIndex } from './deliveries/deliveries';
@@ -58,7 +54,6 @@ import { createWorldRoutes } from './world/http';
 import { WorldService } from './world/service';
 import { WorldSettingsStore } from './world/settings';
 import { OwnerSocial } from './world/social';
-import { BuildingTokens } from './world/tokens';
 import { BuildingUplink } from './world/uplink';
 import { WorldViewer } from './world/viewer';
 
@@ -186,13 +181,9 @@ late.agents = agents;
 const hub = new Hub(office, {
   canAnswer: (req) => (isRemoteRequest(req) ? !!config.remote?.allow.has('permissions') : isLoopbackHost(req.headers.host)),
 });
-// "My day": samples the office every second and persists to <dataDir>/stats/ (see history/daystats.ts).
-const stats = new DayStatsService({ dir: join(config.dataDir, 'stats'), snapshot: () => hub.current() });
-stats.load();
 // Building in Habblaud World (world/uplink.ts): only with accepted world server. Connects automatically with approved
 // account, created character, terminal lock, and without pause; packet comes only from projection
 // (shared/world/projection.ts).
-const worldTokens = new BuildingTokens({ stats });
 const worldUplink =
   world && config.world.url
     ? new BuildingUplink({
@@ -208,7 +199,6 @@ const worldUplink =
         agents: () => office.list(),
         subscribe: (cb) => office.onChange(cb),
         booting: () => office.isBooting(),
-        tokens: () => worldTokens.read(),
         lastFile: join(config.dataDir, 'world-last-uplink.json'),
         onGoodbye: (reason) => world.goodbye(reason),
         onLeft: () => world.leftElsewhere(),
@@ -263,10 +253,6 @@ const deliveryFiles = deliveries
       },
     })
   : undefined;
-// Timelapse timeline: records each new snapshot (throttled) to <dataDir>/timeline.
-const timelineDir = join(config.dataDir, TIMELINE_DIR);
-const timeline = config.timeline ? new TimelineRecorder({ dir: timelineDir }) : undefined;
-if (timeline) hub.onSnapshot((snap) => timeline.ingest(snap));
 // Reply from the office (PermissionRequest hook): acts on sessions, so follows the same lock.
 const permissions = config.terminal
   ? new PermissionRegistry({
@@ -431,13 +417,8 @@ void agents.start();
 accounts.start();
 board.start();
 hub.start();
-if (timeline) {
-  timeline.start();
-  timeline.ingest(hub.current());
-}
 permissions?.start();
 messages?.start();
-stats.start();
 worldUplink?.start();
 // Hung workers: a faint ghost on the seat; nothing is stopped.
 const ghosts = new GhostWatch({
@@ -512,7 +493,6 @@ const api = createApiHandler({
   terminal: config.terminal,
   terminals,
   sessions: history,
-  timeline: createTimelineHandler({ dir: timelineDir, recording: !!timeline }),
   permissions: permissions ? createPermissionRoutes(permissions) : undefined,
   messages: messages ? createMessageRoutes(messages) : undefined,
   pty: ptys ? createPtyRoutes(ptys) : undefined,
@@ -537,10 +517,9 @@ const api = createApiHandler({
     const snap = hub.current();
     const last = new Map<string, number>();
     for (const a of snap.agents) last.set(a.roomId, Math.max(last.get(a.roomId) ?? 0, a.lastEventAt ?? 0));
-    const rooms = snap.rooms.filter((r) => !isDemoId(r.id)).map((r) => ({ path: r.path, lastAt: last.get(r.id) ?? 0 }));
+    const rooms = snap.rooms.map((r) => ({ path: r.path, lastAt: last.get(r.id) ?? 0 }));
     return recentFolders(history ? await history.list().catch(() => []) : [], rooms);
   },
-  stats,
   remote: config.remote ? { is: isRemoteRequest, allows: (f) => config.remote!.allow.has(f) } : undefined,
   world: world ? createWorldRoutes(world, worldViewer, worldSocial) : undefined,
 });
@@ -657,7 +636,6 @@ server.listen(config.port, config.host, () => {
           ? tr('   New agent: on ({0} --bg; a folder not yet trusted opens in the Claude app).', [spawnBin])
           : tr('   New agent: on, only via the Claude app (claude not found in PATH).'),
   );
-  log.info(timeline ? tr('   Timeline (timelapse): recording to {0}.', [timelineDir]) : tr('   Timeline (timelapse): recording off (HABBLAUD_TIMELINE).'));
   log.info(tr('   Reply from the office: {0}.', [config.terminal ? tr('on (needs the mod: npm run mod:install; or the old hook: npm run hooks:install)') : tr('off (same lock as the terminal)')]));
   log.info(
     config.messages
@@ -685,14 +663,12 @@ function shutdown(signal: string): void {
   log.info(tr('Shutting down ({0})…', [signal]));
   clearInterval(ticker);
   clearInterval(rulesTimer);
-  stats.stop();
   agents.stop();
   accounts.stop();
   board.stop();
   ghosts.stop();
   hub.stop();
   terminals?.stop();
-  timeline?.stop();
   permissions?.stop();
   messages?.stop();
   ptys?.stopAll();

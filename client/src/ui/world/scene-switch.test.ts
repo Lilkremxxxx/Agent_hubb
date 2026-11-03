@@ -62,7 +62,6 @@ describe('SceneSwitch.leaveFor', () => {
     let sw!: SceneSwitch;
     const ctx = {
       store: { replaying: false, liveSnapshot: undefined },
-      isTimelapseOpen: () => false,
       announce: vi.fn(),
       selection: () => selection,
       select: (sel: Selection) => {

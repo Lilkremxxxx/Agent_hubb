@@ -93,13 +93,6 @@ export interface WorldApi {
   /** (Optional, additive) Social events (matches and bets) for the feed. */
   onSocialEvent?(cb: (e: SocialEvent) => void): () => void;
   /**
-   * (Optional, additive) Timelapse: with `p`, world renders reproduced day (clock and
-   * animation scale from `p`); `null` returns to live. Each call restarts world from scratch (nobody walks to
-   * desk: everyone spawns in place), so call on enter, on seeking, and on exit; next store snapshot is
-   * applied as initial state.
-   */
-  setPlayback?(p: WorldPlayback | null): void;
-  /**
    * (Optional, additive) Office shown on the page: the world dims (gently) the rooms and characters outside
    * `source()`, called every frame (return the same object while nothing changed); null source or result = no dimming.
    */
@@ -130,13 +123,6 @@ export interface WorldFocus {
   office?: string;
 }
 
-/** Timelapse clocks (see world/playback.ts). */
-export interface WorldPlayback {
-  /** Reproduced instant (epoch ms): sky time, lighting, and wall clock. */
-  clock(): number;
-  /** Animation scale factor (1 = real time; 0 = paused). */
-  scale(): number;
-}
 
 export interface AgentSocial {
   traits: { emoji: string; label: string; desc: string }[];

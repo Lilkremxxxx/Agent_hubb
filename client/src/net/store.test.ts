@@ -230,7 +230,7 @@ describe('new version detection', () => {
   });
 });
 
-describe('alternative source (timelapse)', () => {
+describe('alternative source', () => {
   it('preserves live snapshots during replay and reverts to them at the end', () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);

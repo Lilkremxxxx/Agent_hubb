@@ -162,7 +162,6 @@ async function start(
       agent('.claude:101', '/Users/ana/projeto-secreto'),
       agent('s-101:agent-1', '/Users/ana/projeto-secreto', { kind: 'sub', parentId: '.claude:101', look: 'm' }),
       agent('.claude-b:thr-9', '/Users/ana/outro', { status: 'idle' }),
-      agent('demo:agente-1', 'demo:/sala', { status: 'working' }),
     ],
     goodbyes: [] as GoodbyeReason[],
     changes: { n: 0 },
@@ -206,7 +205,7 @@ async function start(
 const agentsOf = (u: WorldUplink) => u.floors.flatMap((f) => f.agents);
 
 describe('BuildingUplink: connection and dispatches', () => {
-  it('hello only with token, version, build and locale; with welcome, full payload (valid, no demo)', async () => {
+  it('hello only with token, version, build and locale; with welcome, full payload (valid)', async () => {
     const h = await start();
     await waitFor(() => h.world.ws.uplinks.length === 1, 'first dispatch');
     const conn = h.world.ws.connections[0];
@@ -219,7 +218,7 @@ describe('BuildingUplink: connection and dispatches', () => {
     expect(uplink.floors).toHaveLength(2);
     expect(agentsOf(uplink)).toHaveLength(3);
     expect(uplink.tokens).toEqual({ day: 12_000, week: 680_000 });
-    for (const leak of ['demo', '/Users', 'projeto-secreto', 'outro', '.claude', 'thr-9', 's-101']) {
+    for (const leak of ['/Users', 'projeto-secreto', 'outro', '.claude', 'thr-9', 's-101']) {
       expect(JSON.stringify(uplink), leak).not.toContain(leak);
     }
     const sub = agentsOf(uplink).find((a) => a.kind === 'sub')!;

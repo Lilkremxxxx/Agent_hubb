@@ -3,7 +3,7 @@
 import * as artModule from '../art';
 import { TILE, type ArtModule } from '../art/api';
 import type { OfficeStore } from '../net/store';
-import { DEFAULT_WORLD_OPTIONS, seasonalThemeFor, type Selection, type SocialEvent, type SoundCue, type WorldApi, type WorldFocus, type WorldOptions, type WorldPlayback } from './api';
+import { DEFAULT_WORLD_OPTIONS, seasonalThemeFor, type Selection, type SocialEvent, type SoundCue, type WorldApi, type WorldFocus, type WorldOptions } from './api';
 import { loadWorldAssets, type WorldAssets } from './assets';
 import { Camera, overviewFrame } from './camera';
 import { createDebug, type WorldDebug } from './debug';
@@ -12,7 +12,6 @@ import { RECEPTION_ID } from './layout/core';
 import { inRect } from './layout/geometry';
 import { attachInput, type Hit } from './input';
 import type { AgentInfo } from '../../../shared/types';
-import { rebaseSnapshot } from './playback';
 import { Overlay } from './render/overlay';
 import { Renderer } from './render/renderer';
 import { Sim, type VisitLight } from './sim/sim';
@@ -54,16 +53,12 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   let options: WorldOptions = { ...DEFAULT_WORLD_OPTIONS };
   const visitMode = !!o.visit;
   const camera = new Camera();
-  // Simulation and renderer are recreated when timelapse enters, jumps, or exits (rebuild).
   let sim = new Sim(art, () => options, undefined, { visit: visitMode });
   let renderer = new Renderer(canvas, art, sim, camera);
   let overlay = new Overlay(renderer.ctx, sim, renderer, camera);
   let assets: WorldAssets | null = null;
-  /** Timelapse active: world's own clock (`worldNow`), accelerated by animation factor. */
-  let playback: WorldPlayback | null = null;
   /** Office shown on the page (setOfficeFocus): the rest is dimmed. */
   let focusSource: (() => WorldFocus | null) | null = null;
-  let worldNow = 0;
   const selectCbs = new Set<(s: Selection) => void>();
   const hoverCbs = new Set<(id: string | null) => void>();
   const socialCbs = new Set<(e: SocialEvent) => void>();
@@ -306,9 +301,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     const snap = store.snapshot;
     if (!snap) return;
     try {
-      // In timelapse, snapshot timestamps shift to the world clock (world/playback.ts).
-      if (playback) sim.applySnapshot(rebaseSnapshot(snap, worldNow - snap.serverTime), worldNow);
-      else sim.applySnapshot(snap, Date.now());
+      sim.applySnapshot(snap, Date.now());
     } catch (err) {
       console.error('[world] invalid snapshot ignored', err);
     }
@@ -332,19 +325,16 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     const real = Date.now();
     const realDt = lastTs ? Math.min(0.1, Math.max(0, (ts - lastTs) / 1000)) : 1 / 60;
     lastTs = ts;
-    // Timelapse: simulation and rendering on world clock (accelerated or paused); camera stays in real time.
-    const k = playback ? Math.max(0, playback.scale()) : 1;
-    const dt = realDt * k;
-    if (playback) worldNow += dt * 1000;
-    const now = playback ? worldNow : real;
+    const dt = realDt;
+    const now = real;
     try {
       const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
       if (canvas.clientWidth !== camera.viewW || canvas.clientHeight !== camera.viewH || dpr !== camera.dpr) resize();
       sim.update(dt, now);
-      // resolved games and bets: sent to feed (timelapse events are past reenactment: excluded)
+      // resolved games and bets: sent to feed
       const events = sim.social.events;
       if (events.length) {
-        if (!playback) for (const e of events) for (const cb of socialCbs) cb(e);
+        for (const e of events) for (const cb of socialCbs) cb(e);
         events.length = 0;
       }
       renderer.sync(seasonalThemeFor(options.theme, new Date()));
@@ -365,8 +355,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       renderer.frame(now, dt, options, { agent: selection?.type === 'agent' ? selection.id : null, room: selection?.type === 'room' ? selection.id : null, hover });
       overlay.draw(now, options, { agent: selection?.type === 'agent' ? selection.id : null, room: selection?.type === 'room' ? selection.id : null, hover });
       renderer.pruneHeads();
-      // In timelapse the world stays muted: fast-forwarded keyboard and elevator would just make noise.
-      if (soundCbs.size && !playback) cues.update(now, (c) => soundCbs.forEach((cb) => cb(c)));
+      if (soundCbs.size) cues.update(now, (c) => soundCbs.forEach((cb) => cb(c)));
       if (mouse) {
         const hit = pick(mouse.x, mouse.y);
         setHover(hit?.type === 'agent' ? hit.id : null);
@@ -386,7 +375,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       return;
     }
     lastTs = 0;
-    if (hiddenAt && Date.now() - hiddenAt > 5000) sim.fastForward(playback ? worldNow : Date.now());
+    if (hiddenAt && Date.now() - hiddenAt > 5000) sim.fastForward(Date.now());
     hiddenAt = 0;
   };
 
@@ -418,29 +407,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
 
   const markMoved = () => (userMoved = true);
   let debug = createDebug(sim, renderer, camera, markMoved);
-
-  // ------------------------------------------------------------------ timelapse
-
-  /**
-   * Restarts simulation and rendering from scratch (next snapshot is initial load: everyone already in place).
-   * In timelapse wallets remain in-memory only, without touching saved coins in browser.
-   */
-  const rebuild = () => {
-    // Live wallets persist every 5s: preserves changes since last write (in replay, writes nothing).
-    sim.social.wallets.save(Date.now());
-    sim = new Sim(art, () => options, playback ? null : undefined, { visit: visitMode });
-    renderer = new Renderer(canvas, art, sim, camera);
-    if (assets) renderer.setAssets(assets);
-    if (playback) {
-      const p = playback;
-      renderer.clock = () => p.clock();
-    }
-    overlay = new Overlay(renderer.ctx, sim, renderer, camera);
-    debug = createDebug(sim, renderer, camera, markMoved);
-    cues = new SoundCues(sim, camera);
-    lastCols = -1;
-    setHover(null);
-  };
 
   return {
     select: (sel, opts) => setSelection(sel, !!opts?.focus),
@@ -504,11 +470,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       socialCbs.add(cb);
       return () => void socialCbs.delete(cb);
     },
-    setPlayback: (p) => {
-      playback = p;
-      worldNow = p ? p.clock() : 0;
-      rebuild();
-    },
     setOfficeFocus: (source) => {
       focusSource = source;
     },
@@ -535,7 +496,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
         return;
       }
       lastTs = 0;
-      if (suspendedAt && Date.now() - suspendedAt > 5000) sim.fastForward(playback ? worldNow : Date.now());
+      if (suspendedAt && Date.now() - suspendedAt > 5000) sim.fastForward(Date.now());
       suspendedAt = 0;
       hiddenAt = 0;
       raf = requestAnimationFrame(loop);

@@ -17,7 +17,6 @@ export class Hub {
   private pinger: ReturnType<typeof setInterval> | null = null;
   private lastFlush = 0;
   private unsubscribe: (() => void) | null = null;
-  private snapshotCbs = new Set<(snap: OfficeSnapshot) => void>();
   private readonly throttleMs: number;
   private readonly pingMs: number;
   /** Who can answer for the office; default: local Host. Remote port (http/remote.ts) overrides rule. */
@@ -51,12 +50,6 @@ export class Hub {
 
   get size(): number {
     return this.clients.size;
-  }
-
-  /** Notified on each new snapshot broadcast (e.g. timeline recorder). */
-  onSnapshot(cb: (snap: OfficeSnapshot) => void): () => void {
-    this.snapshotCbs.add(cb);
-    return () => void this.snapshotCbs.delete(cb);
   }
 
   /** Pages connected via local Host (localhost/127.x): who can answer for the office. */
@@ -96,13 +89,6 @@ export class Hub {
     const r = this.office.commit();
     if (r.changed) {
       this.writeAll(frame('snapshot', r.snapshot));
-      for (const cb of this.snapshotCbs) {
-        try {
-          cb(r.snapshot);
-        } catch {
-          // listeners do not disrupt broadcast
-        }
-      }
     }
     if (r.feed.length) this.writeAll(frame('feed', r.feed));
     for (const n of r.notices) this.writeAll(frame('notice', n));

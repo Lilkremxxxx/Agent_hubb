@@ -180,7 +180,7 @@ export class Sim {
   /** Visit: building lighting (applied on every snapshot and every second). */
   visitLight: VisitLight = 'live';
 
-  /** Wallet `storage`: null = memory-only (timelapse does not touch real coins). */
+  /** Wallet `storage`: null = memory-only (does not touch the saved coins). */
   constructor(
     private readonly art: ArtModule,
     private readonly options: () => WorldOptions,

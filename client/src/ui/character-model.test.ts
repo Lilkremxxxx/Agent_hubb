@@ -9,10 +9,9 @@ const OPEN = { live: true, terminal: true, local: true, replaying: false };
 const MAIN = { id: '.claude:1', kind: 'main', status: 'working' } as const;
 
 describe('canEditCharacter', () => {
-  it('only the real live main agent with local access (not in timelapse)', () => {
+  it('only the real live main agent with local access (not with an alternative source)', () => {
     expect(canEditCharacter(MAIN, OPEN)).toBe(true);
     expect(canEditCharacter({ ...MAIN, id: 's:sub', kind: 'sub' }, OPEN)).toBe(false);
-    expect(canEditCharacter({ ...MAIN, id: 'demo:x-1' }, OPEN)).toBe(false);
     for (const k of ['live', 'terminal', 'local'] as const) expect(canEditCharacter(MAIN, { ...OPEN, [k]: false })).toBe(false);
     for (const k of ['replaying'] as const) expect(canEditCharacter(MAIN, { ...OPEN, [k]: true })).toBe(false);
   });

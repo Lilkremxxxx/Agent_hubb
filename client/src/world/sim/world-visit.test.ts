@@ -54,7 +54,7 @@ function run(sim: Sim, clock: { now: number }, seconds: number, until?: () => bo
   }
 }
 
-/** In-memory wallets only, like timelapse. */
+/** In-memory wallets only, so saved coins stay untouched. */
 const newSim = () => new Sim(art, () => ({ ...DEFAULT_WORLD_OPTIONS, liveliness: 'calm' }), null);
 
 function enter(detail: WorldBuildingDetail): { sim: Sim; clock: { now: number }; snap: OfficeSnapshot } {

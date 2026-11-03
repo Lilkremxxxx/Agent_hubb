@@ -2,7 +2,6 @@
 // Name is stored on server (POST /api/rooms/rename, model/room-aliases.ts) and applies to all tabs; empty resets to
 // folder name. Enter saves, Esc cancels, clicking outside saves.
 // The room drawer also has a pencil icon next to the name.
-import { isDemoId } from '../../../shared/timeline';
 import type { UiContext } from './context';
 import { h, setText } from './dom';
 import { access } from '../net/access';
@@ -18,7 +17,6 @@ const NAME_MAX = 40;
 export function canRenameRoom(ctx: UiContext, roomId: string): boolean {
   return (
     !!ctx.renameRoom &&
-    !isDemoId(roomId) &&
     !ctx.store.replaying &&
     !!ctx.store.snapshot?.meta.terminal &&
     access().local

@@ -123,8 +123,6 @@ export class Renderer {
   private occupiedSlots = new Set<number>();
   /** Forced hour (?hora=21:30 in URL or debugging) or null for local time. */
   hourOverride: number | null = parseHourParam(typeof location === 'undefined' ? '' : location.search);
-  /** Time of day clock (sky, lighting, wall clock); timelapse replaces it with replayed instant. */
-  clock: () => number = () => Date.now();
   /** Day/night cycle: light map and glows. */
   readonly lighting: Lighting;
   assets: WorldAssets | null = null;
@@ -356,7 +354,7 @@ export class Renderer {
 
   frame(now: number, dt: number, opts: WorldOptions, sel: { agent: string | null; room: string | null; hover: string | null }): void {
     const { ctx, camera } = this;
-    this.date.setTime(this.clock());
+    this.date.setTime(Date.now());
     this.dt = dt;
     this.updateCars(now, dt);
     const W = this.canvas.width;

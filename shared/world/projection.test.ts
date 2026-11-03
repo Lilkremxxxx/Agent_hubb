@@ -1,6 +1,6 @@
 // The projection (shared/world/projection.ts) is the only place building the payload for the building. These tests ensure
 // the allowlist in docs/world/privacidade.md: keys only from schema.json, no office text in payload
-// (canaries), no numbers resembling timestamps, demo excluded, pool names, appearance without seed,
+// (canaries), no numbers resembling timestamps, pool names, appearance without seed,
 // translated parentId, limits, and player options.
 import { describe, expect, it } from 'vitest';
 import { PART_KEYS } from '../appearance';
@@ -196,23 +196,6 @@ describe('projection: allowlist', () => {
 });
 
 describe('projection: rules', () => {
-  it('demo never enters (nor requests world id)', () => {
-    const ids = new FakeIds();
-    const rooms = [room('/p/real'), room('demo:/sala-demo')];
-    const agents = [
-      agent('acc:1', '/p/real'),
-      agent('demo:agente-1', 'demo:/sala-demo'),
-      agent('demo:agente-2', '/p/real'),
-      agent('acc:2', 'demo:/sala-demo'),
-    ];
-    const u = project(input(rooms, agents), ids, NOW);
-    expect(u.floors).toHaveLength(1);
-    expect(agentsOf(u)).toHaveLength(1);
-    expect(ids.calls.some((c) => c.startsWith('demo:') || c === 'acc:2')).toBe(false);
-    // Demo only: building without floors.
-    expect(project(input([room('demo:/x')], [agent('demo:a', 'demo:/x')]), new FakeIds(), NOW).floors).toEqual([]);
-  });
-
   it('present agents only: done and offline disappear, and rooms with no present agents do not become floors', () => {
     const rooms = [room('/p/a'), room('/p/b'), room('/p/vazia')];
     const agents = [

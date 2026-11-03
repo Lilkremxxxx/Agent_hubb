@@ -1,7 +1,6 @@
 // Character editor, pure logic (no DOM): when drawer offers editing, how parts are grouped,
 // labels, and what goes to server in `parts`. The UI lives in character-editor.ts.
 import { PART_KEYS, type AppearanceParts, type PartKey } from '../../../shared/appearance';
-import { isDemoId } from '../../../shared/timeline';
 import type { AgentInfo } from '../../../shared/types';
 import type { Appearance } from '../art/api';
 import { tr } from '../../../shared/i18n';
@@ -21,7 +20,7 @@ export interface EditGate {
  * would reply 404) and with local access (terminal restriction).
  */
 export function canEditCharacter(a: Pick<AgentInfo, 'id' | 'kind' | 'status'>, g: EditGate): boolean {
-  return a.kind === 'main' && a.status !== 'offline' && g.live && g.terminal && g.local && !g.replaying && !isDemoId(a.id);
+  return a.kind === 'main' && a.status !== 'offline' && g.live && g.terminal && g.local && !g.replaying;
 }
 
 /** Parts differing from seed-generated base appearance (sent in `parts`), in PART_KEYS order. */

@@ -3,11 +3,10 @@ import { shortPath, spawnFolders } from './spawn';
 import { insertDictation, pickMimeType } from './dictation';
 
 describe('spawnFolders', () => {
-  it('room folders, most recent first, excluding demo and relative paths', () => {
+  it('room folders, most recent first, excluding relative paths', () => {
     const rooms = [
       { id: 'r1', path: '/Users/a/antigo' },
       { id: 'r2', path: '/Users/a/novo' },
-      { id: 'demo:x', path: '/demo/x' },
       { id: 'r3', path: 'relativo' },
       { id: 'r4', path: 'C:\\code\\win' },
     ];

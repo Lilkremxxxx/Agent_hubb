@@ -12,7 +12,6 @@ import './styles.css';
 import type { OfficeStore } from '../net/store';
 import type { Selection, WorldApi } from '../world/api';
 import type { PanelName, TerminalRouter, UiComponent, UiContext } from './context';
-import { DayLauncher } from './daystats-launcher';
 import { RoomRenamer } from './roomrename';
 import { h } from './dom';
 import { Drawer } from './drawer';
@@ -31,7 +30,6 @@ import { Sidebar } from './sidebar';
 import { SoundControl } from './sound';
 import { TERMINAL_UNAVAILABLE_HINT, TerminalPanel } from './terminal';
 import { PtyPanel } from './pty';
-import { TimelapsePlayer } from './timelapse';
 import { Toasts } from './toasts';
 import { TopBar } from './topbar';
 import { UpdateBanner } from './update';
@@ -87,7 +85,6 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   let worldDialog: WorldDialog;
   let help: HelpDialog;
   let area: FreeArea;
-  let timelapse: TimelapsePlayer;
   /** Active selection originated from the UI (list, feed, notice...), not from a canvas click. */
   let uiSelecting = false;
   /** World button and city navigation (only when app.ts mounts the scene). */
@@ -123,7 +120,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
       world.setOptions(worldOptionsFrom(prefs));
       invalidate();
     },
-    now: () => timelapse?.replayTime ?? Date.now() + skew,
+    now: () => Date.now() + skew,
     account: (id) => store.snapshot?.accounts.find((a) => a.id === id),
     agent: (id) => store.agent(id),
     selection: () => selection,
@@ -185,12 +182,6 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
     toggleSettings: () => settings.toggle(topbar.settingsBtn),
     toggleWorld: () => worldDialog.toggle(topbar.worldBtn),
     openAbout: () => settings.showAbout(topbar.settingsBtn),
-    toggleTimelapse() {
-      // Terminal shows current conversation: incompatible with replaying past days.
-      if (!timelapse.isOpen && terminal.isOpen) terminal.close();
-      timelapse.toggle();
-    },
-    isTimelapseOpen: () => timelapse.isOpen,
     selectedOffice: () => pickOffice(teamOffices(store.snapshot?.team), officeId),
     selectOffice(id, opts) {
       // You left an office: what was open there closes (its sessions keep running). A pick in another building goes
@@ -321,8 +312,6 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   // Hold Alt: what each button and area on screen does (ui/hints.ts); Help offers it without a keyboard.
   const hints = new HintOverlay(document.body);
   help = new HelpDialog(() => hints.show(true));
-  const day = new DayLauncher(ctx, (el) => root.append(el));
-  topbar.addPanelButton(day.button);
   // Right click on a room (sidebar list or office): rename.
   const renamer = new RoomRenamer(ctx);
   ctx.renameRoom = (id, at) => renamer.open(id, at);
@@ -353,11 +342,10 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   const update = new UpdateBanner(store);
   const tip = new HoverTip(ctx);
   const splash = new Splash(ctx);
-  timelapse = new TimelapsePlayer(ctx);
   const scrim = h('div', { class: 'ui-scrim', attrs: { 'aria-hidden': 'true' }, on: { click: () => ctx.togglePanel('sidebar', false) } });
 
   root.classList.add('ui-root');
-  root.append(timelapse.vignette, officeTabs.el, topbar.el, sidebar.el, scrim, feed.el, drawer.el, terminal.el, pty.el, timelapse.el, timelapse.badge, toasts.el, banner.el, update.el, empty.el, popups.el, tip.el, settings.el, worldDialog.el, history.el, deliveries.el, help.el, renamer.el, live, splash.el, hints.el);
+  root.append(officeTabs.el, topbar.el, sidebar.el, scrim, feed.el, drawer.el, terminal.el, pty.el, toasts.el, banner.el, update.el, empty.el, popups.el, tip.el, settings.el, worldDialog.el, history.el, deliveries.el, help.el, renamer.el, live, splash.el, hints.el);
   area = new FreeArea(world, { root, topbar: topbar.el, sidebar: sidebar.el, drawer: drawer.el, feed: feed.el }, () => ({
     sidebar: panels.sidebar,
     feed: panels.feed,
@@ -366,7 +354,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   }));
   drawer.onLayoutChange = () => applyLayout();
 
-  const components: UiComponent[] = [topbar, sidebar, drawer, terminal, pty, history, deliveries, feed, toasts, settings, empty, banner, tip, notifier, splash, timelapse, sound, day, worldDialog, popups, worldChip];
+  const components: UiComponent[] = [topbar, sidebar, drawer, terminal, pty, history, deliveries, feed, toasts, settings, empty, banner, tip, notifier, splash, sound, worldDialog, popups, worldChip];
   if (scene) components.push(scene);
   root.append(worldSocial.el, jobBoard.el, overload.el, sidebar.dialogEl, officeTabs.dialog.el, officeTabs.menu.el, rules.el);
   components.push(worldSocial, jobBoard, overload, officeTabs, rules);
@@ -411,7 +399,6 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   // ---------------------------------------------------------------- events
   store.on('snapshot', (snap) => {
     // In live mode, UI "now" follows the server clock (device clock may be ahead or behind).
-    // In timelapse, the player playback time dictates "now" (frozen when paused).
     if (store.connection === 'open' && !store.replaying) skew = snap.serverTime - Date.now();
     invalidate();
   });
@@ -507,11 +494,6 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
         e.preventDefault();
         toggleTerminal();
         break;
-      case 'l':
-      case 'L':
-        e.preventDefault();
-        ctx.toggleTimelapse();
-        break;
       case 'p':
       case 'P': {
         // Next permission request or question to answer from office (only navigates to it: never auto-approves).
@@ -525,11 +507,6 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
       case 'O':
         e.preventDefault();
         ctx.camera('overview');
-        break;
-      case 'm':
-      case 'M':
-        e.preventDefault();
-        day.toggle();
         break;
       case 'b':
       case 'B':

@@ -19,7 +19,7 @@ export interface ComposerEnv {
   enabled: boolean;
   /** Page opened from local computer (server only accepts messages this way). */
   local: boolean;
-  /** Timelapse: office displayed is from the replayed moment. */
+  /** Alternative source: the office displayed is not the live one. */
   replaying: boolean;
 }
 

@@ -22,7 +22,7 @@ export interface TerminalRouter {
   toggle(agentId: string, opener?: HTMLElement | null): void;
   /** Terminal for this agent would be interactive. */
   interactive(agentId: string): boolean;
-  /** A terminal can be opened now (local access, outside timelapse). */
+  /** A terminal can be opened now (local access, not while an alternative source is shown). */
   readonly available: boolean;
   /** Interactive terminal enabled (launch new sessions, take over, terminate). */
   readonly interactiveEnabled: boolean;
@@ -80,9 +80,6 @@ export interface UiContext {
   visitOwnBuilding?(): void;
   /** Opens settings on "About" section (running version and update status). */
   openAbout(): void;
-  /** Opens/closes day timelapse (ui/timelapse.ts). */
-  toggleTimelapse(): void;
-  isTimelapseOpen(): boolean;
   /** The office shown (the office tabs above the top bar, ui/office-tabs.ts); undefined = no team (demo, older server). */
   selectedOffice(): OfficeInfo | undefined;
   /** Shows another office (remembered in this browser); the camera flies to its building unless `fly: false`. */

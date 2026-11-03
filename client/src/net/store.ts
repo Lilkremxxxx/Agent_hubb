@@ -1,6 +1,6 @@
 // Office state in browser: receives snapshots/feed/notices from server via SSE
 // and notifies subscribers.
-// Alternative source (timelapse, ui/timelapse.ts): pushReplay() publishes reconstructed snapshots while
+// Alternative source (World visit): pushReplay() publishes another office's snapshots while
 // SSE remains connected underneath, keeping live snapshots until stopReplay().
 // Also handles reconnection: when browser gives up on stream (EventSource closed after HTTP error,
 // e.g. server restarting behind proxy), retries with exponential backoff.
@@ -77,7 +77,7 @@ export class OfficeStore {
   private readonly onOnline = () => {
     if (!this.stopped && this.connection === 'closed') this.reconnectNow();
   };
-  /** Timelapse enabled: `snapshot` is reconstructed; last live snapshot is in `live` (with arrival time). */
+  /** Alternative source active: `snapshot` comes from it; last live snapshot is in `live` (with arrival time). */
   private replay = false;
   private live: { snap: OfficeSnapshot; at: number } | null = null;
 
@@ -130,7 +130,7 @@ export class OfficeStore {
     return (this.snapshot?.agents ?? []).filter((a) => a.roomId === roomId);
   }
 
-  /** Long agent history (server). In timelapse returns `recent`. */
+  /** Long agent history (server). With an alternative source returns `recent`. */
   async agentHistory(id: string): Promise<Activity[]> {
     if (this.replay) return this.agent(id)?.recent ?? [];
     const res = await fetch(`/api/agents/${encodeURIComponent(id)}`);
@@ -139,14 +139,14 @@ export class OfficeStore {
     return detail.history;
   }
 
-  // ---------------------------------------------------------------- timelapse
+  // ---------------------------------------------------------------- alternative source
 
-  /** Snapshots come from alternative source (timelapse), not SSE. */
+  /** Snapshots come from alternative source, not SSE. */
   get replaying(): boolean {
     return this.replay;
   }
 
-  /** Last live snapshot (during timelapse, `snapshot` is reconstructed). */
+  /** Last live snapshot (with an alternative source, `snapshot` is not live). */
   get liveSnapshot(): OfficeSnapshot | null {
     return this.replay ? (this.live?.snap ?? null) : this.snapshot;
   }

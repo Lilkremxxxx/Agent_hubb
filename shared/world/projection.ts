@@ -31,7 +31,6 @@
 import type { AppearanceParts } from '../appearance';
 import { hash32 } from '../hash';
 import { NAME_POOL, pickName } from '../names';
-import { isDemoId } from '../timeline';
 import type { AgentInfo } from '../types';
 import { flattenAppearance } from './appearance-flat';
 import { UPLINK_LIMITS, type WorldAgent, type WorldAgentStatus, type WorldFloor, type WorldTheme, type WorldUplink } from './protocol';
@@ -135,10 +134,10 @@ function completedTasks(a: AgentInfo): number {
 /** Builds packet and reports what was dropped due to limits. */
 export function projectWithReport(input: ProjectionInput, ids: WorldIdSource, now: number): ProjectionResult {
   const roomIds = new Set<string>();
-  for (const r of input.rooms) if (!isDemoId(r.id)) roomIds.add(r.id);
+  for (const r of input.rooms) roomIds.add(r.id);
   const byRoom = new Map<string, AgentInfo[]>();
   for (const a of input.agents) {
-    if (isDemoId(a.id) || isDemoId(a.roomId) || !roomIds.has(a.roomId)) continue;
+    if (!roomIds.has(a.roomId)) continue;
     if ((a.kind !== 'main' && a.kind !== 'sub') || !isWorldStatus(a.status)) continue;
     // World protocol only knows 'claude' (and a legacy 'codex'): Antigravity workers are excluded from packet instead of
     // uploading as if they were Claude Code (truthful data).

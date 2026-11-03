@@ -1,7 +1,6 @@
 // Recent project folders for "＋ Boss" (ui/team-dialogs.ts): the computer's recent projects (GET /api/spawn/folders:
 // session history + rooms), falling back to the office's room folders. (The old "New agent" button is gone: ＋ Boss in
 // the sidebar opens sessions now.)
-import { isDemoId } from '../../../shared/timeline';
 import type { OfficeSnapshot } from '../../../shared/types';
 
 export interface FolderOption {
@@ -17,7 +16,7 @@ export function spawnFolders(snap: Pick<OfficeSnapshot, 'rooms' | 'agents'> | nu
   const last = new Map<string, number>();
   for (const a of snap.agents) last.set(a.roomId, Math.max(last.get(a.roomId) ?? 0, a.lastEventAt ?? 0));
   const paths = [...snap.rooms]
-    .filter((r) => !isDemoId(r.id) && /^(\/|[A-Za-z]:[\\/])/.test(r.path ?? ''))
+    .filter((r) => /^(\/|[A-Za-z]:[\\/])/.test(r.path ?? ''))
     .sort((a, b) => (last.get(b.id) ?? 0) - (last.get(a.id) ?? 0))
     .map((r) => r.path);
   return [...new Set(paths)];

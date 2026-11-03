@@ -4,14 +4,12 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { NAME_MAX, parseAppearanceParts, parseCharacterName, parseSeed } from '../../shared/appearance';
 import type { AccessInfo, AgentInfo, ModSummary, OfficeSnapshot, PtyInfo, SourceInfo, WorkerJob } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
-import type { DayStatsService } from '../history/daystats';
 import type { Office } from '../model/office';
 import type { SessionLookup } from '../sources/source';
 import { isJsonContentType, isLoopbackHost } from './guard';
 import type { RemoteFeature } from './remote';
 import { handleSessionsRoute } from './sessions';
 import type { Hub } from './sse';
-import { handleStatsRoute } from './stats';
 import type { TerminalStreams } from './terminal';
 import type { AgyJobResult, AgyMode } from '../sources/agy/source';
 import type { OfficeResult, TeamResult } from '../team';
@@ -44,8 +42,6 @@ export interface ApiDeps {
    * (or a single provider); same lock as terminal.
    */
   sessions?: SessionLookup;
-  /** Timelapse routes (/api/timeline/*, see http/timeline.ts); returns false for rest. */
-  timeline?: (req: IncomingMessage, res: ServerResponse, url: URL) => boolean;
   /**
    * Routes for /api/permissions (answering from the office, server/permissions/http.ts). Only exist with local
    * bind (ServerConfig.terminal); local Host lock is checked here before calling them.
@@ -120,8 +116,6 @@ export interface ApiDeps {
     waitJob: (id: string, waitS: number) => Promise<WorkerJob | undefined>;
     cancel: (p: { job?: string; worker?: string; all?: boolean }) => number;
   };
-  /** "My day" statistics (GET /api/stats, http/stats.ts). */
-  stats?: DayStatsService;
   /**
    * Remote port with login (http/remote.ts): `is` indicates if request arrived through it (already authenticated);
    * `allows`, what HABBLAUD_REMOTE_ALLOW allows. Remote request never trusted by Host: only by what `allows` permits.
@@ -915,11 +909,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           .catch((err) => fail(res, err));
       return true;
     }
-    if (path === '/api/stats' || path.startsWith('/api/stats/')) {
-      handleStatsRoute(req, res, url, deps.stats, sendJson);
-      return true;
-    }
-    if (deps.timeline?.(req, res, url)) return true;
     sendJson(res, 404, { error: tr('unknown route') });
     return true;
   };

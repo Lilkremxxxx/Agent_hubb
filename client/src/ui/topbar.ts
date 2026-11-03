@@ -6,7 +6,6 @@ import { h, iconButton, setAttr, setHidden, setText, setTitle, setVariant } from
 import { formatDuration, formatInt } from './format';
 import { FALLBACK_MARK, ICONS } from './icons';
 import { computeCounters, shellLine, shellWaitIn, shellWaitingAgents, waitingAgents, type Counters } from './model';
-import { TIMELAPSE_ICONS } from './timelapse';
 import { focusPermission, nextPermissionAgent, permissionAgents } from './permission';
 import { VersionChip } from './version';
 import { wordmark } from './widgets';
@@ -42,7 +41,6 @@ export class TopBar implements UiComponent {
   private hadOpen = false;
   private sidebarBtn: HTMLButtonElement;
   private feedBtn: HTMLButtonElement;
-  private timelapseBtn: HTMLButtonElement;
   readonly settingsBtn: HTMLButtonElement;
   /** Opens the Habblaud World window (beside Settings); the window decides when it appears. */
   readonly worldBtn: HTMLButtonElement;
@@ -98,7 +96,6 @@ export class TopBar implements UiComponent {
 
     this.sidebarBtn = iconButton(ICONS.sidebar, tr('Sidebar ( [ )'), () => ctx.togglePanel('sidebar'), 'ui-btn-sidebar');
     this.feedBtn = iconButton(ICONS.feed, tr('Activity feed ( ] )'), () => ctx.togglePanel('feed'), 'ui-btn-feed');
-    this.timelapseBtn = iconButton(TIMELAPSE_ICONS.timelapse, tr('Timelapse: replay the day (L)'), () => ctx.toggleTimelapse(), 'ui-btn-timelapse');
     // Habblaud World: hidden until its window (ui/world/world-dialog.ts) reports a configured world server.
     this.worldBtn = iconButton(ICONS.city, tr('Habblaud World'), () => ctx.toggleWorld(), 'ui-btn-world');
     this.worldBtn.setAttribute('aria-haspopup', 'dialog');
@@ -120,7 +117,6 @@ export class TopBar implements UiComponent {
       'div',
       { class: 'ui-btn-group', role: 'group', attrs: { 'aria-label': tr('Panels') } },
       this.accounts.button,
-      this.timelapseBtn,
       this.feedBtn,
       this.worldBtn,
       this.settingsBtn,
@@ -152,12 +148,12 @@ export class TopBar implements UiComponent {
     this.status.append(el);
   }
 
-  /** World button (scene switch), beside Timelapse. */
+  /** World button (scene switch), before the feed button. */
   addSceneButton(btn: HTMLElement): void {
-    this.panelGroup.insertBefore(btn, this.timelapseBtn);
+    this.panelGroup.insertBefore(btn, this.feedBtn);
   }
 
-  /** Adds a dedicated window button (e.g.: My day) to the start of panel group. */
+  /** Adds a dedicated window button (e.g.: Board) to the start of panel group. */
   addPanelButton(btn: HTMLElement): void {
     this.panelGroup.prepend(btn);
   }
@@ -208,7 +204,6 @@ export class TopBar implements UiComponent {
 
     this.sidebarBtn.setAttribute('aria-pressed', String(this.ctx.isPanelOpen('sidebar')));
     this.feedBtn.setAttribute('aria-pressed', String(this.ctx.isPanelOpen('feed')));
-    this.timelapseBtn.setAttribute('aria-pressed', String(this.ctx.isTimelapseOpen()));
   }
 
   private renderShells(n: number, now: number): void {

@@ -1,5 +1,4 @@
 // API calls for the interactive terminal (server/http/pty.ts). Errors become Error with server message.
-import { isDemoId } from '../../../shared/timeline';
 import type { AgentInfo, PtyInfo } from '../../../shared/types';
 import { providerOf } from './provider';
 import { tr } from '../../../shared/i18n';
@@ -9,7 +8,7 @@ import { tr } from '../../../shared/i18n';
  * other tools have no session tracking or `--resume` here.
  */
 export function ptyControllable(a: Pick<AgentInfo, 'id' | 'kind' | 'provider'> | null | undefined): boolean {
-  return !!a && a.kind === 'main' && providerOf(a) === 'claude' && !isDemoId(a.id);
+  return !!a && a.kind === 'main' && providerOf(a) === 'claude';
 }
 
 export async function postPty<T = unknown>(url: string, body: unknown): Promise<T | undefined> {

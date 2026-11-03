@@ -1,6 +1,6 @@
 // World button in the top bar: switches the office to the Habblaud World city and back (Office button or Esc).
 // Only shows when the scene is available: `meta.world.scene.available` from the local server (in demo mode, with the
-// account approved), from the computer's own page (never via mobile remote port), and never during timelapse. The scene
+// account approved), from the computer's own page (never via mobile remote port), and never while an alternative source is shown. The scene
 // itself is mounted by app.ts (CitySceneHost); here lies the button, the "in city" UI state (`is-city` class on #ui),
 // and toggling between them.
 import { tr } from '../../../../shared/i18n';
@@ -62,7 +62,7 @@ export class SceneSwitch implements UiComponent {
   }
 
   private available(): boolean {
-    return citySceneAvailable(this.src, worldGate(this.ctx, this.src)) && !this.ctx.store.replaying && !this.ctx.isTimelapseOpen();
+    return citySceneAvailable(this.src, worldGate(this.ctx, this.src)) && !this.ctx.store.replaying;
   }
 
   async toggle(): Promise<void> {
@@ -109,7 +109,7 @@ export class SceneSwitch implements UiComponent {
 
   render(): void {
     const ok = this.available();
-    // the scene went offline (account, timelapse): returns to the office
+    // the scene went offline (account): returns to the office
     if (!ok && this.host.open) this.close();
     setHidden(this.button, !ok && !this.host.open);
     const city = this.host.open;
