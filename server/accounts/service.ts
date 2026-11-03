@@ -1,14 +1,13 @@
-// Observed accounts + usage of each: statusline tap (recommended) and /usage cache
+// Observed accounts + usage of each: /usage cache
 // written in .claude.json. Local files only: no credentials or network calls.
 //
 // Claude Code accounts come from config dirs (detectAccounts). Those from other tools (Codex) arrive from outside,
 // discovered by their source (setProviderAccounts), with unique ids across all accounts; their usage is also
-// pushed by the source (setUsage), alongside statusline and Claude Code's /usage cache.
+// pushed by the source (setUsage), alongside Claude Code's /usage cache.
 import { basename, resolve } from 'node:path';
 import type { AccountInfo, AccountUsage, Provider } from '../../shared/types';
 import { log } from '../log';
 import { detectAccounts, type DetectedAccount } from './detect';
-import { StatuslineUsageReader, type StatuslineUsage } from './statusline';
 import { usageFromCache, UsageStore, type UsageSource, type UsageView } from './usage';
 import { tr } from '../../shared/i18n';
 
@@ -40,10 +39,6 @@ export interface AccountsServiceOptions {
   now?: () => number;
   /** Interval for re-reading .claude.json (usage cache). */
   refreshMs?: number;
-  /** Directory with usage captured from statusline (scripts/statusline-tap.mjs). Without it, source is off. */
-  usageDir?: string;
-  /** Interval for re-reading the statusline directory (default 5 s). */
-  statuslineMs?: number;
 }
 
 export class AccountsService {
@@ -53,17 +48,13 @@ export class AccountsService {
   /** Other tools' accounts, by tool (setProviderAccounts). */
   private external = new Map<Provider, AccountEntry[]>();
   private timer: ReturnType<typeof setInterval> | null = null;
-  private statuslineTimer: ReturnType<typeof setInterval> | null = null;
-  private readonly statusline: StatuslineUsageReader | null;
   /** Signature of displayed usage (status changes on its own over time: ok -> stale, windows reset). */
   private usageSig = '';
   private readonly now: () => number;
 
   constructor(private readonly opts: AccountsServiceOptions) {
     this.now = opts.now ?? Date.now;
-    this.statusline = opts.usageDir ? new StatuslineUsageReader(opts.usageDir) : null;
     this.refresh();
-    this.refreshStatusline();
   }
 
   /** Re-reads metadata and usage cache (cheap: two or three small JSONs). */
@@ -86,41 +77,6 @@ export class AccountsService {
     }
     if (this.usageViewChanged()) changed = true;
     if (changed) this.opts.onChange();
-  }
-
-  /**
-   * Re-reads statusline tap files and applies the newest matching one to each account
-   * (by config dir; otherwise by id/basename). Account without a file loses 'statusline' source.
-   */
-  refreshStatusline(): void {
-    if (!this.statusline) return;
-    let files: StatuslineUsage[];
-    try {
-      files = this.statusline.read(this.now());
-    } catch (err) {
-      log.warnOnce('statusline-read', tr('Failed to read statusline usage: {0}', [String(err).slice(0, 120)]));
-      return;
-    }
-    let changed = false;
-    for (const e of this.list_) {
-      const mine = files.filter((f) => this.fileMatches(e, f));
-      const best = mine.reduce<StatuslineUsage | undefined>((acc, f) => (!acc || f.usage.fetchedAt > acc.usage.fetchedAt ? f : acc), undefined);
-      if (best) changed = this.usage.set(e.id, best.usage) || changed;
-      else changed = this.usage.clear(e.id, 'statusline') || changed;
-    }
-    if (this.usageViewChanged()) changed = true;
-    if (changed) this.opts.onChange();
-  }
-
-  private fileMatches(e: AccountEntry, f: StatuslineUsage): boolean {
-    if (f.configDir) {
-      const dir = resolve(f.configDir);
-      if (dir === resolve(e.detected.configDir) || dir === resolve(e.dir)) return true;
-      // Same directory name but different path: only valid if no other account has this path.
-      if (this.list_.some((o) => resolve(o.detected.configDir) === dir || resolve(o.dir) === dir)) return false;
-      return basename(dir) === e.id;
-    }
-    return !!f.accountId && f.accountId === e.id;
   }
 
   /**
@@ -181,20 +137,14 @@ export class AccountsService {
     if (this.timer) return;
     this.timer = setInterval(() => this.refresh(), this.opts.refreshMs ?? 60_000);
     this.timer.unref?.();
-    if (this.statusline) {
-      this.statuslineTimer = setInterval(() => this.refreshStatusline(), this.opts.statuslineMs ?? 5_000);
-      this.statuslineTimer.unref?.();
-    }
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
-    if (this.statuslineTimer) clearInterval(this.statuslineTimer);
     this.timer = null;
-    this.statuslineTimer = null;
   }
 
-  /** Claude Code accounts (watcher, history and statusline apply only to them). */
+  /** Claude Code accounts (watcher and history apply only to them). */
   entries(): readonly AccountEntry[] {
     return this.list_;
   }

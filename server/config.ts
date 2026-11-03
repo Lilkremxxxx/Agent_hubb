@@ -24,11 +24,6 @@ export interface ServerConfig {
   claudeDirs: string[];
   /** Where Habblaud stores its own state (persisted names). */
   dataDir: string;
-  /**
-   * Directory with usage captured by Claude Code statusline (scripts/statusline-tap.mjs):
-   * HABBLAUD_USAGE_DIR or ~/.habblaud/usage. In Docker, docker-up mounts this directory to /usage.
-   */
-  usageDir: string;
   /** Extra names accepted in Host/Origin header (HABBLAUD_ALLOWED_HOSTS); localhost and IPs always valid. */
   allowedHosts: Set<string>;
   /**
@@ -246,7 +241,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     home,
     claudeDirs: discoverClaudeDirs(env, home),
     dataDir: resolve(env.HABBLAUD_DATA_DIR?.trim() || (inDocker ? '/data' : join(home, '.habblaud'))),
-    usageDir: resolve(env.HABBLAUD_USAGE_DIR?.trim() || join(home, '.habblaud', 'usage')),
     allowedHosts: parseAllowedHosts(env.HABBLAUD_ALLOWED_HOSTS),
     terminal: terminalOffReason(env, host, inDocker) === undefined,
     messages: messagesOffReason(env, host, inDocker) === undefined,

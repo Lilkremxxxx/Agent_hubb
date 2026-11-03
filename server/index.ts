@@ -18,7 +18,6 @@ import { TerminalStreams } from './http/terminal';
 import { createTimelineHandler } from './http/timeline';
 import { TIMELINE_DIR, TimelineRecorder } from './history/timeline';
 import { DayStatsService } from './history/daystats';
-import { describeStateMigration, legacyEnvWarning, migrateLegacyStateDir } from './legacy';
 import { errMsg, log } from './log';
 import { NameStore } from './model/names';
 import { Office } from './model/office';
@@ -73,16 +72,6 @@ import { WorldViewer } from './world/viewer';
 const config = loadConfig();
 const startedAt = Date.now();
 
-// Legacy name (CodeTown, up to 0.3.2): moves ~/.codetown to ~/.habblaud before reading any state and warns
-// about CODETOWN_* env vars that are no longer valid. In Docker, docker:up handles migration.
-if (!config.inDocker) {
-  const r = migrateLegacyStateDir(config.home);
-  const msg = describeStateMigration(r);
-  if (msg) (r.error ? log.warn : log.info)(msg);
-}
-const legacyEnv = legacyEnvWarning(Object.keys(process.env));
-if (legacyEnv) log.warn(legacyEnv);
-
 const names = new NameStore(join(config.dataDir, 'names.json'));
 names.load();
 // Room names chosen by the user (right-click > Rename).
@@ -121,7 +110,6 @@ const accounts = new AccountsService({
   dirs: config.claudeDirs,
   home: config.home,
   env: process.env,
-  usageDir: config.usageDir,
   onChange: () => late.office?.markDirty(),
 });
 const office = new Office({

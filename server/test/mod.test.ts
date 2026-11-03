@@ -6,8 +6,6 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { hookCommand, hookEntry, STATUS_MESSAGE } from '../../scripts/hooks-install';
-import { MAX_TIMEOUT_MS } from '../permissions/registry';
 import { posixShell } from './fixtures';
 
 const ROOT = resolve(__dirname, '../..');
@@ -98,18 +96,6 @@ describe('habblaud-permissoes plugin', () => {
   const dir = join(ROOT, 'mod/habblaud-permissoes');
   const hooks = settingsHooks(json('mod/habblaud-permissoes/hooks/hooks.json'));
 
-  // In the plugin the wait timeout comes from the environment (HABBLAUD_PERMISSION_TIMEOUT), not the command: Claude Code's
-  // timeout must accommodate the longest wait the hook accepts, otherwise it kills the hook early (was 330s and cut off at 5m; timeout goes up to 24h).
-  it('same hook as the installer: PermissionRequest, matcher "*", same message, and timeout accommodating max wait', () => {
-    const installed = hookEntry(hookCommand('node', '/x/permission-hook.mjs', { port: 4747, timeoutS: MAX_TIMEOUT_MS / 1000 }), { port: 4747, timeoutS: MAX_TIMEOUT_MS / 1000 });
-    expect(hooks).toHaveLength(1);
-    expect(hooks[0]).toEqual({
-      event: 'PermissionRequest',
-      matcher: '*',
-      hook: { type: 'command', command: 'node "${CLAUDE_PLUGIN_ROOT}/hooks/permission-hook.mjs"', timeout: installed.timeout, statusMessage: 'Aguardando resposta no Habblaud' },
-    });
-  });
-
   it('script is pure Node (node:* only): Claude Code copies the plugin directory to cache on its own', () => {
     const specs = importsOf(join(dir, 'hooks/permission-hook.mjs'));
     expect(specs.length).toBeGreaterThan(0);
@@ -129,19 +115,5 @@ describe('habblaud-permissoes plugin', () => {
     expect(r.status).toBe(0);
     expect(r.stdout).toBe('');
     expect(Date.now() - t0).toBeLessThan(5_000);
-  });
-
-  it('legacy path (scripts/permission-hook.mjs, from installations up to 0.2) continues to work as shortcut', () => {
-    const input = JSON.stringify({ session_id: 's', hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'ls' } });
-    const r = spawnSync(process.execPath, [join(ROOT, 'scripts', 'permission-hook.mjs')], {
-      input,
-      encoding: 'utf8',
-      // With debug enabled the script logs what it did to stderr: proves the new script's main ran.
-      env: { PATH: process.env.PATH ?? '', HABBLAUD_PORT: '1', HABBLAUD_HOOK_DEBUG: '1' },
-      timeout: 10_000,
-    });
-    expect(r.status).toBe(0);
-    expect(r.stdout).toBe('');
-    expect(r.stderr).toMatch(/habblaud/i);
   });
 });

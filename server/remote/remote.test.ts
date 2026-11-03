@@ -8,7 +8,6 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mdnsCommand } from '../../scripts/remote-mdns';
 import { parseArgs, passwordProblem, remoteEnv, urlFor } from '../../scripts/remote-setup';
-import { remotePortsFrom, renderOverride } from '../../scripts/docker-up';
 import { startRemoteListener, type RemoteListener } from '../http/remote';
 import { setQuiet } from '../log';
 import { tempDir } from '../test/fixtures';
@@ -94,23 +93,6 @@ describe('setup and announcement', () => {
     });
     expect(mdnsCommand('linux', 'myclaude', '192.168.1.10', 443)).toEqual({ cmd: 'avahi-publish', args: ['-a', '-R', 'myclaude.local', '192.168.1.10'] });
     expect(mdnsCommand('win32', 'myclaude', '192.168.1.10', 443)).toBeUndefined();
-  });
-  it('docker-up mounts ONLY server certificate folder, read-only', () => {
-    const yaml = renderOverride([], new Date(0), undefined, undefined, [], '/h/.habblaud/remote-tls/server');
-    expect(yaml).toContain('source: "/h/.habblaud/remote-tls/server"');
-    expect(yaml).toContain('target: "/remote-tls"');
-    expect(yaml).not.toContain('remote-tls/ca');
-  });
-  it('only publishes remote port (and http:// -> https:// redirect) with access configured', () => {
-    expect(remotePortsFrom('')).toEqual([]);
-    expect(remotePortsFrom('HABBLAUD_REMOTE_PORT=443\nHABBLAUD_REMOTE_HTTP_PORT=80\n')).toEqual([]);
-    expect(remotePortsFrom('HABBLAUD_REMOTE_USER=ana\nHABBLAUD_REMOTE_PORT=443\nHABBLAUD_REMOTE_HTTP_PORT=80\nHABBLAUD_REMOTE_BIND=0.0.0.0\n')).toEqual([
-      '0.0.0.0:443:4748',
-      '0.0.0.0:80:4748',
-    ]);
-    expect(remotePortsFrom('HABBLAUD_REMOTE_USER=ana\n')).toEqual(['127.0.0.1:4748:4748']);
-    const yaml = renderOverride([], new Date(0), undefined, undefined, [], undefined, ['0.0.0.0:80:4748']);
-    expect(yaml).toMatch(/    ports:\n      - "0\.0\.0\.0:80:4748"/);
   });
 });
 
@@ -251,19 +233,4 @@ describe.skipIf(!HAS_OPENSSL)('certificates (openssl)', () => {
     expect(second.status).toBe(200);
     expect(second.serial).not.toBe(first.serial);
   }, 30_000);
-});
-
-describe('docker-compose.yml', () => {
-  it('passes to container every remote access variable read by server', () => {
-    const compose = readFileSync(join(__dirname, '..', '..', 'docker-compose.yml'), 'utf8');
-    const server = readFileSync(join(__dirname, '..', 'http', 'remote.ts'), 'utf8');
-    // In Docker, port, host, and certificate folder are fixed (4748, 0.0.0.0, /remote-tls): the rest must come from .env.
-    const fixedInDocker = new Set(['HABBLAUD_REMOTE_PORT', 'HABBLAUD_REMOTE_HOST', 'HABBLAUD_REMOTE_TLS_DIR', 'HABBLAUD_REMOTE_PASSWORD']);
-    const read = [...new Set([...server.matchAll(/env\.(HABBLAUD_REMOTE_[A-Z_]+)/g)].map((m) => m[1]))].filter((k) => !fixedInDocker.has(k));
-    expect(read.sort()).toEqual(['HABBLAUD_REMOTE_ALLOW', 'HABBLAUD_REMOTE_INSECURE_HTTP', 'HABBLAUD_REMOTE_PASSWORD_HASH', 'HABBLAUD_REMOTE_USER']);
-    for (const key of read) expect(compose, key).toMatch(new RegExp(`^\\s+${key}: \\$\\{${key}:-\\}$`, 'm'));
-    expect(compose).not.toMatch(/HABBLAUD_REMOTE_PASSWORD: /);
-    // Remote port is only published by docker:up override, after setup.
-    expect(compose).not.toMatch(/4748/);
-  });
 });

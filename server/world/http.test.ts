@@ -249,21 +249,6 @@ describe('HABBLAUD_WORLD and HABBLAUD_WORLD_URL', () => {
   });
 });
 
-describe('docker-compose.yml', () => {
-  it('forwards all Habblaud World variables read by server to container', () => {
-    const compose = readFileSync(join(import.meta.dirname, '..', '..', 'docker-compose.yml'), 'utf8');
-    const config = readFileSync(join(import.meta.dirname, '..', 'config.ts'), 'utf8');
-    const read = [...new Set([...config.matchAll(/env\.(HABBLAUD_WORLD[A-Z_]*)/g)].map((m) => m[1]))].sort();
-    expect(read).toEqual(['HABBLAUD_WORLD', 'HABBLAUD_WORLD_DEV', 'HABBLAUD_WORLD_URL']);
-    for (const key of read) expect(compose, key).toMatch(new RegExp(`^\\s+${key}: \\$\\{${key}:-\\}$`, 'm'));
-  });
-
-  it('container finds host at host.docker.internal (local world server, also on Linux)', () => {
-    const compose = readFileSync(join(import.meta.dirname, '..', '..', 'docker-compose.yml'), 'utf8');
-    expect(compose).toMatch(/^ {4}extra_hosts:\n {6}- "host\.docker\.internal:host-gateway"$/m);
-  });
-});
-
 describe('guards', () => {
   it('non-local Host: 403 local_only (network IP or HABBLAUD_ALLOWED_HOSTS name)', async () => {
     const s = await start();

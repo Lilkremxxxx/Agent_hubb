@@ -2,8 +2,7 @@
 // Nothing here comes from real conversations.
 import { mkdirSync, mkdtempSync, writeFileSync, appendFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
 
 let n = 0;
 const uuid = () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`;
@@ -127,17 +126,9 @@ export const L = {
 /** Does the system preserve POSIX permission bits? On Windows, stat returns 0o666 (or 0o444 if read-only). */
 export const HAS_POSIX_MODES = process.platform !== 'win32';
 
-/** Functions from statusline tap (pure JavaScript, untyped). */
-const { originalShell } = (await import(pathToFileURL(resolve(__dirname, '../../scripts/statusline-tap.mjs')).href)) as { originalShell: () => string | true };
-
-/**
- * Shell where Claude Code runs hook and statusline commands, to run the installed command for real:
- * /bin/sh; on Windows, Git Bash (same as tap finds). undefined = Windows without Git Bash (test is skipped).
- */
+/** POSIX shell for running hook commands for real: /bin/sh; undefined on Windows (test is skipped). */
 export function posixShell(): string | undefined {
-  if (process.platform !== 'win32') return '/bin/sh';
-  const sh = originalShell();
-  return typeof sh === 'string' ? sh : undefined;
+  return process.platform !== 'win32' ? '/bin/sh' : undefined;
 }
 
 /**
