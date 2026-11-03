@@ -71,7 +71,6 @@ const SHORTCUTS: [string[], string][] = [
   [['F'], tr('Follow the selected agent')],
   [['T'], tr("Open or close the selected agent's terminal")],
   [['Ctrl+F'], tr('With the terminal focused: search the conversation (⌘F on Mac); Enter and Shift+Enter navigate')],
-  [['B'], tr("Board: tasks (todo and handoff), jobs given to the workers; 1 2 3 switch tabs")],
   [['H'], tr('Boss overloaded: sessions with a long context, open a new session')],
   [['O', '0'], tr('Building overview')],
   [['Esc'], tr('Close the terminal search, then the terminal; then the details panel and the selection')],
@@ -100,7 +99,6 @@ const GUIDE: [string, string[]][] = [
     tr('＋ next to Boss opens a Claude Code session in the office folder and makes it the boss. You talk to it in its terminal.'),
     tr('You can also pick a session you already have: open its details and press 👑 Make boss.'),
     tr('The boss plans, gives jobs to the workers and checks the results. An account cannot be boss and worker in the same office.'),
-    tr('In a folder without a HANDOFF file, the boss asks whether to create one before it starts.'),
   ]],
   [tr('🧑‍🔧 Workers'), [
     tr('＋ next to Workers adds an account, Antigravity or Claude Code. Accounts must be signed in first.'),
@@ -110,13 +108,7 @@ const GUIDE: [string, string[]][] = [
   ]],
   [tr('📨 Giving work'), [
     tr('Directly: type in the boss\'s terminal, or send a message from its details. It starts right away.'),
-    tr('On the to-do list: add a task on the Board. It waits in the HANDOFF file and does not wake the boss.'),
-    tr('▶ Continue the to-do on the Board tells the boss to read the list and do the next open task, one at a time.'),
     tr('To a worker: Send a job in its details, without going through the boss.'),
-  ]],
-  [tr('📋 The Board (B)'), [
-    tr("The to-do list is the \"Next steps\" list of the office's HANDOFF file: the boss and you edit the same list."),
-    tr("The workers' jobs are this office's only, with their tokens and cache. A job from anywhere else is not listed."),
   ]],
   [tr('🥵 A tired boss (H)'), [
     tr('A long context or repeated compactions make a session slow and forgetful. A notice tells you when a boss passes a limit.'),

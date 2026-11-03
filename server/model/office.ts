@@ -22,8 +22,6 @@ import type {
   TaskItem,
   WorkerProgress,
   JobBoard,
-  HandoffPlan,
-  NewsItem,
   TeamInfo,
 } from '../../shared/types';
 import { SHELL_WAIT_TOOL, SPECIAL, type ShellOutcome } from '../../shared/activity';
@@ -213,10 +211,6 @@ export class Office {
   /** Room celebration/alarm (GitHub events). */
   private effects = new RoomEffects();
   private readonly boards = new Map<string, JobBoard>();
-  /** "Next steps" of each room's handoff file (RoomInfo.plan; server/board.ts). */
-  private readonly plans = new Map<string, HandoffPlan>();
-  /** Today's news (OfficeSnapshot.news; server/board.ts). */
-  private news: NewsItem[] = [];
   /** The team (OfficeSnapshot.team; server/team.ts). */
   private team: TeamInfo | undefined;
   /** The office whose building holds each room (setPlacement). */
@@ -581,14 +575,6 @@ export class Office {
     this.markDirty();
   }
 
-  /** "Next steps" of a room's handoff file (RoomInfo.plan). undefined deletes. */
-  setPlan(roomId: string, plan: HandoffPlan | undefined): void {
-    if (JSON.stringify(this.plans.get(roomId)) === JSON.stringify(plan)) return;
-    if (plan) this.plans.set(roomId, plan);
-    else this.plans.delete(roomId);
-    this.markDirty();
-  }
-
   /**
    * Which office's building holds each room and each character (RoomInfo.office / AgentInfo.office; server/team.ts).
    * Missing = the first office's building.
@@ -624,14 +610,7 @@ export class Office {
     this.markDirty();
   }
 
-  /** Today's news, newest first (OfficeSnapshot.news). */
-  setNews(items: NewsItem[]): void {
-    if (JSON.stringify(this.news) === JSON.stringify(items)) return;
-    this.news = items;
-    this.markDirty();
-  }
-
-  /** Real rooms (id, folder, display name), for what is read per room (handoff file, commits). */
+  /** Real rooms (id, folder, display name), for what is read per room. */
   roomList(): Array<{ id: string; path: string; name: string }> {
     return [...this.rooms].map(([id, r]) => ({ id, path: r.path, name: this.roomName(id) }));
   }
@@ -1022,8 +1001,6 @@ export class Office {
       if (effect) room.effect = { ...effect };
       const board = this.boards.get(room.id);
       if (board) room.board = board;
-      const plan = this.plans.get(room.id);
-      if (plan) room.plan = plan;
     }
     const real = [...this.agents.values()].map((r) => cloneAgent(r.info));
     const trim = (a: AgentInfo): AgentInfo => (a.recent.length > SNAPSHOT_RECENT ? { ...a, recent: a.recent.slice(-SNAPSHOT_RECENT) } : a);
@@ -1037,7 +1014,6 @@ export class Office {
       agents: real.map(trim),
       accounts: this.deps.accounts(sessions),
       ...(ptys ? { ptys: ptys.list } : {}),
-      ...(this.news.length ? { news: this.news } : {}),
       ...(this.team ? { team: this.team } : {}),
       meta: {
         sources: this.deps.sources(),

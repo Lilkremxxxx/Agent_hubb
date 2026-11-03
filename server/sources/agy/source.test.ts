@@ -10,7 +10,6 @@ import { Office } from '../../model/office';
 import { agyDetected, discoverAgyProfiles, emailFromCliLog, emailFromLogs, parseNamesConf, parseRolesConf, workerName } from './profiles';
 import { scanAgyProcs, type ProcReader } from './procs';
 import { AgySource, END_WAIT_MS } from './source';
-import type { NewsItem } from '../../../shared/types';
 import { parseAgyUsage } from './usage';
 
 setQuiet(true);
@@ -520,35 +519,6 @@ describe('AgySource', () => {
       expect.objectContaining({ id: 'agy:acc3#8', text: 'Killed hard', status: 'failed', by: 'script' }),
       expect.objectContaining({ id: 'agy:acc2#7', text: 'Review the diff', role: 'review', status: 'done', by: 'boss', tokens: 1_500, office: 'o1' }),
     ]);
-  });
-
-  it('news: jobs finished or failed, quota hits (429 in the end line), level-ups', () => {
-    const t = setup();
-    const news: NewsItem[] = [];
-    (t.source as unknown as { opts: { news?: (i: NewsItem) => void } }).opts.news = (i) => void news.push(i);
-    t.source.start();
-    t.start(31, 'acc2', { role: 'qa', prompt: 'Run the tests' });
-    t.job(31, 'acc2', 'Run the tests');
-    t.source.poll();
-    t.end(31, 'acc2', { status: 'SUCCESS', sec: 75, usage: { total_tokens: 300_000 } });
-    t.source.poll();
-    t.start(41, 'acc3', {});
-    t.end(41, 'acc3', { status: 'ERROR', sec: 3, error: 'Error: 429 Individual quota reached' });
-    t.start(51, 'acc3', {});
-    t.end(51, 'acc3', { status: 'TIMEOUT', sec: 900 });
-    t.start(61, 'acc2', { role: 'scout', prompt: 'Read the code' });
-    t.end(61, 'acc2', { status: 'ERROR', sec: 81, error: 'tor: plan model not specified\nAGY_ERROR: {"short_error":"failed to construct executor: plan model not specified; you must specify a valid model","status":"UNKNOWN"}' });
-    t.source.poll();
-    expect(news.map((n) => [n.kind, n.icon, n.text])).toEqual([
-      ['done', '✅', 'acc2 finished a job'],
-      ['level', '⭐', 'acc2 reached level 2 (Intern)'],
-      ['badge', '🐣', 'acc2 earned the achievement First job'],
-      ['quota', '🪫', 'acc3 is out of quota'],
-      ['failed', '⚠️', 'acc3: job failed (TIMEOUT)'],
-      ['failed', '⚠️', 'acc2: job failed (ERROR)'],
-    ]);
-    expect(news[0].detail).toBe('qa · 1min 15s · 300k tokens · Run the tests');
-    expect(news[5].detail).toBe('scout · 1min 21s · plan model not specified; you must specify a valid model · Read the code');
   });
 
   it('team: only registered workers get a character; "off" accounts are accounts but not seeded', () => {

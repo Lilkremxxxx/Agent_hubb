@@ -18,13 +18,12 @@
 //   reset them).
 // - Level, XP and badges (sources/agy/progress.ts): from ALL "end" lines of the log; a live level-up or badge throws a
 //   party in the room. "Full house": every worker busy at once (at most every FULL_HOUSE_MS).
-// - Job board (RoomInfo.board): from the agy-ask start/end lines too, so it survives a restart; Board › News gets
-//   jobs finished or failed, quota hits (429 in the end line's `error`), level-ups and badges (opts.news).
+// - Job board (RoomInfo.board): from the agy-ask start/end lines too, so it survives a restart.
 // - Plan usage: each account's `/usage` (sources/agy/usage.ts), one at a time, every config.agy.usageMs.
 import { execFile, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import type { Activity, AgentStats, AgentStatus, JobBoardItem, NewsItem, SourceInfo } from '../../../shared/types';
+import type { Activity, AgentStats, AgentStatus, JobBoardItem, SourceInfo } from '../../../shared/types';
 import { formatDuration, maskSecrets, truncate } from '../../../shared/activity';
 import type { AccountsService } from '../../accounts/service';
 import { errMsg, log } from '../../log';
@@ -143,8 +142,6 @@ export interface AgySourceOptions {
   usage?: (acc: string) => Promise<string>;
   kill?: (pid: number, signal: NodeJS.Signals) => void;
   now?: () => number;
-  /** Board › News: jobs finished or failed, quota hits, level-ups and badges. */
-  news?: (item: NewsItem) => void;
 }
 
 /** A failed job whose error says the account is out of quota. */
@@ -551,7 +548,7 @@ export class AgySource implements AgentSource {
     this.upsertBoard(item);
   }
 
-  /** Board item and news from an agy-ask end line. */
+  /** Board item from an agy-ask end line. */
   private boardFromEnd(w: Worker, line: AgyAskLine): void {
     const at = (line.ts ?? 0) * 1000;
     const item = this.board.find((x) => x.id === `${w.id}#${line.pid}`);
@@ -561,29 +558,6 @@ export class AgySource implements AgentSource {
       if (line.usage?.total_tokens) item.tokens = line.usage.total_tokens;
       if (line.usage?.cache_read_tokens) item.cacheRead = line.usage.cache_read_tokens;
     }
-    const news = this.opts.news;
-    if (!news || STOPPED.has(line.status ?? '')) return;
-    const name = workerName(w.profile);
-    const start = this.starts.get(line.pid!);
-    const quota = !!line.error && QUOTA_ERROR.test(line.error);
-    const failed = !!line.status && line.status !== 'SUCCESS';
-    const detail = [
-      start?.role,
-      line.sec !== undefined ? formatDuration(line.sec * 1000) : '',
-      line.usage?.total_tokens ? tr('{0} tokens', [tokens(line.usage.total_tokens)]) : '',
-      failed && !quota ? errorReason(line.error) : '',
-      promptText(start?.prompt),
-    ]
-      .filter(Boolean)
-      .join(' · ');
-    news({
-      id: `agy-end:${line.pid}:${Math.round(at)}`,
-      at,
-      kind: quota ? 'quota' : failed ? 'failed' : 'done',
-      icon: quota ? '🪫' : failed ? '⚠️' : '✅',
-      text: quota ? tr('{0} is out of quota', [name]) : failed ? tr('{0}: job failed ({1})', [name, line.status!]) : tr('{0} finished a job', [name]),
-      ...(detail ? { detail } : {}),
-    });
   }
 
   /** Board items still "working" whose agy-ask is gone without an end line (killed hard): failed. */
@@ -636,16 +610,13 @@ export class AgySource implements AgentSource {
   private progress(w: Worker, line: AgyAskLine): void {
     const ev = w.progress.feed(line);
     const name = workerName(w.profile);
-    const at = (line.ts ?? 0) * 1000;
     if (ev.levelUp) {
       const rank = rankOf(ev.levelUp);
       this.opts.office.celebrate(w.id, tr('⭐ Level {0}!', [ev.levelUp]), tr('⭐ {0} reached level {1} ({2})', [name, ev.levelUp, rank]));
-      this.opts.news?.({ id: `agy-level:${w.profile.acc}:${ev.levelUp}`, at, kind: 'level', icon: '⭐', text: tr('{0} reached level {1} ({2})', [name, ev.levelUp, rank]) });
     }
     for (const id of ev.badges) {
       const b = BADGES[id];
       this.opts.office.celebrate(w.id, `${b.icon} ${b.name()}`, tr('🏆 {0} earned the achievement {1} {2}', [name, b.icon, b.name()]));
-      this.opts.news?.({ id: `agy-badge:${w.profile.acc}:${id}`, at, kind: 'badge', icon: b.icon, text: tr('{0} earned the achievement {1}', [name, b.name()]), detail: b.desc() });
     }
     for (const [agentId, acc] of this.shown) if (acc === w.profile.acc) this.opts.office.setProgress(agentId, w.progress.view());
   }

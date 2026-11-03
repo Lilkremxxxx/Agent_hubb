@@ -4,8 +4,7 @@
 // A candidate is a process or job that should be showing signs of life: a headless agy, an agy with nobody left to
 // talk to (orphan, or its job already ended; sources/agy) or a job in a worker terminal (workers/service.ts). Interactive
 // agy waiting at its prompt (herdr, a worker terminal between jobs) is not a candidate: that is what it is for.
-import type { AgentGhost, NewsItem } from '../../shared/types';
-import { formatDuration } from '../../shared/activity';
+import type { AgentGhost } from '../../shared/types';
 import { tr } from '../../shared/i18n';
 import { errMsg, log } from '../log';
 import type { Office } from '../model/office';
@@ -39,7 +38,6 @@ export function ghostOf(c: GhostCandidate, now: number): AgentGhost | undefined 
 export interface GhostWatchOptions {
   office: Pick<Office, 'setGhost'>;
   candidates: () => GhostCandidate[];
-  news: (item: NewsItem) => void;
   now?: () => number;
 }
 
@@ -68,7 +66,7 @@ export class GhostWatch {
     if (this.timer) clearInterval(this.timer);
   }
 
-  /** Flags who turned into a ghost (one Board line each) and clears who showed signs of life again or left. */
+  /** Flags who turned into a ghost and clears who showed signs of life again or left. */
   check(): void {
     const now = this.now();
     const found = new Map<string, GhostCandidate & { ghost: AgentGhost }>();
@@ -80,7 +78,6 @@ export class GhostWatch {
       this.opts.office.setGhost(agentId, c.ghost);
       if (this.ghosts.has(agentId)) continue;
       this.ghosts.add(agentId);
-      this.opts.news(ghostNews(c, c.ghost, now));
     }
     for (const agentId of [...this.ghosts]) {
       if (found.has(agentId)) continue;
@@ -88,16 +85,4 @@ export class GhostWatch {
       this.opts.office.setGhost(agentId, undefined);
     }
   }
-}
-
-/** One id per process: a restart of the server, or the same hung process coming back, does not add another line. */
-function ghostNews(c: GhostCandidate, g: AgentGhost, now: number): NewsItem {
-  return {
-    id: `ghost:${c.agentId}:${c.pid}`,
-    at: now,
-    kind: 'ghost',
-    icon: '👻',
-    text: g.reason === 'no-job' ? tr('{0}: agy is still alive with no job', [c.name]) : tr('{0} looks hung', [c.name]),
-    detail: tr('silent for {0} · PID {1} · nothing was stopped', [formatDuration(now - g.since), c.pid]),
-  };
 }

@@ -252,8 +252,6 @@ export interface RoomInfo {
   effect?: RoomEffect;
   /** Antigravity workers room job board (server/sources/agy/source.ts). */
   board?: JobBoard;
-  /** "Next steps" of the project's HANDOFF*.md (Board › Tasks; server/sources/handoff.ts). */
-  plan?: HandoffPlan;
 }
 
 /** A job on the board: who does it, role, request, and status. */
@@ -286,27 +284,6 @@ export interface JobBoardItem {
 export interface JobBoard {
   order?: { text: string; at: number; boss: string };
   items: JobBoardItem[];
-}
-
-/** The "next steps" section of a project's handoff file (server/sources/handoff.ts). */
-export interface HandoffPlan {
-  /** File name, relative to the room folder ("HANDOFF.md"). */
-  file: string;
-  mtime: number;
-  /** Section heading, without a trailing "(...)". */
-  heading: string;
-  items: Array<{ text: string; done?: true }>;
-}
-
-/** Something that happened today (Board › News; server/news.ts). Stable `id`: re-reading a source gives the same. */
-export interface NewsItem {
-  id: string;
-  at: number;
-  kind: 'done' | 'failed' | 'quota' | 'level' | 'badge' | 'commit' | 'rule' | 'ghost';
-  icon: string;
-  text: string;
-  detail?: string;
-  roomId?: string;
 }
 
 /**
@@ -454,8 +431,7 @@ export interface WorkerSession {
 }
 
 /**
- * An office: one team working in ONE project folder (unique per office): its boss, its workers, its to-do list (the
- * HANDOFF file of the folder) and its jobs. Workers may belong to several offices (jobs go through agy-ask /
+ * An office: one team working in ONE project folder (unique per office): its boss, its workers and its jobs. Workers may belong to several offices (jobs go through agy-ask /
  * claude-ask, a busy worker answers BUSY); a boss belongs to one office (an Antigravity boss account to one only).
  */
 export interface OfficeInfo {
@@ -477,8 +453,6 @@ export interface OfficeInfo {
   pendingBoss?: string;
   /** The appointed boss's name, when its session is closed (the crown and the CLI rule wait for it). */
   waitingBoss?: string;
-  /** "Next steps" of the HANDOFF file in its folder, read even while nobody works there (no room yet). */
-  plan?: HandoffPlan;
 }
 
 export interface TeamInfo {
@@ -512,8 +486,6 @@ export interface OfficeSnapshot {
   agents: AgentInfo[];
   /** Interactive terminals opened by Habblaud (Claude Code running inside the browser). */
   ptys?: PtyInfo[];
-  /** Today's news, newest first (Board › News; server/board.ts). */
-  news?: NewsItem[];
   /** The team: registered workers (absent = no team service, e.g. demo). */
   team?: TeamInfo;
   /** Detected Claude accounts (with 5h/weekly usage when available). */

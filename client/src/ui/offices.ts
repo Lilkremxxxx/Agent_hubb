@@ -1,8 +1,8 @@
 // Offices, from the snapshot (pure: tested in offices.test.ts). An office is one team in ONE project folder: its boss,
-// its workers (shared between offices), its to-do list (the HANDOFF file of its folder) and its jobs. The page shows one
-// office at a time (the office tabs above the top bar, ui/office-tabs.ts): the sidebar, the Board and the quota
+// its workers (shared between offices) and its jobs. The page shows one
+// office at a time (the office tabs above the top bar, ui/office-tabs.ts): the sidebar and the quota
 // follow it, and the pixel office dims what is not part of it (ctx.officeFocus(), client/src/world/*).
-import type { AgentInfo, HandoffPlan, JobBoardItem, OfficeInfo, OfficeSnapshot, RoomInfo, TeamInfo, WorkerId } from '../../../shared/types';
+import type { AgentInfo, JobBoardItem, OfficeInfo, OfficeSnapshot, RoomInfo, TeamInfo, WorkerId } from '../../../shared/types';
 import { sessionAgentIn } from './workers-api';
 import { FOLDER_CLASH, folderRelation, isDiskRoot, trimFolder } from '../../../shared/folders';
 
@@ -132,27 +132,6 @@ export function sameFocus(a: OfficeFocus | null, b: OfficeFocus | null): boolean
 /** A job given by this office. A job without one (a script, another session) belongs to no office. */
 export function jobInOffice(item: Pick<JobBoardItem, 'office'>, office: OfficeInfo | undefined): boolean {
   return !office || item.office === office.id;
-}
-
-/** A to-do list: the HANDOFF file of a room, or of an office's folder while nobody works there (plan undefined = none yet). */
-export interface TodoList {
-  /** The room's name, else the folder's. */
-  name: string;
-  /** What POST /api/board/todo edits. */
-  target: { room: string } | { office: string };
-  plan?: HandoffPlan;
-}
-
-export function roomTodo(room: RoomInfo): TodoList {
-  return { name: room.name, target: { room: room.id }, ...(room.plan ? { plan: room.plan } : {}) };
-}
-
-/** The office's to-do list: its folder's room, else its folder read by the server (OfficeInfo.plan). */
-export function officePlan(snap: Pick<OfficeSnapshot, 'rooms'> | null | undefined, office: OfficeInfo | undefined): TodoList | undefined {
-  const room = officeRoom(snap, office);
-  if (room) return roomTodo(room);
-  if (!office?.folder) return undefined;
-  return { name: office.folder.split(/[\\/]/).filter(Boolean).pop() || office.folder, target: { office: office.id }, ...(office.plan ? { plan: office.plan } : {}) };
 }
 
 /**

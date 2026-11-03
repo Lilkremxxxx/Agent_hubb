@@ -42,7 +42,6 @@ import { worldSource } from '../net/world';
 import { FreeArea } from './viewport';
 import { attachKonami } from './konami';
 import { HintOverlay } from './hints';
-import { JobBoardDialog } from './job-board';
 import { OfficeTabs } from './office-tabs';
 import { OverloadDialog } from './overload';
 import { OFFICE_KEY, officeFocus, officeOfSelection, pickOffice, sameFocus, teamOffices, type OfficeFocus } from './offices';
@@ -308,14 +307,8 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   const renamer = new RoomRenamer(ctx);
   ctx.renameRoom = (id, at) => renamer.open(id, at);
   world.onRoomContextMenu?.((id, at) => renamer.open(id, at));
-  // Job board for Antigravity workers: clicking it in the office opens expanded view.
-  const jobBoard = new JobBoardDialog(ctx);
-  world.onBoardOpen?.((id) => jobBoard.openJobs(id));
-  topbar.addPanelButton(jobBoard.button);
   // The office tabs, above the top bar like a browser's.
   const officeTabs = new OfficeTabs(ctx);
-  jobBoard.onDeclareFolder = (id) => officeTabs.editFolder(id);
-  officeTabs.onOpenBoard = () => jobBoard.open();
   // The tab menu's ＋ Boss / ＋ Worker are the sidebar's (their dialog explains what is missing, e.g. no PTY).
   officeTabs.team = {
     open: (kind) => sidebar.dialogs.open(kind),
@@ -342,8 +335,8 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
 
   const components: UiComponent[] = [topbar, sidebar, drawer, terminal, pty, history, feed, toasts, settings, empty, banner, tip, notifier, splash, sound, worldDialog, popups, worldChip];
   if (scene) components.push(scene);
-  root.append(worldSocial.el, jobBoard.el, overload.el, sidebar.dialogEl, officeTabs.dialog.el, officeTabs.menu.el);
-  components.push(worldSocial, jobBoard, overload, officeTabs);
+  root.append(worldSocial.el, overload.el, sidebar.dialogEl, officeTabs.dialog.el, officeTabs.menu.el);
+  components.push(worldSocial, overload, officeTabs);
 
   // ---------------------------------------------------------------- batched per-frame rendering
   let rafId = 0;
@@ -425,7 +418,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
 
   addEventListener('keydown', (e) => onKey(e));
   // Easter egg: Konami code triggers party in all rooms (ui/konami.ts).
-  const konami = attachKonami(() => {
+  attachKonami(() => {
     void fetch('/api/fun/party', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => undefined);
     ctx.announce(tr('🎮 Secret code! Party in every room.'));
   });
@@ -484,12 +477,6 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
       case 'O':
         e.preventDefault();
         ctx.camera('overview');
-        break;
-      case 'b':
-      case 'B':
-        if (konami.midCode()) break;
-        e.preventDefault();
-        jobBoard.toggle();
         break;
       case 'h':
       case 'H':

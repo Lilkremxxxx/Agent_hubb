@@ -17,7 +17,7 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, resolve } from 'node:path';
-import type { AgentInfo, HandoffPlan, OfficeInfo, TeamInfo, WorkerKind } from '../shared/types';
+import type { AgentInfo, OfficeInfo, TeamInfo, WorkerKind } from '../shared/types';
 import type { Office } from './model/office';
 import { normalizeCwd } from './model/rooms';
 import { FOLDER_CLASH, folderRelation, isDiskRoot } from '../shared/folders';
@@ -177,8 +177,6 @@ export interface TeamServiceOptions {
   isDir?: (path: string) => boolean;
   /** The folder with its symlinks resolved (tests; default realpath, else the path itself). */
   realpath?: (path: string) => string;
-  /** The "next steps" of a folder's HANDOFF file (BoardService.folderPlan): OfficeInfo.plan. */
-  folderPlan?: (folder: string) => HandoffPlan | undefined;
 }
 
 export type OfficeResult = { ok: true; office: OfficeInfo } | { ok: false; status: number; error: string };
@@ -507,8 +505,6 @@ export class TeamService {
     if (o.folder) {
       const room = this.opts.office.roomList().find((r) => officeFolder(r.path) === o.folder);
       if (room) out.roomId = room.id;
-      const plan = this.opts.folderPlan?.(o.folder);
-      if (plan) out.plan = plan;
     }
     const rec = o.boss;
     if (rec) {

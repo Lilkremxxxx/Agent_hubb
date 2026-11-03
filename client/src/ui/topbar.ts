@@ -152,7 +152,7 @@ export class TopBar implements UiComponent {
     this.panelGroup.insertBefore(btn, this.feedBtn);
   }
 
-  /** Adds a dedicated window button (e.g.: Board) to the start of panel group. */
+  /** Adds a dedicated window button (e.g.: Overload) to the start of panel group. */
   addPanelButton(btn: HTMLElement): void {
     this.panelGroup.prepend(btn);
   }

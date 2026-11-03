@@ -1,7 +1,7 @@
 // Offices from the snapshot: the list, the one shown, its room, boss, focus (dimming) and jobs.
 import { describe, expect, it } from 'vitest';
 import type { AgentInfo, OfficeInfo, OfficeSnapshot, RoomInfo, TeamInfo } from '../../../shared/types';
-import { agyBossOffice, folderOverlap, folderProblem, jobInOffice, officeBoss, officeFocus, officeForWorker, officeOfSelection, officePlan, officeRoom, otherOfficesOf, pickOffice, sameFocus, teamOffices, workerAgentIds } from './offices';
+import { agyBossOffice, folderOverlap, folderProblem, jobInOffice, officeBoss, officeFocus, officeForWorker, officeOfSelection, officeRoom, otherOfficesOf, pickOffice, sameFocus, teamOffices, workerAgentIds } from './offices';
 
 const office = (id: string, extra: Partial<OfficeInfo> = {}): OfficeInfo => ({ id, name: id.toUpperCase(), folder: `/p/${id}`, workers: [], ...extra });
 const room = (id: string, path: string, extra: Partial<RoomInfo> = {}) => ({ id, name: id, path, ...extra }) as RoomInfo;
@@ -94,16 +94,6 @@ describe('offices', () => {
     expect(jobInOffice({ office: 'b' }, list[0])).toBe(false);
     expect(jobInOffice({}, list[0])).toBe(false);
     expect(jobInOffice({}, undefined)).toBe(true);
-  });
-
-  it("to-do list: the plan of the office's folder room, else of its folder (read by the server)", () => {
-    const plan = { file: 'HANDOFF.md', mtime: 1, heading: 'Next', items: [] };
-    expect(officePlan({ rooms: [room('ra', '/p/a', { plan })] }, office('a'))).toEqual({ name: 'ra', target: { room: 'ra' }, plan });
-    expect(officePlan({ rooms: [room('ra', '/p/a')] }, office('a'))?.plan).toBeUndefined();
-    // nobody works in the folder (e.g. the boss sits in ~): the folder's own list, edited through the office
-    expect(officePlan({ rooms: [] }, office('a', { plan }))).toEqual({ name: 'a', target: { office: 'a' }, plan });
-    expect(officePlan({ rooms: [] }, office('a'))).toEqual({ name: 'a', target: { office: 'a' } });
-    expect(officePlan({ rooms: [] }, office('a', { folder: '' }))).toBeUndefined();
   });
 
   it('workers shared between offices, an agy boss in one office only', () => {

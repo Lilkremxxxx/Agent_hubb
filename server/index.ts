@@ -30,7 +30,6 @@ import { AgySource, type AgySeat } from './sources/agy/source';
 import { CLAUDE_WORKER, seatSuffix, TeamService, workerAgentId } from './team';
 import { GhostWatch } from './workers/ghosts';
 import { WorkerService, type WorkerTarget } from './workers/service';
-import { BoardService } from './board';
 import { agyProfilesRoot } from './sources/agy/profiles';
 import { createBuildReader, readBuildInfo } from './build';
 import { tr } from '../shared/i18n';
@@ -98,8 +97,6 @@ const office = new Office({
 // Claude workers' sessions run in the office's terminals and are shown by server/workers, not as sessions.
 const claude = new ClaudeWatcher({ accounts, office, inDocker: config.inDocker, ignore: (_acc, pid) => !!late.workers?.ownsPid(pid) });
 const agents = new SourceSet([claude]);
-// Board › Tasks (server/board.ts): each room's handoff file.
-const board = new BoardService({ office, folders: () => team.offices.map((o) => o.folder) });
 // Antigravity CLI workers (sources/agy/): every profile in ~/.agy_profiles is an account, the ones registered in the
 // team are workers in config.agy.room; HABBLAUD_AGY=0 turns it off. Linux only (reads /proc).
 const agyRoot = agyProfilesRoot(process.env, config.home);
@@ -119,7 +116,6 @@ if (agy) agents.add(agy);
 // ~/.agy_profiles/team.json, where agy-ask reads it too (without Antigravity, in the data dir: only the bosses matter).
 const team = new TeamService({
   office,
-  folderPlan: (folder) => board.folderPlan(folder),
   file: join(agy ? agyRoot : config.dataDir, 'team.json'),
   // Each office's building has its workers room: the first one is the Antigravity room, the others "<it>@<office>".
   workersRoom: (id, first) => (first ? config.agy.room : `${config.agy.room}@${id}`),
@@ -344,14 +340,12 @@ if (ptys) {
 // Synchronous sources (Claude Code) finish booting here, before the hub starts broadcasting.
 void agents.start();
 accounts.start();
-board.start();
 hub.start();
 worldUplink?.start();
 // Hung workers: a faint ghost on the seat; nothing is stopped.
 const ghosts = new GhostWatch({
   office,
   candidates: () => [...(agy?.ghostCandidates() ?? []), ...(workers?.ghostCandidates() ?? [])],
-  news: () => undefined,
 });
 ghosts.start();
 const ticker = setInterval(() => {
@@ -363,11 +357,6 @@ const ticker = setInterval(() => {
 }, 250);
 
 const api = createApiHandler({
-  editPlan: (target, mtime, edit) => {
-    if ('room' in target) return board.editPlan(target.room, mtime, edit);
-    const folder = team.offices.find((o) => o.id === target.office)?.folder;
-    return folder ? board.editFolderPlan(folder, mtime, edit) : { ok: false, status: 404, error: tr('office not found: {0}', [target.office]) };
-  },
   team: {
     appoint: (office, id, pending) => team.appoint(office, id, pending),
     setWorker: (office, acc, on) => team.setWorker(office, acc, on),
@@ -561,8 +550,7 @@ function shutdown(signal: string): void {
   clearInterval(ticker);
   agents.stop();
   accounts.stop();
-  board.stop();
-  ghosts.stop();
+    ghosts.stop();
   hub.stop();
   terminals?.stop();
   ptys?.stopAll();

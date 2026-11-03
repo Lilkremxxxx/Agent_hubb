@@ -64,16 +64,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   const socialCbs = new Set<(e: SocialEvent) => void>();
   const soundCbs = new Set<(c: SoundCue) => void>();
   const roomMenuCbs = new Set<(roomId: string, at: { x: number; y: number }) => void>();
-  const boardCbs = new Set<(roomId: string) => void>();
-  /** Room whose job board is under the point (canvas CSS px), if any. */
-  const boardAt = (sx: number, sy: number): string | null => {
-    const w = camera.screenToWorld(sx, sy);
-    for (const vis of renderer.areas.values()) {
-      const r = renderer.jobBoardRect(vis);
-      if (r && w.x >= r.x && w.x <= r.x + r.w && w.y >= r.y && w.y <= r.y + r.h) return vis.id;
-    }
-    return null;
-  };
   let cues = new SoundCues(sim, camera);
   let selection: Selection = null;
   let hover: string | null = null;
@@ -234,9 +224,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     pick,
     click: (hit, at) => {
       if (visitMode) return visitClick(hit, at);
-      // job board opens enlarged (in UI); an agent in front of it takes the click
-      const board = hit?.type !== 'agent' && boardCbs.size ? boardAt(at.x, at.y) : null;
-      if (board) return boardCbs.forEach((cb) => cb(board));
       // Clicking already selected agent again: they react (sim.poke, just for fun).
       if (hit?.type === 'agent' && selection?.type === 'agent' && selection.id === hit.id) sim.poke(hit.id);
       setSelection(hit);
@@ -443,10 +430,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     onRoomContextMenu: (cb) => {
       roomMenuCbs.add(cb);
       return () => void roomMenuCbs.delete(cb);
-    },
-    onBoardOpen: (cb) => {
-      boardCbs.add(cb);
-      return () => void boardCbs.delete(cb);
     },
     onSocialEvent: (cb) => {
       socialCbs.add(cb);

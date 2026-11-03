@@ -9,8 +9,7 @@ export function konamiStep(at: number, key: string): number {
   return k === CODE[0] ? 1 : 0;
 }
 
-/** `midCode()`: the arrows are done and B is next (the B shortcut then stays out of the way). */
-export function attachKonami(onCode: () => void): { detach: () => void; midCode: () => boolean } {
+export function attachKonami(onCode: () => void): { detach: () => void } {
   let at = 0;
   const onKey = (e: KeyboardEvent) => {
     const t = e.target as HTMLElement | null;
@@ -22,5 +21,5 @@ export function attachKonami(onCode: () => void): { detach: () => void; midCode:
     }
   };
   addEventListener('keydown', onKey);
-  return { detach: () => removeEventListener('keydown', onKey), midCode: () => at === CODE.indexOf('b') };
+  return { detach: () => removeEventListener('keydown', onKey) };
 }

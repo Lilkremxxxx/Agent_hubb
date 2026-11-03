@@ -124,7 +124,7 @@ export class HintOverlay {
     this.render();
     this.shown = true;
     this.el.hidden = false;
-    // Top layer (popover), so the notes also cover an open dialog (the Board, Help…).
+    // Top layer (popover), so the notes also cover an open dialog (Help…).
     try {
       if (!this.el.hasAttribute('popover')) this.el.setAttribute('popover', 'manual');
       if (!this.el.matches(':popover-open')) this.el.showPopover();

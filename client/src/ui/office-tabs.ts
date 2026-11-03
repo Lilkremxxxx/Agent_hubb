@@ -1,6 +1,6 @@
 // The office tabs, a strip above the top bar like a browser's tabs: pick the office shown (remembered in this browser;
 // ctx.selectOffice), ＋ after the last tab makes a new one, ⋯ (right end) or a double click on a tab edits it. An office
-// is one team in ONE project folder (ui/offices.ts); the sidebar, the Board, the quota and the dimming of the pixel office
+// is one team in ONE project folder (ui/offices.ts); the sidebar, the quota and the dimming of the pixel office
 // follow it. Shown only when the server keeps offices (team.offices); without them the strip takes no room.
 // The office dialog (＋ and ⋯): a name and a folder (recent projects, or a full path typed in); editing also offers
 // "Delete this office" (its boss steps down and its running jobs are cancelled; the last office cannot go).
@@ -32,8 +32,6 @@ export class OfficeTabs implements UiComponent {
   readonly el: HTMLElement;
   readonly dialog: OfficeDialog;
   readonly menu: OfficeMenu;
-  /** Opens the Board (on the office shown); set by ui/index.ts. */
-  onOpenBoard?: () => void;
   /** The sidebar's ＋ Boss / ＋ Worker (on the office shown), and why each cannot be used now ('' = it can). */
   team?: { open: (kind: 'boss' | 'workers') => void; blocked: (kind: 'boss' | 'workers') => string };
   private readonly tabs: KeyedList<OfficeInfo, HTMLButtonElement>;
@@ -88,7 +86,7 @@ export class OfficeTabs implements UiComponent {
     this.add.disabled = locked;
     this.edit.disabled = locked || !office;
     setHidden(this.noFolder, !office || !!office.folder || locked);
-    setTitle(this.noFolder, office ? tr('{0} has no folder yet: its boss works there and its to-do list is that folder\'s HANDOFF file', [office.name]) : '');
+    setTitle(this.noFolder, office ? tr('{0} has no folder yet: its boss works there', [office.name]) : '');
     this.dialog.render();
     this.menu.render();
   }
@@ -166,7 +164,6 @@ export class OfficeTabs implements UiComponent {
         const folder = office(id)?.folder;
         if (folder) void copyText(folder).then((ok) => this.ctx.announce(ok ? tr('Folder path copied.') : tr("Couldn't copy the folder path.")));
       },
-      ...(this.onOpenBoard ? { openBoard: (id: string) => onOffice(id, () => this.onOpenBoard!()) } : {}),
       ...(team ? { addBoss: (id: string) => onOffice(id, () => team.open('boss')), addWorker: (id: string) => onOffice(id, () => team.open('workers')) } : {}),
       create: () => this.dialog.openCreate(),
       remove: (id) => void this.dialog.confirmDelete(id),
@@ -176,11 +173,6 @@ export class OfficeTabs implements UiComponent {
   /** Offices can be made and edited (the server lets the page run commands). */
   private editable(): boolean {
     return !!this.ctx.store.snapshot?.meta.terminal;
-  }
-
-  /** The office dialog on an office (its folder), e.g. from the Board's "Choose its folder". */
-  editFolder(officeId: string): void {
-    this.dialog.openEdit(officeId);
   }
 
   /** Left/right arrows move between tabs (tablist pattern). */
@@ -311,8 +303,8 @@ export class OfficeDialog implements UiComponent {
     setText(
       this.intro,
       office
-        ? tr("Rename the office or change its folder. Its boss works in that folder, and its to-do list is that folder's HANDOFF file.")
-        : tr("One team for one project folder: its own boss and to-do list (the folder's HANDOFF file). Workers are shared between offices."),
+        ? tr("Rename the office or change its folder. Its boss works in that folder.")
+        : tr("One team for one project folder: its own boss. Workers are shared between offices."),
     );
     setText(this.submit, office ? tr('Save') : tr('＋ Create the office'));
     setHidden(this.remove, !office);

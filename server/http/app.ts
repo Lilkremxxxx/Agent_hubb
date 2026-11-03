@@ -12,8 +12,6 @@ import type { Hub } from './sse';
 import type { TerminalStreams } from './terminal';
 import type { AgyJobResult, AgyMode } from '../sources/agy/source';
 import type { OfficeResult, TeamResult } from '../team';
-import type { PlanEditResult } from '../board';
-import type { PlanEdit } from '../sources/handoff';
 import { errMsg } from '../log';
 import type { AskInput, AskResult } from '../workers/service';
 import { tr } from '../../shared/i18n';
@@ -65,11 +63,6 @@ export interface ApiDeps {
   };
   /** Accounts dialog: add and sign in accounts (/api/accounts/*, http/accounts.ts); only with the interactive terminal. */
   accountsApi?: (req: IncomingMessage, res: ServerResponse, path: string) => void;
-  /**
-   * POST /api/board/todo {room | office, mtime, edit}: edits a room's to-do list in its HANDOFF file, or that of an
-   * office's folder (server/board.ts).
-   */
-  editPlan?: (target: { room: string } | { office: string }, mtime: number | undefined, edit: PlanEdit) => PlanEditResult;
   /** POST /api/team: appoints the boss or (un)registers a worker (server/team.ts); this computer only. */
   team?: {
     /** `office`: OfficeInfo.id (undefined = the first office). */
@@ -552,36 +545,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
             } else throw new HttpError(400, tr('expected {boss} or {worker, on}'));
             if (!r.ok) throw new HttpError(r.status, r.error);
             sendJson(res, 200, { ok: true });
-          })
-          .catch((err) => fail(res, err));
-      return true;
-    }
-    if (path === '/api/board/todo') {
-      if (method !== 'POST') methodNotAllowed(res, 'POST');
-      else if (!deps.editPlan) sendJson(res, 404, { error: tr('unknown route') });
-      else if (isRemote(req) || !trusted(req)) sendJson(res, 403, { error: denied(req, tr('editing the to-do list only from this computer (http://localhost)')) });
-      else
-        readJson(req)
-          .then((body) => {
-            const b = (body ?? {}) as { room?: unknown; office?: unknown; mtime?: unknown; edit?: Record<string, unknown> };
-            const e = b.edit ?? {};
-            const text = typeof e.text === 'string' ? e.text.slice(0, 500) : '';
-            const index = typeof e.index === 'number' && Number.isInteger(e.index) ? e.index : -1;
-            const edit: PlanEdit | undefined =
-              e.op === 'toggle' && index >= 0 && typeof e.done === 'boolean'
-                ? { op: 'toggle', index, done: e.done }
-                : e.op === 'remove' && index >= 0
-                  ? { op: 'remove', index }
-                  : e.op === 'add' && text.trim()
-                    ? { op: 'add', text }
-                    : e.op === 'create' && typeof e.heading === 'string' && e.heading.trim()
-                      ? { op: 'create', heading: e.heading.slice(0, 80), ...(text.trim() ? { text } : {}) }
-                      : undefined;
-            const target = typeof b.room === 'string' ? { room: b.room } : typeof b.office === 'string' ? { office: b.office } : undefined;
-            if (!target || !edit) throw new HttpError(400, tr('expected {room or office, edit}'));
-            const r = deps.editPlan!(target, typeof b.mtime === 'number' ? b.mtime : undefined, edit);
-            if (!r.ok) throw new HttpError(r.status, r.error);
-            sendJson(res, 200, { ok: true, plan: r.plan ?? null });
           })
           .catch((err) => fail(res, err));
       return true;

@@ -86,8 +86,6 @@ export interface WorldApi {
   social?(agentId: string): AgentSocial | null;
   /** (Optional, additive) Right click on an office room: room id and click position (window px). */
   onRoomContextMenu?(cb: (roomId: string, at: { x: number; y: number }) => void): () => void;
-  /** (Optional, additive) Click on room task board (Antigravity workers): room id. */
-  onBoardOpen?(cb: (roomId: string) => void): () => void;
   /** (Optional, additive) Social events (matches and bets) for the feed. */
   onSocialEvent?(cb: (e: SocialEvent) => void): () => void;
   /**

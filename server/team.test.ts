@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { officeSlug, parseTeam, seatSuffix, teamSeats, TeamService } from './team';
 import { NameStore } from './model/names';
-import type { HandoffPlan } from '../shared/types';
 import { Office } from './model/office';
 
 const T0 = 1_700_000_000_000;
@@ -30,7 +29,6 @@ function setup(profiles = ['acc1', 'acc2', 'acc3']) {
   const deleted: string[] = [];
   /** Symlinks: path -> its real folder. */
   const links = new Map<string, string>();
-  const plans = new Map<string, HandoffPlan>();
   const team = () =>
     new TeamService({
       office,
@@ -46,11 +44,10 @@ function setup(profiles = ['acc1', 'acc2', 'acc3']) {
       realpath: (p) => links.get(p) ?? p,
       workersRoom: (id, first) => (first ? '/w/agy-hub' : `/w/agy-hub@${id}`),
       onDeleteOffice: (id) => void deleted.push(id),
-      folderPlan: (f) => plans.get(f),
     });
   const crowned = () => office.list().filter((a) => a.boss).map((a) => a.id);
   const saved = () => JSON.parse(readFileSync(file, 'utf8'));
-  return { office, main, file, legacyBossFile, team, crowned, saved, changes, dead, deleted, links, plans };
+  return { office, main, file, legacyBossFile, team, crowned, saved, changes, dead, deleted, links };
 }
 
 describe('TeamService: the boss', () => {
@@ -260,17 +257,6 @@ describe('TeamService: offices', () => {
     expect(b.createOffice('Inner', '/w/a/inner')).toMatchObject({ ok: false, status: 409, error: expect.stringContaining('inside') });
     expect(b.createOffice('Outer', '/w')).toMatchObject({ ok: false, status: 409, error: expect.stringContaining('holds') });
     expect(b.createOffice('Apart', '/w/ab')).toMatchObject({ ok: true });
-  });
-
-  it("an office's to-do: the HANDOFF list of its folder, even with nobody working there", () => {
-    const t = setup();
-    const b = t.team();
-    b.createOffice('A', '/w/a');
-    const plan: HandoffPlan = { file: 'HANDOFF.md', mtime: 1, heading: 'Next', items: [{ text: 'one' }] };
-    t.plans.set('/w/a', plan);
-    b.publish();
-    expect(t.office.commit().snapshot.team?.offices?.find((o) => o.id === 'a')?.plan).toEqual(plan);
-    expect(t.office.commit().snapshot.team?.offices?.find((o) => o.id === 'main')?.plan).toBeUndefined();
   });
 
   it('create, rename, move and delete offices; folders are absolute, existing and never shared', () => {

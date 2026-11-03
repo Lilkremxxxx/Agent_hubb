@@ -1,13 +1,12 @@
 // The menu of an office tab (right click, long press, the ContextMenu key or Shift+F10 on a focused tab), like a
-// browser tab's menu: a header with what the office is (folder, boss, workers, running jobs, to-do progress) and what
+// browser tab's menu: a header with what the office is (folder, boss, workers, running jobs) and what
 // can be done with it. The header and the items are pure (tested in office-menu.test.ts); OfficeMenu only draws them.
 // More items: add a builder to OFFICE_MENU_ITEMS (each returns an item or null, in menu order).
 import type { OfficeInfo, OfficeSnapshot } from '../../../shared/types';
-import { bossPlan, officeItems } from './board-model';
 import { h, setText } from './dom';
 import { plural } from './format';
 import { statusLabel } from './model';
-import { folderOverlap, officeBoss, teamOffices } from './offices';
+import { folderOverlap, jobInOffice, officeBoss, teamOffices } from './offices';
 import { tr } from '../../../shared/i18n';
 
 type SummarySnap = Pick<OfficeSnapshot, 'agents' | 'rooms' | 'accounts'> & Partial<Pick<OfficeSnapshot, 'team'>>;
@@ -22,8 +21,6 @@ export interface OfficeSummary {
   workers: string[];
   /** Jobs of this office running on the workers. */
   running: number;
-  /** The to-do list (its folder's HANDOFF file); absent = no list yet. */
-  todo?: { done: number; total: number; next?: string };
   /** Another office whose folder overlaps this one's (a team file from before that was refused). */
   overlap?: string;
 }
@@ -47,9 +44,7 @@ export function officeSummary(snap: SummarySnap | null | undefined, office: Offi
       : office.pendingBoss
         ? { name: tr('New boss'), state: tr('opening…') }
         : undefined;
-  const items = bossPlan(snap, office)?.plan?.items ?? [];
-  const running = officeItems((snap?.rooms ?? []).flatMap((r) => r.board?.items ?? []).filter((j) => j.status === 'working'), office).length;
-  const next = items.find((t) => !t.done)?.text;
+  const running = (snap?.rooms ?? []).flatMap((r) => r.board?.items ?? []).filter((j) => j.status === 'working' && jobInOffice(j, office)).length;
   const overlap = folderOverlap(teamOffices(snap?.team), office);
   return {
     name: office.name,
@@ -57,7 +52,6 @@ export function officeSummary(snap: SummarySnap | null | undefined, office: Offi
     ...(boss ? { boss } : {}),
     workers: office.workers.map((w) => workerShortName(snap, w)),
     running,
-    ...(items.length ? { todo: { done: items.filter((t) => t.done).length, total: items.length, ...(next ? { next } : {}) } } : {}),
     ...(overlap ? { overlap: overlap.name } : {}),
   };
 }
@@ -89,7 +83,6 @@ export interface OfficeMenuEnv {
   rename(id: string): void;
   changeFolder(id: string): void;
   copyFolder(id: string): void;
-  openBoard?(id: string): void;
   addBoss?(id: string): void;
   addWorker?(id: string): void;
   create(): void;
@@ -104,8 +97,7 @@ export const OFFICE_MENU_ITEMS: OfficeMenuBuilder[] = [
   (o, env) => ({ id: 'rename', label: tr('Rename…'), disabled: env.locked, run: () => env.rename(o.id) }),
   (o, env) => ({ id: 'folder', label: o.folder ? tr('Change folder…') : tr('Choose its folder…'), disabled: env.locked, run: () => env.changeFolder(o.id) }),
   (o, env) => ({ id: 'copy', label: tr('Copy folder path'), disabled: o.folder ? '' : tr('No folder yet'), run: () => env.copyFolder(o.id) }),
-  (o, env) => (env.openBoard ? { id: 'board', label: tr('📋 Open the Board on this office'), separator: true, run: () => env.openBoard!(o.id) } : null),
-  (o, env) => (env.addBoss && env.bossBlocked !== undefined ? { id: 'boss', label: tr('＋ Boss…'), disabled: env.locked || env.bossBlocked, run: () => env.addBoss!(o.id) } : null),
+  (o, env) => (env.addBoss && env.bossBlocked !== undefined ? { id: 'boss', label: tr('＋ Boss…'), separator: true, disabled: env.locked || env.bossBlocked, run: () => env.addBoss!(o.id) } : null),
   (o, env) => (env.addWorker && env.workerBlocked !== undefined ? { id: 'worker', label: tr('＋ Worker…'), disabled: env.locked || env.workerBlocked, run: () => env.addWorker!(o.id) } : null),
   (_o, env) => ({ id: 'new', label: tr('＋ New office…'), separator: true, disabled: env.locked, run: () => env.create() }),
   (o, env) => ({
@@ -226,14 +218,12 @@ export class OfficeMenu {
     const folder = h('div', { class: `ui-officemenu__folder${s.folder ? '' : ' ui-muted'}` });
     setText(folder, s.folder || tr('No folder yet'));
     if (s.folder) folder.title = s.folder;
-    const todo = s.todo ? `${s.todo.done}/${s.todo.total}${s.todo.next ? ` · ${tr('next: {0}', [s.todo.next])}` : ` · ${tr('all done')}`}` : tr('no list yet');
     this.head.replaceChildren(
       h('div', { class: 'ui-officemenu__name', text: s.name }),
       folder,
       line(tr('Boss'), s.boss ? `👑 ${s.boss.name} · ${s.boss.state}` : tr('No boss'), !s.boss),
       line(tr('Workers'), s.workers.length ? `${s.workers.length} · ${s.workers.join(', ')}` : tr('none'), !s.workers.length),
       line(tr('Running'), s.running ? plural(s.running, tr('job'), tr('jobs')) : tr('no job'), !s.running),
-      line(tr('To-do'), todo, !s.todo),
       ...(s.overlap ? [h('p', { class: 'ui-officemenu__warn', text: tr('⚠ Its folder overlaps the folder of {0}: change one of them.', [s.overlap]) })] : []),
     );
     for (const v of this.head.querySelectorAll<HTMLElement>('.ui-officemenu__value')) v.title = v.textContent ?? '';
