@@ -144,7 +144,7 @@ Claude folders, outside the repository, so they stay on your machine.
 | What an office may edit and run, job and quota limits | 📜 on the page (key R) |
 | Overload thresholds, language, sounds | Settings on the page |
 | Default mode and effort of a worker | A worker's drawer › "Defaults for jobs" |
-| Role and display name of an account | `~/.agy_profiles/roles.conf` (`acc2 impl accept-edits`; role `off` hides it) and `names.conf` (`acc2 Alice`) |
+| Display name of an account | `~/.agy_profiles/names.conf` (`acc2 Alice`) |
 | How the boss and the workers behave | `tools/agy/boss/AGENTS.md`, `tools/agy/worker-rules/GEMINI.md` |
 | The skills a Claude Code boss uses | `tools/agy/skills/` |
 | The scripts | `tools/agy/bin/`. They are linked, so an edit applies at once |

@@ -7,7 +7,7 @@ import { AccountsService } from '../../accounts/service';
 import { setQuiet } from '../../log';
 import { NameStore } from '../../model/names';
 import { Office } from '../../model/office';
-import { agyDetected, discoverAgyProfiles, emailFromCliLog, emailFromLogs, parseNamesConf, parseRolesConf, workerName } from './profiles';
+import { agyDetected, discoverAgyProfiles, emailFromCliLog, emailFromLogs, parseNamesConf, workerName } from './profiles';
 import { scanAgyProcs, type ProcReader } from './procs';
 import { AgySource, END_WAIT_MS } from './source';
 import { parseAgyUsage } from './usage';
@@ -45,7 +45,7 @@ function fakeProc(procs: Map<number, FakeProc>): ProcReader {
   };
 }
 
-function profiles(names: string[], roles = '') {
+function profiles(names: string[]) {
   const root = mkdtempSync(join(tmpdir(), 'habblaud-agy-'));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   for (const n of names) {
@@ -53,19 +53,10 @@ function profiles(names: string[], roles = '') {
     mkdirSync(join(root, n, '.gemini', 'antigravity-cli'), { recursive: true });
     writeFileSync(join(root, n, '.gemini', 'antigravity-cli', 'cli.log'), `I1026 1 server_oauth.go:229] OAuth: authenticated as ${n}@example.com\n`);
   }
-  if (roles) writeFileSync(join(root, 'roles.conf'), roles);
   return root;
 }
 
 describe('Antigravity profiles', () => {
-  it('reads roles.conf (account, role; comments left out)', () => {
-    const r = parseRolesConf('# acc role mode\nacc1 architect plan\n\nacc2   impl  accept-edits # code\njunk\n');
-    expect([...r]).toEqual([
-      ['acc1', 'architect'],
-      ['acc2', 'impl'],
-    ]);
-  });
-
   it('takes the e-mail from the last OAuth line of cli.log', () => {
     const log = [
       'I1026 10:25:53.89 1 server_oauth.go:229] OAuth: authenticated as old@gmail.com',
@@ -76,12 +67,11 @@ describe('Antigravity profiles', () => {
     expect(emailFromCliLog('nothing here')).toBeUndefined();
   });
 
-  it('finds the profiles in natural order, with role, and skips _backup and folders without agy', () => {
-    const root = profiles(['acc10', 'acc2', 'acc1', '_backup'], 'acc2 impl accept-edits\n');
+  it('finds the profiles in natural order, and skips _backup and folders without agy', () => {
+    const root = profiles(['acc10', 'acc2', 'acc1', '_backup']);
     mkdirSync(join(root, 'empty'));
     const found = discoverAgyProfiles(root);
     expect(found.map((p) => p.acc)).toEqual(['acc1', 'acc2', 'acc10']);
-    expect(found.map((p) => p.role)).toEqual([undefined, 'impl', undefined]);
   });
 
   it('name: names.conf, else the e-mail user up to the first dot, else the account', () => {
@@ -115,14 +105,6 @@ describe('Antigravity profiles', () => {
     expect(workerName(discoverAgyProfiles(root)[0])).toBe('new');
   });
 
-  it('an account with role "off" in roles.conf is still an account (the team decides who works)', () => {
-    const root = profiles(['acc1', 'acc2', 'acc3'], 'acc1 architect plan\nacc3 off # vacant\n');
-    expect(discoverAgyProfiles(root).map((p) => [p.acc, p.role])).toEqual([
-      ['acc1', 'architect'],
-      ['acc2', undefined],
-      ['acc3', 'off'],
-    ]);
-  });
 });
 
 describe('parseAgyUsage', () => {
@@ -183,7 +165,7 @@ describe('scanAgyProcs: orphans', () => {
     const root = '/h/.agy_profiles';
     const procs = new Map<number, FakeProc>([
       [5, { comm: 'systemd', ppid: 1 }],
-      [6, { comm: 'herdr', ppid: 5 }],
+      [6, { comm: 'terminal', ppid: 5 }],
       [30, { comm: 'agy', ppid: 5, home: `${root}/acc2`, args: ['agy', '-p', 'hi'] }],
       [31, { comm: 'agy', ppid: 6, home: `${root}/acc4`, args: ['agy'] }],
     ]);
@@ -193,8 +175,8 @@ describe('scanAgyProcs: orphans', () => {
   });
 });
 
-function setup(names = ['acc2', 'acc3'], roles = 'acc2 impl accept-edits\nacc3 qa accept-edits\n') {
-  const root = profiles(names, roles);
+function setup(names = ['acc2', 'acc3']) {
+  const root = profiles(names);
   let clock = BOOT_MS + 100_000;
   const now = () => clock;
   const late: { office?: Office } = {};
@@ -210,7 +192,6 @@ function setup(names = ['acc2', 'acc3'], roles = 'acc2 impl accept-edits\nacc3 q
   });
   late.office = office;
   const procs = new Map<number, FakeProc>([[10, { comm: 'claude', ppid: 1, cwd: '/w/Habblaud' }]]);
-  let herdr = new Map<number, 'working' | 'blocked' | 'idle'>();
   const killed: Array<[number, string]> = [];
   const source = new AgySource({
     accounts,
@@ -219,7 +200,6 @@ function setup(names = ['acc2', 'acc3'], roles = 'acc2 impl accept-edits\nacc3 q
     room: '/w/agy-hub',
     home: root,
     procs: fakeProc(procs),
-    herdr: async () => herdr,
     kill: (pid, sig) => void killed.push([pid, sig]),
     usage: async (acc) => (acc === 'acc2' ? 'Gemini Models\tWeekly Limit Remaining\t90%\t2030-10-31T09:52:49Z\n' : ''),
     now,
@@ -232,9 +212,6 @@ function setup(names = ['acc2', 'acc3'], roles = 'acc2 impl accept-edits\nacc3 q
     office,
     source,
     procs,
-    setHerdr(m: Map<number, 'working' | 'blocked' | 'idle'>) {
-      herdr = m;
-    },
     advance(ms: number) {
       clock += ms;
     },
@@ -343,7 +320,7 @@ describe('AgySource', () => {
   it('ghost check: an interactive agy under a live terminal is left alone, an orphan one is not', () => {
     const t = setup();
     t.source.start();
-    t.procs.set(20, { comm: 'herdr', ppid: 10 });
+    t.procs.set(20, { comm: 'terminal', ppid: 10 });
     t.procs.set(21, { comm: 'agy', ppid: 20, home: join(t.root, 'acc2'), args: ['agy'] });
     expect(t.source.ghostCandidates()).toEqual([]);
     t.procs.set(21, { comm: 'agy', ppid: 1, home: join(t.root, 'acc2'), args: ['agy'] });
@@ -356,20 +333,6 @@ describe('AgySource', () => {
     t.source.start();
     t.job(31, 'acc3', 'not a worker');
     expect(t.source.ghostCandidates()).toEqual([]);
-  });
-
-  it('herdr pane blocked = needs you; working = working', async () => {
-    const t = setup();
-    t.source.start();
-    t.procs.set(60, { comm: 'agy', ppid: 1, home: join(t.root, 'acc3'), args: ['agy'] });
-    t.setHerdr(new Map([[60, 'blocked']]));
-    await (t.source as unknown as { pollHerdr(): Promise<void> }).pollHerdr();
-    t.source.poll();
-    expect(t.agent('acc3')).toMatchObject({ status: 'waiting' });
-    t.setHerdr(new Map([[60, 'working']]));
-    await (t.source as unknown as { pollHerdr(): Promise<void> }).pollHerdr();
-    t.source.poll();
-    expect(t.agent('acc3')?.status).toBe('working');
   });
 
   it('no /usage while the account\'s agy is running (one agy per profile)', async () => {
@@ -390,7 +353,7 @@ describe('AgySource', () => {
     expect(t.accounts.list(new Map()).find((a) => a.id === 'agy:acc3')?.usage).toBeUndefined();
   });
 
-  it('the request role is the title only while working (without --role, the roles.conf one); today\'s tokens add up', () => {
+  it('the request role is the title only while working (without --role, free); today\'s tokens add up', () => {
     const t = setup();
     t.source.start();
     t.start(31, 'acc2', { role: 'review', mode: 'plan' });
@@ -404,7 +367,7 @@ describe('AgySource', () => {
 
     t.job(41, 'acc2', 'Implement it');
     t.source.poll();
-    expect(t.agent('acc2')?.title).toBe('impl');
+    expect(t.agent('acc2')?.title).toBe('free');
   });
 
   it('boot sums today\'s tokens already in the log (and ignores yesterday\'s)', () => {
@@ -521,9 +484,9 @@ describe('AgySource', () => {
     ]);
   });
 
-  it('team: only registered workers get a character; "off" accounts are accounts but not seeded', () => {
-    const t = setup(['acc2', 'acc3', 'acc4'], 'acc2 impl accept-edits\nacc4 off\n');
-    expect(t.source.seed()).toEqual(['acc2', 'acc3']);
+  it('team: only registered workers get a character; every profile is an account and seeded', () => {
+    const t = setup(['acc2', 'acc3', 'acc4']);
+    expect(t.source.seed()).toEqual(['acc2', 'acc3', 'acc4']);
     expect(t.source.profiles()).toEqual([
       { acc: 'acc2', account: 'agy:acc2' },
       { acc: 'acc3', account: 'agy:acc3' },

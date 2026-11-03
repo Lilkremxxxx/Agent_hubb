@@ -5,8 +5,6 @@
 // Character name: from ~/.agy_profiles/names.conf ("acc2 Huy"), else the account's e-mail username
 // ("alice@gmail.com" -> "alice"; up to the first dot), else the account ("acc2").
 // E-mail: from the most recent "OAuth: ..." line in agy's cli.log (for name and label only; no credentials).
-// Default role: ~/.agy_profiles/roles.conf ("acc2 impl accept-edits"), matching `agy-sync`; only shown while the
-// worker is active, when the prompt (agy-ask --role) doesn't specify another.
 import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { ACCOUNT_COLORS, type DetectedAccount } from '../../accounts/detect';
@@ -23,7 +21,6 @@ export interface AgyProfile {
   home: string;
   /** agy state for the account (<profile>/.gemini/antigravity-cli). */
   stateDir: string;
-  role?: string;
   email?: string;
   /** Name chosen in names.conf. */
   name?: string;
@@ -37,21 +34,6 @@ export function parseNamesConf(text: string): Map<string, string> {
     if (m) names.set(m[1], m[2]);
   }
   return names;
-}
-
-/** Role of a vacant account (e.g. no quota left): "acc3 off" in roles.conf; not a worker of a brand-new team. */
-export const AGY_OFF_ROLE = 'off';
-
-/** `roles.conf`: "account role mode" per line, `#` for comments. */
-export function parseRolesConf(text: string): Map<string, string> {
-  const roles = new Map<string, string>();
-  for (const raw of text.split('\n')) {
-    const line = raw.replace(/#.*/, '').trim();
-    if (!line) continue;
-    const [acc, role] = line.split(/\s+/);
-    if (acc && role) roles.set(acc, role);
-  }
-  return roles;
 }
 
 /** Account e-mail from the last "server_oauth ... OAuth: ..." line in cli.log (reads only end of file). */
@@ -135,13 +117,7 @@ export function discoverAgyProfiles(root: string): AgyProfile[] {
   } catch {
     return [];
   }
-  let roles = new Map<string, string>();
   let custom = new Map<string, string>();
-  try {
-    roles = parseRolesConf(readFileSync(join(root, 'roles.conf'), 'utf8'));
-  } catch {
-    // no roles.conf: workers without default role
-  }
   try {
     custom = parseNamesConf(readFileSync(join(root, 'names.conf'), 'utf8'));
   } catch {
@@ -154,8 +130,6 @@ export function discoverAgyProfiles(root: string): AgyProfile[] {
       const home = join(root, acc);
       const stateDir = join(home, '.gemini', 'antigravity-cli');
       const p: AgyProfile = { acc, home, stateDir };
-      const role = roles.get(acc);
-      if (role) p.role = role;
       const email = emailFromLogs(stateDir);
       if (email) p.email = email;
       const name = custom.get(acc);

@@ -3,7 +3,7 @@
 //
 // A process belongs to an account when its HOME is the profile folder (~/.agy_profiles/accN, as set up by `agy-as`).
 // With `-p`/`--print`/`--prompt` it is a headless call (agy-ask, batch scripts); without, it is an interactive agy
-// (in a herdr panel or a terminal). Slash commands (`agy -p /usage`) are not work and are excluded. An agy spawned by
+// (in a terminal). Slash commands (`agy -p /usage`) are not work and are excluded. An agy spawned by
 // another agy (same account) counts once only. Invoker: the first `claude` ancestor in the process tree, if any.
 import { readdirSync, readFileSync, readlinkSync } from 'node:fs';
 import { join } from 'node:path';

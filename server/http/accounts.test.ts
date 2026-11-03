@@ -29,8 +29,8 @@ beforeEach(async () => {
   mkdirSync(join(agyRoot, 'acc1', '.gemini', 'antigravity-cli'), { recursive: true });
   writeFileSync(join(agyRoot, 'acc1', '.gemini', 'antigravity-cli', 'cli.log'), 'I server_oauth.go:42 OAuth: signed in as a.b@gmail.com\n');
   mkdirSync(join(agyRoot, 'acc3', '.gemini', 'antigravity-cli'), { recursive: true });
+  writeFileSync(join(agyRoot, 'acc3', '.gemini', 'antigravity-cli', 'cli.log'), 'I server_oauth.go:42 OAuth: signed in as c.d@gmail.com\n');
   mkdirSync(join(agyRoot, '_backup'));
-  writeFileSync(join(agyRoot, 'roles.conf'), 'acc1 impl plan\nacc3 off default\n');
   spawned = [];
   claude = [{ id: '.claude', dir: join(home, '.claude'), isDefault: true }];
   let pid = 100;
@@ -77,7 +77,7 @@ describe('Antigravity profiles on disk', () => {
     mkdirSync(join(agyRoot, 'acc4', '.gemini', 'antigravity-cli'), { recursive: true });
     expect(agyProfileStates(agyRoot)).toEqual([
       { acc: 'acc1', account: 'agy:acc1', state: 'ready' },
-      { acc: 'acc3', account: 'agy:acc3', state: 'off' },
+      { acc: 'acc3', account: 'agy:acc3', state: 'ready' },
       { acc: 'acc4', account: 'agy:acc4', state: 'new' },
     ]);
     expect(nextAgyAcc(agyRoot)).toBe('acc2');

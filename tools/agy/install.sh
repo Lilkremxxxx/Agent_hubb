@@ -7,7 +7,7 @@ bin="$HOME/.local/bin"
 skills="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
 mkdir -p "$bin" "$skills"
 
-for f in agy-as agy-up agy-mode agy-sync; do ln -sfn "$here/bin/$f" "$bin/$f"; done
+for f in agy-as; do ln -sfn "$here/bin/$f" "$bin/$f"; done
 ln -sfn "$here/bin/worker-ask" "$bin/agy-ask"
 ln -sfn agy-ask "$bin/claude-ask"
 for s in "$here"/skills/*/; do ln -sfn "${s%/}" "$skills/$(basename "$s")"; done

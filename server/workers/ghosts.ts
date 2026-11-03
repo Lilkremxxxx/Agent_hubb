@@ -1,9 +1,9 @@
 // Workers that look hung, drawn as a faint ghost on their seat. Nothing here stops anything: the office only shows it and
-// tells the Board once, and you decide. No tokens: only /proc and file times.
+// tells you once, and you decide. No tokens: only /proc and file times.
 //
 // A candidate is a process or job that should be showing signs of life: a headless agy, an agy with nobody left to
 // talk to (orphan, or its job already ended; sources/agy) or a job in a worker terminal (workers/service.ts). Interactive
-// agy waiting at its prompt (herdr, a worker terminal between jobs) is not a candidate: that is what it is for.
+// agy waiting at its prompt (a worker terminal between jobs) is not a candidate: that is what it is for.
 import type { AgentGhost } from '../../shared/types';
 import { tr } from '../../shared/i18n';
 import { errMsg, log } from '../log';

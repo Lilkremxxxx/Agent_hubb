@@ -150,7 +150,7 @@ export interface TeamServiceOptions {
   rescanProfiles?: () => void;
   /** Claude Code accounts that can be workers: WorkerId ("claude:<id>") and account id. */
   claudeAccounts?: () => Array<{ worker: string; account: string }>;
-  /** Workers of a brand-new team.json: the profiles in use until now (not "off" in roles.conf). */
+  /** Workers of a brand-new team.json: the profiles in use until now. */
   seed: () => string[];
   /** Habblaud's old boss.json (before the team file), read once when team.json does not exist yet. */
   legacyBossFile?: string;

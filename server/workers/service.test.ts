@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { JobBoardItem, PtyInfo } from '../../shared/types';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
-import { IDLE_CLOSE_MS, LEAN_TOOLS, leanClaudeArgs, rulesHookSettings, taskOf, TRUST_WAIT_MS, WorkerService, type WorkerPtys, type WorkerTarget } from './service';
+import { IDLE_CLOSE_MS, LEAN_TOOLS, leanClaudeArgs, TRUST_WAIT_MS, WorkerService, type WorkerPtys, type WorkerTarget } from './service';
 import { agyTranscriptPath, agyTurn, claudeTranscriptPath, claudeTurn, lastWrite } from './turns';
 
 const T0 = 1_800_000_000_000;
@@ -116,7 +116,6 @@ function setup(workers = ['acc2', 'claude:.claude-w']) {
     targets: () => all.filter((t) => registered.includes(t.id)),
     agyBin: '/bin/agy-as',
     claudeBin: '/bin/claude',
-    rulesHook: '/hub/rules-hook',
     room: root,
     logFile,
     onChange: () => void changes++,
@@ -287,7 +286,7 @@ describe('WorkerService', () => {
     expect(p.file).toBe('/bin/claude');
     expect(p.env).toMatchObject({ CLAUDE_CONFIG_DIR: t.configDir });
     const sid = p.args[1];
-    expect(p.args).toEqual(['--session-id', sid, '--permission-mode', 'acceptEdits', '--model', 'haiku', '--settings', rulesHookSettings('/hub/rules-hook'), 'Review x']);
+    expect(p.args).toEqual(['--session-id', sid, '--permission-mode', 'acceptEdits', '--model', 'haiku', 'Review x']);
     expect(t.svc.ownsPid(p.pid)).toBe(true);
     expect(t.office.get('claude-worker:.claude-w')?.status).toBe('working');
     const file = claudeTranscriptPath(t.configDir, t.root, sid);
@@ -325,25 +324,11 @@ describe('WorkerService', () => {
     expect(t.svc.jobs()[0].status).toBe('working');
   });
 
-  it('office rules: a Claude job runs rules-hook for its office and worker; the board shows the task without the rules', async () => {
-    const t = setup();
-    const prompt = 'Office rules of "Main" (set by the user; they win over the task):\n- Never run: sudo.\n\nFind x';
-    expect((await t.svc.ask({ worker: 'claude:.claude-w', prompt, cwd: t.root })).ok).toBe(true);
-    const p = t.open.get('claude-worker:.claude-w')!;
-    expect(p.env).toMatchObject({ AGY_OFFICE: 'main', AGY_WORKER: 'claude:.claude-w' });
-    const hook = JSON.parse(p.args[p.args.indexOf('--settings') + 1]).hooks.PreToolUse[0];
-    expect(hook).toMatchObject({ matcher: expect.stringContaining('Edit'), hooks: [{ type: 'command', command: '/hub/rules-hook' }] });
-    expect(p.args.at(-1)).toBe(prompt);
-    expect(t.svc.jobs()[0].prompt).toBe('Find x');
-    expect(taskOf('plain task')).toBe('plain task');
-    expect(JSON.parse(rulesHookSettings("/my dir/it's")).hooks.PreToolUse[0].hooks[0].command).toBe("'/my dir/it'\\''s'");
-  });
-
   it('Claude worker, lean job (claude-ask): no MCP, skills or slash commands, few tools, the worker rule with the cap', async () => {
     const t = setup();
     expect((await t.svc.ask({ worker: 'claude:.claude-w', prompt: 'Find x', max: 500, lean: true, cwd: t.root })).ok).toBe(true);
     const args = t.open.get('claude-worker:.claude-w')!.args;
-    expect(args.slice(2, -3)).toEqual(leanClaudeArgs(500));
+    expect(args.slice(2, -1)).toEqual(leanClaudeArgs(500));
     expect(args.at(-1)).toBe('Find x');
     expect(args[args.indexOf('--tools') + 1]).toBe(LEAN_TOOLS);
     expect(args[args.indexOf('--append-system-prompt') + 1]).toContain('under 500 characters');

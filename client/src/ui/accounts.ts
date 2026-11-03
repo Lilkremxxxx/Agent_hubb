@@ -14,7 +14,7 @@ import { tr } from '../../../shared/i18n';
 export interface AgyProfileRow {
   acc: string;
   account: string;
-  state: 'ready' | 'new' | 'off';
+  state: 'ready' | 'new';
 }
 
 /** "5 h 42% · week 10%" from the account's last usage reading; '' without numbers. */
@@ -214,7 +214,6 @@ export class AccountsDialog {
     const agyRows = this.profiles.map((p) => {
       const a = accounts.find((x) => x.id === p.account);
       const name = a?.name ?? p.acc;
-      if (p.state === 'off') return this.row(name, tr('off: vacant in roles.conf'), '', a?.color, null, 'is-off');
       if (p.state === 'new') return this.row(name, tr('sign-in not finished'), '', a?.color, this.loginButton(p.account, tr('Finish sign-in'), why), 'is-new');
       return this.row(name, a?.email ?? p.acc, usageLine(a, now), a?.color, this.loginButton(p.account, tr('Sign in again'), why), hotClass(a, now));
     });

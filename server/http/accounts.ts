@@ -6,11 +6,11 @@
 //   POST /api/accounts/agy             new ~/.agy_profiles/accN (an unfinished one, else first free N); `agy-as accN`
 //   POST /api/accounts/login {account} sign in again: Claude `claude auth login`, Antigravity `agy-as accN`
 // Answers {account, acc?, pty} (the terminal, opened by the page) or {error}.
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { basename, join } from 'node:path';
 import { PtyError, type PtyManager } from '../pty/manager';
-import { AGY_OFF_ROLE, emailFromLogs, parseRolesConf } from '../sources/agy/profiles';
+import { emailFromLogs } from '../sources/agy/profiles';
 import { HttpError, readJson, sendJson } from './app';
 import { ptyRequestProblem } from './pty';
 import { tr } from '../../shared/i18n';
@@ -36,13 +36,13 @@ export interface AccountsRouteDeps {
 /**
  * An Antigravity profile on disk: `ready` = signed in (agy's log has its OAuth e-mail; the login itself sits in the
  * profile's keyring), `new` = sign-in not finished (agy makes its state folder before you sign in, so that folder
- * says nothing), `off` = vacant in roles.conf.
+ * says nothing).
  */
 export interface AgyProfileState {
   acc: string;
   /** Account id in the office (AccountInfo.id). */
   account: string;
-  state: 'ready' | 'new' | 'off';
+  state: 'ready' | 'new';
 }
 
 /** Claude account name typed in the dialog: becomes the folder ~/.claude-<name>. */
@@ -65,19 +65,13 @@ export function agyProfileStates(root: string): AgyProfileState[] {
   } catch {
     return [];
   }
-  let roles = new Map<string, string>();
-  try {
-    roles = parseRolesConf(readFileSync(join(root, 'roles.conf'), 'utf8'));
-  } catch {
-    // no roles.conf: no vacant accounts
-  }
   return names
     .filter((n) => AGY_ACC.test(n) && isDir(join(root, n)))
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
     .map((acc) => ({
       acc,
       account: `agy:${acc}`,
-      state: roles.get(acc) === AGY_OFF_ROLE ? 'off' : emailFromLogs(join(root, acc, '.gemini', 'antigravity-cli')) ? 'ready' : 'new',
+      state: emailFromLogs(join(root, acc, '.gemini', 'antigravity-cli')) ? 'ready' : 'new',
     }));
 }
 

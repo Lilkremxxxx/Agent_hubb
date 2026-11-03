@@ -6606,10 +6606,6 @@ button.ui-term__think:hover,
   border: 1px solid var(--ui-line-strong);
 }
 
-.ui-accounts__item.is-off {
-  opacity: 0.55;
-}
-
 .ui-accounts__item.is-new {
   border-style: dashed;
 }

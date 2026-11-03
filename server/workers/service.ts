@@ -46,18 +46,6 @@ export const TRUST_WAIT_MS = 15_000;
  */
 export const LEAN_TOOLS = 'Bash,Read,Edit,Write,WebFetch,WebSearch';
 
-/** --settings that make a Claude Code worker run tools/agy's rules-hook before the tools the office rules check. */
-export function rulesHookSettings(hook: string): string {
-  const command = /^[\w./~-]+$/.test(hook) ? hook : `'${hook.replace(/'/g, "'\\''")}'`;
-  return JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit|Read|Grep|Glob|Bash', hooks: [{ type: 'command', command, timeout: 10 }] }] } });
-}
-
-/** The task without the office rules agy-ask puts on top of it ("Office rules of …", a blank line, the task). */
-export function taskOf(prompt: string): string {
-  const cut = prompt.startsWith('Office rules of "') ? prompt.indexOf('\n\n') : -1;
-  return cut >= 0 ? prompt.slice(cut + 2) : prompt;
-}
-
 /** Flags for a lean Claude Code job: no MCP servers, no skills or slash commands, LEAN_TOOLS, a short worker rule. */
 export function leanClaudeArgs(max: number): string[] {
   const rule =
@@ -123,8 +111,6 @@ export interface WorkerServiceOptions {
   targets: () => WorkerTarget[];
   agyBin: string;
   claudeBin: string;
-  /** tools/agy/bin/rules-hook: a Claude worker's job for an office runs it as its PreToolUse hook (office rules). */
-  rulesHook?: string;
   /** Folder of a job without `cwd` (the workers room). */
   room: string;
   /** ~/.agy_profiles/agy-ask.log.jsonl. */
@@ -267,7 +253,7 @@ export class WorkerService {
       id: `w${now.toString(36)}${(++this.seq).toString(36)}`,
       worker: s.t.id,
       agentId: s.t.agentId,
-      prompt: truncate(maskSecrets(taskOf(prompt).replace(/\s+/g, ' ')), 300),
+      prompt: truncate(maskSecrets(prompt.replace(/\s+/g, ' ')), 300),
       by: input.by ?? 'script',
       status: 'working',
       startedAt: now,
@@ -500,7 +486,6 @@ export class WorkerService {
       if (j.mode) args.push('--mode', j.mode);
       if (j.effort) args.push('--effort', j.effort);
       if (j.model) args.push('--model', j.model);
-      // For agy-hub's agy-plugin/office-rules (rules-hook), once it is installed in the profile.
       const info = this.open(s, args, j.cwd, j.office ? { AGY_OFFICE: j.office, AGY_WORKER: t.id } : undefined);
       j.ptyPid = info.pid;
       return info;
@@ -511,11 +496,8 @@ export class WorkerService {
     if (j.effort) args.push('--effort', j.effort);
     if (j.model) args.push('--model', j.model);
     if (j.lean) args.push(...leanClaudeArgs(j.max));
-    // Office rules: rules-hook finds the office and the worker from AGY_OFFICE / AGY_WORKER.
-    const rules = j.office && this.opts.rulesHook ? { AGY_OFFICE: j.office, AGY_WORKER: t.id } : undefined;
-    if (rules) args.push('--settings', rulesHookSettings(this.opts.rulesHook!));
     args.push(prompt);
-    const info = this.open(s, args, j.cwd, rules);
+    const info = this.open(s, args, j.cwd);
     j.ptyPid = info.pid;
     return info;
   }

@@ -5,7 +5,6 @@ job to an Antigravity (`agy`) or Claude Code account and print only the final an
 worker's reasoning. Every job is a new conversation.
 
 Needs Linux, Python 3, Claude Code, and for Antigravity workers the `agy` CLI, `dbus-daemon` and `gnome-keyring-daemon`.
-`agy-up`, `agy-mode` and `agy-sync` also need `herdr`.
 
 ## Install
 
@@ -33,9 +32,7 @@ any repository.
 |---|---|
 | `bin/agy-as` | Runs `agy` in one account's profile (own HOME, D-Bus, keyring) |
 | `bin/worker-ask` | `agy-ask` and `claude-ask`: give a job, print its answer |
-| `bin/agy-up`, `agy-mode`, `agy-sync` | Run workers in `herdr` panes, without the office |
-| `agy-plugin/` | `agy-boss` (loads the boss rules) |
-| `boss/AGENTS.md` | Rules for an Antigravity boss |
+| `agy-plugin/` | `agy-boss` (loads the boss rules from `docs/boss-rules-from-fork.md`) |
 | `skills/` | `agy-orchestrator`, for a Claude Code boss |
 
 ## Using it
@@ -50,8 +47,7 @@ With Habblaud running the job goes to the worker's terminal in the office, which
 headless. Exit codes: 0 done, 1 failed or timed out, 2 refused by the team rule, 3 worker busy, 4 cancelled
 from the office.
 
-Offices live in `~/.agy_profiles/team.json` and are edited in Habblaud. Optional `~/.agy_profiles/roles.conf` sets each
-account's role and default mode (`acc2 impl accept-edits`; role `off` hides an account), and `names.conf` a display name
+Offices live in `~/.agy_profiles/team.json` and are edited in Habblaud. Optional `~/.agy_profiles/names.conf` sets a display name
 (`acc2 Alice`).
 
 ## Tests

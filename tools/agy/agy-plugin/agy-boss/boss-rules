@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """SessionStart hook of the agy-boss plugin: in an agy started as an office's boss (AGY_BOSS=1, AGY_OFFICE=<id>, set
-by Habblaud), injects the boss rules (tools/agy/boss/AGENTS.md) and the office it leads; anywhere else, nothing."""
+by Habblaud), injects the boss rules (docs/boss-rules-from-fork.md) and the office it leads; anywhere else, nothing."""
 import json, os, sys
 
 out = {}
 if os.environ.get("AGY_BOSS") == "1":
     here = os.path.dirname(os.path.realpath(__file__))
     try:
-        with open(os.path.join(here, "..", "..", "boss", "AGENTS.md")) as f:
+        with open(os.path.join(here, "..", "..", "..", "..", "docs", "boss-rules-from-fork.md")) as f:
             rules = f.read()
     except OSError as e:
         rules = f"You are the boss of a team (the boss rules file is missing: {e}). Run `agy-ask team` first."

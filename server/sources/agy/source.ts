@@ -6,22 +6,20 @@
 // The profiles folder is re-read every RESCAN_MS, so an account logged in later shows up on its own.
 // None of this costs tokens: status comes only from local files and processes.
 // - Working: an `agy` process of the account is running (sources/agy/procs.ts). A headless call (agy-ask, batch
-//   scripts) = a job, with the prompt as the activity; an interactive agy (herdr pane) counts as working only by the
-//   herdr status.
-// - Needs you: the herdr pane is `blocked` (waiting for an approval or an answer).
+//   scripts) = a job, with the prompt as the activity.
 // - Job end: the process goes away. agy-ask writes the end (status, seconds, tokens) to
 //   ~/.agy_profiles/agy-ask.log.jsonl right AFTER killing agy: the "Done" activity waits for that line for up to
 //   END_WAIT_MS (matched by the agy-ask PID, agy's parent) and, without it, comes out without the numbers.
-// - Role: the request's `--role` (agy-ask "start" line, written before agy opens), else the roles.conf one; it becomes
-//   the worker's title only while it works.
+// - Role: the request's `--role` (agy-ask "start" line, written before agy opens), it becomes the worker's
+//   title only while it works.
 // - Tokens: those of today's "end" lines, summed per account (boot re-reads the end of the log so a restart does not
 //   reset them).
 // - Level, XP and badges (sources/agy/progress.ts): from ALL "end" lines of the log; a live level-up or badge throws a
 //   party in the room. "Full house": every worker busy at once (at most every FULL_HOUSE_MS).
 // - Job board (RoomInfo.board): from the agy-ask start/end lines too, so it survives a restart.
 // - Plan usage: each account's `/usage` (sources/agy/usage.ts), one at a time, every config.agy.usageMs.
-import { execFile, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { mkdirSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { Activity, AgentStats, AgentStatus, JobBoardItem, SourceInfo } from '../../../shared/types';
 import { formatDuration, maskSecrets, truncate } from '../../../shared/activity';
@@ -30,7 +28,7 @@ import { errMsg, log } from '../../log';
 import type { Office, TranscriptSummary } from '../../model/office';
 import type { AgentSource } from '../source';
 import { FileTail } from '../tail';
-import { AGY_OFF_ROLE, agyDetected, discoverAgyProfiles, workerLabel, workerName, type AgyProfile } from './profiles';
+import { agyDetected, discoverAgyProfiles, workerLabel, workerName, type AgyProfile } from './profiles';
 import { procReader, scanAgyProcs, type AgyProc, type ProcReader } from './procs';
 import { BADGES, rankOf, WorkerTracker } from './progress';
 import { parseAgyUsage, runAgyUsage } from './usage';
@@ -44,12 +42,10 @@ import { lastWrite } from '../../workers/turns';
 export const RESCAN_MS = 30_000;
 /** Wait for the agy-ask end line after agy is gone. */
 export const END_WAIT_MS = 4_000;
-/** herdr read interval (one `herdr agent list`, only while its server runs). */
-export const HERDR_MS = 3_000;
 
 /** How much of the end of the log boot re-reads (today's tokens, level and badges, job board). */
 export const BOOT_LOG_BYTES = 32 * 1024 * 1024;
-/** Jobs kept on the room board (the newest; the Board shows 20 and "View more"). */
+/** Jobs kept on the room board (the newest). */
 export const BOARD_ITEMS = 50;
 /** Minimum interval between two "Full house" parties. */
 export const FULL_HOUSE_MS = 10 * 60_000;
@@ -117,9 +113,6 @@ export interface AgyJobInput {
 
 export type AgyJobResult = { ok: true } | { ok: false; status: 400 | 404; error: string };
 
-/** Status of each agy pane in herdr, by agy process PID. */
-export type HerdrStatus = 'working' | 'blocked' | 'idle';
-
 export interface AgySourceOptions {
   accounts: AccountsService;
   office: Office;
@@ -136,16 +129,12 @@ export interface AgySourceOptions {
   pollMs?: number;
   /** Interval to re-read the profiles folder (RESCAN_MS). */
   rescanMs?: number;
-  /** Tests: fake /proc, herdr, `/usage` and clock. */
+  /** Tests: fake /proc, `/usage` and clock. */
   procs?: ProcReader;
-  herdr?: () => Promise<Map<number, HerdrStatus>>;
   usage?: (acc: string) => Promise<string>;
   kill?: (pid: number, signal: NodeJS.Signals) => void;
   now?: () => number;
 }
-
-/** A failed job whose error says the account is out of quota. */
-export const QUOTA_ERROR = /\b429\b|RESOURCE_EXHAUSTED|quota (reached|exceeded|exhausted)/i;
 
 interface Worker {
   profile: AgyProfile;
@@ -161,11 +150,6 @@ interface Worker {
   progress: WorkerTracker;
   /** What the current job's agy applied (its log, sources/agy/clilog.ts), re-read while the log grows. */
   run?: { pid: number; path?: string; size: number; info: AgyRunInfo };
-}
-
-/** The roles.conf role, if it is a real one ("off" only marked the account vacant). */
-function defaultRole(w: Worker): string | undefined {
-  return w.profile.role !== AGY_OFF_ROLE ? w.profile.role : undefined;
 }
 
 /** "8.3k" / "1.2M". */
@@ -198,7 +182,7 @@ export class AgySource implements AgentSource {
   readonly provider = 'agy' as const;
   /** Every profile, registered or not (accounts, `/usage`, login terminal). */
   private all: Worker[] = [];
-  /** Profiles registered as workers (team.json); until setTeam, the ones not "off" in roles.conf. */
+  /** Profiles registered as workers (team.json); until setTeam, every profile. */
   private team: Set<string>;
   /** Profiles with a character in the office now. */
   private readonly shown = new Map<string, string>();
@@ -220,11 +204,9 @@ export class AgySource implements AgentSource {
   private readonly starts = new Map<number, AgyAskLine>();
   /** Start of the (local) day of the summed tokens. */
   private dayStart = 0;
-  private herdr = new Map<number, HerdrStatus>();
   private timers: ReturnType<typeof setInterval>[] = [];
   /** PIDs of the agy-ask runs the office started (manual mode): the request is yours, not the Claude that started the server. */
   private readonly manual = new Set<number>();
-  private herdrBusy = false;
   /** The room's job board (newest first). */
   private board: JobBoardItem[] = [];
   /** Last "Full house" party (and whether everyone is still working since). */
@@ -288,9 +270,9 @@ export class AgySource implements AgentSource {
     return this.all.map((w) => ({ acc: w.profile.acc, account: w.account }));
   }
 
-  /** Workers of a brand-new team: the profiles not "off" in roles.conf (the ones the office showed until now). */
+  /** Workers of a brand-new team: every profile. */
   seed(): string[] {
-    return this.all.filter((w) => w.profile.role !== AGY_OFF_ROLE).map((w) => w.profile.acc);
+    return this.all.map((w) => w.profile.acc);
   }
 
   /**
@@ -387,9 +369,6 @@ export class AgySource implements AgentSource {
       this.rescan();
       this.syncCharacters();
     });
-    if (this.opts.herdr || existsSync(join(this.opts.home, '.config', 'herdr', 'herdr.sock'))) {
-      this.every(HERDR_MS, () => void this.pollHerdr());
-    }
     const usageMs = this.opts.usageMs ?? 0;
     if (usageMs > 0) {
       setTimeout(() => void this.refreshUsage(), 5_000).unref?.();
@@ -444,7 +423,6 @@ export class AgySource implements AgentSource {
         this.jobEnded(w, e.job, end);
         return false;
       });
-      const panes = mine.filter((p) => !p.headless).map((p) => this.herdr.get(p.pid));
       // A job that ended and still waits for its agy-ask line keeps "working": so this source's "Done" (or failure)
       // lands before the end of the turn, and the Office does not synthesize another one on top.
       const job = [...w.jobs.values()].at(-1);
@@ -454,16 +432,16 @@ export class AgySource implements AgentSource {
       for (const seat of seats.filter((x) => x.acc === w.profile.acc)) {
         const base = seat.agentId === w.id;
         const ext = this.external?.(w.profile.acc, seat.office);
-        const busy = (base && (w.jobs.size > 0 || w.ending.length > 0 || panes.includes('working'))) || !!ext?.busy;
-        const status: AgentStatus = base && panes.includes('blocked') ? 'waiting' : busy ? 'working' : 'idle';
+        const busy = (base && (w.jobs.size > 0 || w.ending.length > 0)) || !!ext?.busy;
+        const status: AgentStatus = busy ? 'working' : 'idle';
         const cur = this.opts.office.get(seat.agentId);
-        if (cur && cur.status !== status) this.opts.office.setStatus(seat.agentId, status, status === 'waiting' ? tr('approve in the herdr pane') : undefined);
+        if (cur && cur.status !== status) this.opts.office.setStatus(seat.agentId, status);
         const summary: TranscriptSummary = { tasks: [], stats: w.stats };
-        // Subtitle: the role Claude gave the job (agy-ask --role), else the roles.conf default; idle = free.
+        // Subtitle: the role Claude gave the job (agy-ask --role); idle = free.
         summary.title =
           this.bossAccs.has(w.profile.acc)
             ? tr('boss')
-            : (base && job && (start?.role || defaultRole(w))) || (ext?.busy && (ext.role || defaultRole(w))) || tr('free');
+            : (base && job && start?.role) || (ext?.busy && ext.role) || tr('free');
         this.seatSummary(w, seat.agentId, base ? job : undefined, start, summary);
       }
     }
@@ -542,7 +520,7 @@ export class AgySource implements AgentSource {
       by: this.manual.has(line.pid!) ? 'you' : typeof line.claude_pid === 'number' ? 'boss' : 'script',
       at: (line.ts ?? 0) * 1000,
     };
-    const role = line.role || defaultRole(w);
+    const role = line.role;
     if (role) item.role = role;
     if (line.office) item.office = line.office;
     this.upsertBoard(item);
@@ -630,7 +608,7 @@ export class AgySource implements AgentSource {
     const mine = job.ppid !== undefined && this.manual.has(job.ppid);
     const by = !mine && job.claudePid ? this.claudeRoom(job.claudePid) : undefined;
     const who = mine ? tr('sent by you from the office') : by ? tr('requested by Claude in {0}', [by]) : '';
-    const role = (job.ppid !== undefined ? this.starts.get(job.ppid)?.role : undefined) || defaultRole(w);
+    const role = (job.ppid !== undefined ? this.starts.get(job.ppid)?.role : undefined);
     const id = this.boardId(w, job);
     const known = this.board.find((x) => x.id === id);
     if (known) {
@@ -683,19 +661,6 @@ export class AgySource implements AgentSource {
   private claudeRoom(pid: number): string | undefined {
     const cwd = this.procs.cwd(pid);
     return cwd ? basename(cwd) || cwd : undefined;
-  }
-
-  /** `herdr agent list` + each pane's agy PID (`herdr pane process-info`), while herdr is running. */
-  private async pollHerdr(): Promise<void> {
-    if (this.herdrBusy) return;
-    this.herdrBusy = true;
-    try {
-      this.herdr = await (this.opts.herdr ?? (() => readHerdr(this.opts.env ?? process.env)))();
-    } catch {
-      this.herdr = new Map();
-    } finally {
-      this.herdrBusy = false;
-    }
   }
 
   /**
@@ -832,33 +797,4 @@ export class AgySource implements AgentSource {
       this.usageBusy = false;
     }
   }
-}
-
-function run(cmd: string, args: string[], env: NodeJS.ProcessEnv): Promise<string> {
-  return new Promise((resolveOut, reject) => {
-    execFile(cmd, args, { env, timeout: 5_000, maxBuffer: 1024 * 1024 }, (err, out) => (err ? reject(err) : resolveOut(out)));
-  });
-}
-
-/** Cache pane -> agy PID (process-info only runs for a new pane). */
-const panePids = new Map<string, number>();
-
-/** Status of herdr's agy panes, by agy process PID. */
-export async function readHerdr(env: NodeJS.ProcessEnv): Promise<Map<number, HerdrStatus>> {
-  const out = new Map<number, HerdrStatus>();
-  const list = JSON.parse(await run('herdr', ['agent', 'list'], env)) as { result?: { agents?: Array<{ pane_id: string; agent: string; agent_status: string }> } };
-  for (const a of list.result?.agents ?? []) {
-    if (a.agent !== 'agy') continue;
-    let pid = panePids.get(a.pane_id);
-    if (pid === undefined) {
-      const info = JSON.parse(await run('herdr', ['pane', 'process-info', '--pane', a.pane_id], env)) as {
-        result?: { process_info?: { foreground_processes?: Array<{ name: string; pid: number }> } };
-      };
-      pid = info.result?.process_info?.foreground_processes?.find((p) => p.name === 'agy')?.pid;
-      if (pid === undefined) continue;
-      panePids.set(a.pane_id, pid);
-    }
-    out.set(pid, a.agent_status === 'blocked' ? 'blocked' : a.agent_status === 'working' ? 'working' : 'idle');
-  }
-  return out;
 }

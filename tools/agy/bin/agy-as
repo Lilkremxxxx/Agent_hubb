@@ -7,14 +7,6 @@ acc="${1:?usage: agy-as <accN> [agy args...]}"; shift
 home="$HOME/.agy_profiles/$acc"
 [ -d "$home" ] || { echo "agy-as: no such profile $home" >&2; exit 1; }
 real_bin="$HOME/.local/bin"
-# An office's boss (AGY_BOSS=1, set by Habblaud): link the agy-boss plugin into the profile once; its SessionStart
-# hook loads the boss rules only when AGY_BOSS=1, so the link is harmless when the account works as a worker later.
-if [ "${AGY_BOSS:-}" = 1 ]; then
-  # agy skips a symlinked plugin folder: a real folder of links, so it is found and each script still resolves to the hub.
-  plug="$home/.gemini/config/plugins/agy-boss"
-  [ -e "$plug/plugin.json" ] || { mkdir -p "$plug" && ln -sf "${AGY_HUB:-$(dirname "$(dirname "$(readlink -f "$0")")")}"/agy-plugin/agy-boss/* "$plug"/; }
-fi
-
 for v in XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS DBUS_STARTER_ADDRESS DBUS_STARTER_BUS_TYPE \
          GNOME_KEYRING_CONTROL GNOME_KEYRING_PID SSH_AUTH_SOCK SSH_AGENT_PID GPG_AGENT_INFO SESSION_MANAGER; do
   unset "$v"
