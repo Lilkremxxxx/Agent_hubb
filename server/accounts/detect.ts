@@ -79,14 +79,6 @@ function isDir(p: string): boolean {
   }
 }
 
-function isFile(p: string): boolean {
-  try {
-    return statSync(p).isFile();
-  } catch {
-    return false;
-  }
-}
-
 /** Claude Code config dir: has `projects/` or `sessions/`. */
 export function isClaudeDir(p: string): boolean {
   return isDir(join(p, 'projects')) || isDir(join(p, 'sessions'));
@@ -153,21 +145,17 @@ export function discoverClaudeDirs(env: NodeJS.ProcessEnv = process.env, home: s
 }
 
 const ALIAS_RE = /^\s*alias\s+([A-Za-z0-9_][A-Za-z0-9_.-]*)=(?:'([^']*)'|"((?:[^"\\]|\\.)*)")\s*(?:#.*)?$/;
-/** Identifies the alias of each tool: the invoked command and the variable with the account directory. */
-/** Tools with accounts via shell aliases (Antigravity uses profiles: sources/agy/profiles.ts). */
-type AliasTool = 'claude';
-const ALIAS_TOOLS: Record<AliasTool, { invokes: RegExp; dir: RegExp }> = {
-  claude: {
-    invokes: /(?:^|[\s;&|(])(?:[\w.~/-]*\/)?claude(?=$|[\s;&|)])/,
-    dir: /\bCLAUDE_CONFIG_DIR=(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))/,
-  },
+/** What identifies a `claude` alias: the invoked command and the variable with the account directory. */
+const CLAUDE_ALIAS = {
+  invokes: /(?:^|[\s;&|(])(?:[\w.~/-]*\/)?claude(?=$|[\s;&|)])/,
+  dir: /\bCLAUDE_CONFIG_DIR=(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))/,
 };
 
 /**
- * Extracts shell aliases invoking the tool (`claude`), with the account directory (CLAUDE_CONFIG_DIR). Considers ONLY `alias NAME='...'` lines (or with double quotes); any other line is ignored.
+ * Extracts shell aliases invoking `claude`, with the account directory (CLAUDE_CONFIG_DIR). Considers ONLY `alias NAME='...'` lines (or with double quotes); any other line is ignored.
  */
-export function parseToolAliases(text: string, home: string, tool: AliasTool): ClaudeAlias[] {
-  const { invokes, dir: dirRe } = ALIAS_TOOLS[tool];
+export function parseClaudeAliases(text: string, home: string): ClaudeAlias[] {
+  const { invokes, dir: dirRe } = CLAUDE_ALIAS;
   const out: ClaudeAlias[] = [];
   for (const line of text.split(/\r?\n/)) {
     const m = ALIAS_RE.exec(line);
@@ -181,17 +169,12 @@ export function parseToolAliases(text: string, home: string, tool: AliasTool): C
   return out;
 }
 
-/** Shell aliases that invoke `claude` (see parseToolAliases). */
-export function parseClaudeAliases(text: string, home: string): ClaudeAlias[] {
-  return parseToolAliases(text, home, 'claude');
-}
-
-/** Reads tool aliases (default: `claude`) from the user's shell startup files. */
-export function readShellAliases(home: string, tool: AliasTool = 'claude'): ClaudeAlias[] {
+/** Reads `claude` aliases from the user's shell startup files. */
+export function readShellAliases(home: string): ClaudeAlias[] {
   const out: ClaudeAlias[] = [];
   for (const f of RC_FILES) {
     try {
-      out.push(...parseToolAliases(readFileSync(join(home, f), 'utf8'), home, tool));
+      out.push(...parseClaudeAliases(readFileSync(join(home, f), 'utf8'), home));
     } catch {
       // missing or unreadable file
     }

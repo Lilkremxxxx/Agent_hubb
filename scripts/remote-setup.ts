@@ -7,7 +7,7 @@
 //      HABBLAUD_REMOTE_BIND=0.0.0.0;
 //   3. keeps the <name>.local announcement running as a service (npm run remote:mdns; LaunchAgent/systemd);
 //   4. prints the addresses, CA fingerprint and phone setup instructions.
-// Afterwards: npm run docker:up. To disable: npm run remote:setup -- --off.
+// Afterwards: npm run office. To disable: npm run remote:setup -- --off.
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
@@ -276,7 +276,7 @@ async function main(): Promise<void> {
   if (args.off) {
     writeEnv(updateEnv(current, Object.fromEntries(REMOTE_KEYS.map((k) => [k, null]))));
     removeService();
-    console.log(tr('[remote-setup] Phone access turned off (the CA stays in ~/.habblaud/remote-tls). Now: npm run docker:up'));
+    console.log(tr('[remote-setup] Phone access turned off (the CA stays in ~/.habblaud/remote-tls). Now: npm run office'));
     return;
   }
 
@@ -343,7 +343,7 @@ async function main(): Promise<void> {
       tr('  Certificate: {0}', [cert.targets.dns.concat(cert.targets.ips).join(', ')]),
       tr('  Announcing:  {0}', [service]),
       '',
-      tr('  Now run:     npm run docker:up'),
+      tr('  Now run:     npm run office'),
       '',
       tr('  On the phone (same Wi-Fi):'),
       ...urls.map((u) => `    ${u}`),

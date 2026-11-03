@@ -14,7 +14,6 @@ scripts/assets/.cache/
 # Personal notes and local state: never in the repo
 HANDOFF*.md
 team.json
-rules-log.jsonl
 *.pem
 *.key
 *.bak-*

@@ -262,7 +262,7 @@ export class HelpDialog {
         'ul',
         { class: 'ui-help__list' },
         h('li', { text: tr('The colored chip with the letter (C, D…) shows which Claude Code account each agent belongs to: each terminal shortcut uses a different config folder.') }),
-        h('li', {}, accountSample('C', '#f08a3c'), tr(' Claude Code account · ')),
+        h('li', {}, accountSample('C', '#f08a3c'), tr(' Claude Code account')),
         h('li', {
           text: tr("At the top, each account shows its 5-hour session and weekly usage. The ↻ shows when each limit resets (a countdown if it's less than a day away). Green below 50%, amber up to 80% and red beyond that."),
         }),

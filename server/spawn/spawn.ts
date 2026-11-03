@@ -1,6 +1,6 @@
 // New agent from the office. Runs standalone as a background Claude Code session
 // (`claude --bg -n <name> -- <prompt>`, in chosen folder), starting immediately, appearing in the office like
-// any session, and receiving messages and permission requests through Habblaud (`claude attach <id>` opens in terminal).
+// any session (`claude attach <id>` opens in terminal).
 // Claude Code only does this in a directory already trusted by it (trust prompt was accepted in terminal); if
 // the folder is untrusted or `claude` is absent, falls back to `claude://code/new?folder=<path>&q=<prompt>`
 // (same as Finder's "New Claude Code Session Here"), opening pre-filled new session screen in app: session then

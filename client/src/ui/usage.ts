@@ -3,34 +3,17 @@
 // - stale numbers never pass as current: a window that already reset after reading shows "—" and "reset";
 //   old numbers are dimmed with age ("6d ago") in the header or, on mobile, a badge on the chip;
 // - reset comes with implicit verb in the ↻ icon and countdown when less than a day remains;
-// - account without numbers says "no usage data" and offers "How to enable" (Habblaud mod, recommended).
-// Without quota or credits ("no quota") never becomes 0%.
+// - account without numbers says "no usage data" and offers "How to enable" (run `/usage`).
 import type { AccountInfo } from '../../../shared/types';
 import { h } from './dom';
 import { providerOf } from './provider';
 import { tr } from '../../../shared/i18n';
 
-export const SOURCE_LABEL: Record<NonNullable<AccountInfo['usage']>['source'], string> = {
-  cache: tr('Claude Code /usage cache'),
-  statusline: tr('live (Claude Code statusline)'),
-  agy: tr('Antigravity /usage'),
-};
-
-/** Source to display: live file may have been written by Habblaud mod or tap. */
-export function sourceLabel(u: NonNullable<AccountInfo['usage']>): string {
-  if (u.source === 'statusline' && u.via === 'mod') return tr('live (Habblaud mod)');
-  return SOURCE_LABEL[u.source] ?? u.source;
-}
-
 /**
- * How to enable usage for an account, in order of preference (card tooltip and help).
+ * How to enable usage for an account (card tooltip and help).
  * Backticked fragments become code (no line breaks in middle of command).
  */
 export const USAGE_SETUP_STEPS: readonly [string, string][] = [
-  [
-    'npm run usage:install',
-    tr('On Claude Code older than 2.1.287: hooks a tap into the status line, which streams the same numbers live.'),
-  ],
   ['/usage', tr('Without installing anything: run `/usage` in Claude Code on this account to refresh the cache (the numbers go stale until the next time).')],
 ];
 
@@ -48,8 +31,8 @@ export function createUsageSetup(): HTMLElement {
   );
 }
 
-/** ok/stale: recent/old numbers; empty: no numbers; noquota: account without quota or credits (never 0%). */
-export type CardState = 'ok' | 'stale' | 'empty' | 'noquota';
+/** ok/stale: recent/old numbers; empty: no numbers. */
+export type CardState = 'ok' | 'stale' | 'empty';
 
 function hasWindows(a: Pick<AccountInfo, 'usage'>): boolean {
   return !!a.usage && !!(a.usage.fiveHour || a.usage.sevenDay);
@@ -57,8 +40,6 @@ function hasWindows(a: Pick<AccountInfo, 'usage'>): boolean {
 
 /** Effective card state. */
 export function cardState(a: Pick<AccountInfo, 'usage' | 'usageStatus'>): CardState {
-  // "noquota" comes first: reading has no windows, but is not "empty".
-  if (a.usage?.noQuota) return 'noquota';
   // Reading without any windows (e.g.: /usage cache without numbers) counts as "empty".
   if (!hasWindows(a)) return 'empty';
   return a.usageStatus === 'ok' ? 'ok' : 'stale';
@@ -75,9 +56,7 @@ export function usageSubtitle(a: Pick<AccountInfo, 'email' | 'configDir'>): stri
 }
 
 /** Message in place of bars (states without numbers): [long, short]. */
-export function usageMessage(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'provider'>): [string, string] {
-  const state = cardState(a);
-  if (state === 'noquota') return [tr('no quota'), tr('no quota')];
+export function usageMessage(a: Pick<AccountInfo, 'provider'>): [string, string] {
   // Antigravity's usage comes from its /usage, read every few minutes.
   if (providerOf(a) === 'agy') return [tr('no data yet'), tr('no data')];
   return [tr('no usage data'), tr('no data')];

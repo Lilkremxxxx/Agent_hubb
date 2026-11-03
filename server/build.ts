@@ -1,6 +1,5 @@
 // Compiled client build identifier (dist/client): main bundle name, which changes on each
 // `npm run build`. Included in snapshot so pages open prior to an update notice and reload.
-// Also server build stamp (dist/build.json: commit and "modified copy").
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -24,32 +23,4 @@ export function createBuildReader(rootDir: string): () => string | undefined {
     }
     return id;
   };
-}
-
-/** What scripts/build-server.mjs writes to dist/build.json (scripts/build-info.mjs). */
-export interface BuildStamp {
-  /** Full git commit hash, or 'unknown'. */
-  commit: string;
-  /** The working copy had uncommitted changes when built. */
-  dirty: boolean;
-  /** When build was made (ISO); missing without the file. */
-  builtAt?: string;
-}
-
-const UNKNOWN: BuildStamp = { commit: 'unknown', dirty: false };
-
-/**
- * Commit of build in use and whether the copy was dirty, from dist/build.json.
- * Without the file (dev mode with tsx, or an old build) or if corrupted: commit "unknown".
- */
-export function readBuildInfo(rootDir: string): BuildStamp {
-  try {
-    const raw = JSON.parse(readFileSync(join(rootDir, 'dist', 'build.json'), 'utf8')) as Record<string, unknown>;
-    if (typeof raw.commit !== 'string' || !/^([0-9a-f]{40}([0-9a-f]{24})?|unknown)$/.test(raw.commit) || typeof raw.dirty !== 'boolean') return { ...UNKNOWN };
-    const stamp: BuildStamp = { commit: raw.commit, dirty: raw.dirty };
-    if (typeof raw.builtAt === 'string' && raw.builtAt.length <= 40) stamp.builtAt = raw.builtAt;
-    return stamp;
-  } catch {
-    return { ...UNKNOWN };
-  }
 }

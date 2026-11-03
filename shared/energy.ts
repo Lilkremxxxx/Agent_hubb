@@ -1,7 +1,7 @@
 // A boss's or worker's energy (quiet, no tokens): how much of its account's quota is left, from the numbers the sidebar
 // already shows. The coffee mug on its desk empties as the 5-hour window is used; when the window is exhausted the
 // character sleeps at its desk until it renews. Plans without a 5-hour window (AccountUsage.noFiveHour) use the weekly
-// one. No reading, or no window (AccountUsage.noQuota), means nothing to show: null.
+// one. No reading, or no window, means nothing to show: null.
 import type { AccountUsage, UsageWindow } from './types';
 
 export const FIVE_HOURS_MS = 5 * 3_600_000;

@@ -73,7 +73,7 @@ export interface UiContext {
   renameRoom?(roomId: string, at: { x: number; y: number }): void;
   /** Opens settings on "About" section (running version and update status). */
   openAbout(): void;
-  /** The office shown (the office tabs above the top bar, ui/office-tabs.ts); undefined = no team (demo, older server). */
+  /** The office shown (the office tabs above the top bar, ui/office-tabs.ts); undefined = no team (older server). */
   selectedOffice(): OfficeInfo | undefined;
   /** Shows another office (remembered in this browser); the camera flies to its building unless `fly: false`. */
   selectOffice(id: string, opts?: { fly?: boolean }): void;

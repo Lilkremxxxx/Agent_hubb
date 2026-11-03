@@ -19,7 +19,6 @@ describe('energyOf', () => {
   it('no reading or no window: nothing to show', () => {
     expect(energyOf(undefined, NOW)).toBeNull();
     expect(energyOf(usage(undefined, 10), NOW)).toBeNull();
-    expect(energyOf(usage(undefined, undefined, { noQuota: true }), NOW)).toBeNull();
   });
 
   it('the mug empties a row per quarter of the quota used, and only runs dry when exhausted', () => {

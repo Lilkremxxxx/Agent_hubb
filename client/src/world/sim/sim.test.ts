@@ -88,7 +88,7 @@ function run(sim: Sim, clock: { now: number }, seconds: number, until?: () => bo
 
 /** A snapshot whose account has this 5-hour usage. */
 function withUsage(s: OfficeSnapshot, utilization: number, resetsAt: number): OfficeSnapshot {
-  return { ...s, accounts: s.accounts.map((a) => ({ ...a, usage: { source: 'statusline', fetchedAt: T0, fiveHour: { utilization, resetsAt } } })) };
+  return { ...s, accounts: s.accounts.map((a) => ({ ...a, usage: { source: 'cache', fetchedAt: T0, fiveHour: { utilization, resetsAt } } })) };
 }
 
 function newSim(): Sim {

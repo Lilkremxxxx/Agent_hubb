@@ -1,6 +1,6 @@
 # Worker scripts for the office
 
-Habblaud shows a boss and its workers; these scripts are how the boss gives them jobs. `agy-ask` and `claude-ask` send a
+The office shows a boss and its workers; these scripts are how the boss gives them jobs. `agy-ask` and `claude-ask` send a
 job to an Antigravity (`agy`) or Claude Code account and print only the final answer, so the boss spends no tokens on a
 worker's reasoning. Every job is a new conversation.
 
@@ -10,7 +10,6 @@ Needs Linux, Python 3, Claude Code, and for Antigravity workers the `agy` CLI, `
 
 ```bash
 npm install
-npm run mod:install    # Habblaud's Claude Code plugins: usage, messages and permissions from the page, boss rules
 tools/agy/install.sh
 npm run office         # builds and starts it in the background: open http://127.0.0.1:4747
 ```

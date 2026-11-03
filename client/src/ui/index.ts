@@ -200,7 +200,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
       return pty.isOpen ? pty.agentId : terminal.agentId;
     },
     get available() {
-      return pty.enabled || (!!store.snapshot?.meta.terminal);
+      return pty.enabled || !!store.snapshot?.meta.terminal;
     },
     interactive: (id) => !!pty.ptyOf(id),
     get interactiveEnabled() {

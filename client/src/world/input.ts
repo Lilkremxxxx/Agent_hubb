@@ -204,7 +204,7 @@ export function attachInput(canvas: HTMLCanvasElement, camera: Camera, h: InputH
     if (h.active && !h.active()) return;
     if (h.keys && !h.keys()) return;
     const t = e.target as HTMLElement | null;
-    // Focused field or radio (replay speed): arrow keys belong to the control, not the camera.
+    // Focused field or radio: arrow keys belong to the control, not the camera.
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.getAttribute?.('role') === 'radio')) return;
     // open modal/popover (help, settings...): keyboard belongs to it, not the camera
     if (modalOpen(t)) return;

@@ -10,7 +10,7 @@ import { tr } from '../../../shared/i18n';
 const NAME_MAX = 40;
 
 /**
- * Can this room be renamed from here? The server rejects demo rooms, clients not opened on the host
+ * Can this room be renamed from here? The server rejects clients not opened on the host
  * machine itself, and Habblaud exposed over the network (without terminal lock).
  */
 export function canRenameRoom(ctx: UiContext, roomId: string): boolean {
@@ -92,7 +92,7 @@ export class RoomRenamer {
       if (this.roomId === id) this.close();
       this.ctx.announce(name ? tr('Room renamed to {0}.', [name]) : tr('The room is back to the folder name.'));
     } catch (err) {
-      // remains open with reason (e.g. demo room, Habblaud opened via different address)
+      // remains open with reason (e.g. Habblaud opened via different address)
       setText(this.hint, tr("Didn't work: {0}", [(err as Error).message]));
       this.hint.classList.add('is-error');
     }

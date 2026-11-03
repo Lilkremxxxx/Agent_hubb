@@ -331,19 +331,10 @@ export interface AccountUsage {
   sevenDaySonnet?: UsageWindow;
   /**
    * Numbers origin (all are local files written by the tool itself):
-   * - 'statusline': captured live and written to ~/.habblaud/usage/<account>.json by Habblaud mod
-   *   (mod/habblaud, recommended) or scripts/statusline-tap.mjs (statusline rate_limits field);
    * - 'cache': `cachedUsageUtilization` written by Claude Code itself (updates when someone runs /usage);
    * - 'agy': Antigravity CLI `/usage`, run periodically by its source (local command, no model).
    */
-  source: 'cache' | 'statusline' | 'agy';
-  /** Who wrote live file ('statusline'): Habblaud mod in Claude Code or statusline tap. */
-  via?: 'mod' | 'tap';
-  /**
-   * Account without quota or credits to use right now (e.g.: exhausted workspace
-   * credits). Not "0% used": windows are absent.
-   */
-  noQuota?: boolean;
+  source: 'cache' | 'agy';
   /** The plan has no 5-hour window, only the weekly one (Antigravity account without Pro). */
   noFiveHour?: boolean;
   /** When numbers were fetched at origin (epoch ms). */
@@ -373,7 +364,7 @@ export interface AccountInfo {
   /**
    * - ok: recent numbers;
    * - stale: old numbers (e.g.: /usage cache from hours ago);
-   * - disabled: no numbers (statusline tap not installed and no /usage cache).
+   * - disabled: no numbers (no /usage cache).
    */
   usageStatus: 'ok' | 'stale' | 'disabled';
 }
@@ -430,8 +421,8 @@ export interface WorkerSession {
 }
 
 /**
- * An office: one team working in ONE project folder (unique per office): its boss, its workers and its jobs. Workers may belong to several offices (jobs go through agy-ask /
- * claude-ask, a busy worker answers BUSY); a boss belongs to one office (an Antigravity boss account to one only).
+ * An office: one team working in ONE project folder (unique per office): its boss, its workers and its jobs. Workers may belong to several
+ * offices (jobs go through agy-ask / claude-ask, a busy worker answers BUSY); a boss belongs to one office (an Antigravity boss account to one only).
  */
 export interface OfficeInfo {
   id: string;
@@ -485,7 +476,7 @@ export interface OfficeSnapshot {
   agents: AgentInfo[];
   /** Interactive terminals opened by Habblaud (Claude Code running inside the browser). */
   ptys?: PtyInfo[];
-  /** The team: registered workers (absent = no team service, e.g. demo). */
+  /** The team: registered workers (absent = no team service). */
   team?: TeamInfo;
   /** Detected Claude accounts (with 5h/weekly usage when available). */
   accounts: AccountInfo[];

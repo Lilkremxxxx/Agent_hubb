@@ -532,7 +532,7 @@ export interface RemoteListener {
 /**
  * Starts remote port. With HTTPS, a TCP server inspects the first byte of each connection: 0x16 (TLS ClientHello)
  * goes to HTTPS; anything else is HTTP typed without "s" and gets 308 redirect to https://. Certificate reloads
- * automatically when file changes (npm run remote:setup or docker:up renewal), without disconnecting active clients.
+ * automatically when file changes (npm run remote:setup), without disconnecting active clients.
  */
 export function startRemoteListener(
   cfg: Pick<RemoteConfig, 'port' | 'host' | 'tls'>,

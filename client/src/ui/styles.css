@@ -695,7 +695,7 @@
   }
 }
 
-/* Version in the top bar: the number or, with a newer GitHub release, the "New version" badge. */
+/* Version number in the top bar. */
 .ui-version {
   display: inline-flex;
   align-items: center;
@@ -725,58 +725,6 @@
   display: block;
   width: 8px;
   height: 8px;
-}
-
-.ui-version.is-new {
-  padding: 0 7px 0 6px;
-  border-color: color-mix(in srgb, var(--st-working) 45%, transparent);
-  background: color-mix(in srgb, var(--st-working) 16%, transparent);
-  font-family: var(--font-ui);
-  color: color-mix(in srgb, var(--st-working) 70%, #fff);
-}
-
-.ui-version.is-new:hover {
-  background: color-mix(in srgb, var(--st-working) 26%, transparent);
-}
-
-.ui-version.is-new .ui-version__icon {
-  display: block;
-  animation: ui-version-bob 1.2s steps(2, jump-none) infinite;
-}
-
-@keyframes ui-version-bob {
-  50% {
-    transform: translateY(-1px);
-  }
-}
-
-@media (max-width: 1500px) {
-  .ui-version.is-new {
-    padding: 0 6px;
-  }
-
-  .ui-version.is-new .ui-version__text {
-    display: none;
-  }
-}
-
-/* Dot on settings button while there is a new version (also applies on narrow screens). */
-.ui-icon-btn.has-update {
-  position: relative;
-}
-
-.ui-icon-btn.has-update::after {
-  content: '';
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 7px;
-  height: 7px;
-  border-radius: 2px;
-  background: var(--st-working);
-  box-shadow:
-    0 0 0 2px #161a24,
-    0 0 6px var(--st-working);
 }
 
 /* Counters */
@@ -2705,81 +2653,6 @@ button.ui-teamdlg__account:hover {
 
 .ui-about__version {
   font: 700 12.5px/1 var(--font-mono);
-}
-
-.ui-about__status {
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  margin: 4px 0 8px;
-  font-size: 11.5px;
-  color: var(--ui-muted);
-}
-
-.ui-about__status::before {
-  content: '';
-  flex: none;
-  width: 7px;
-  height: 7px;
-  margin-top: 4px;
-  border-radius: 2px;
-  background: var(--ui-muted);
-  opacity: 0.6;
-}
-
-.ui-about__status.is-ok::before {
-  background: var(--st-working);
-  opacity: 1;
-}
-
-.ui-about__status.is-new {
-  font-weight: 600;
-  color: color-mix(in srgb, var(--st-working) 70%, #fff);
-}
-
-.ui-about__status.is-new::before {
-  background: var(--st-working);
-  box-shadow: 0 0 6px var(--st-working);
-  opacity: 1;
-}
-
-.ui-about__status.is-warn::before {
-  background: var(--st-waiting);
-  opacity: 1;
-}
-
-.ui-about__status.is-pending::before {
-  background: var(--ui-accent);
-  opacity: 1;
-  animation: ui-blink 1s steps(2, jump-none) infinite;
-}
-
-.ui-about__new {
-  margin: 0 0 10px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--st-working) 35%, transparent);
-  background: color-mix(in srgb, var(--st-working) 8%, transparent);
-}
-
-.ui-about__new > .ui-link-btn {
-  display: inline-block;
-  margin-bottom: 4px;
-  font-weight: 600;
-}
-
-.ui-about__new .ui-set__hint {
-  margin: 0;
-  line-height: 1.8;
-}
-
-.ui-about__new code {
-  white-space: nowrap;
-}
-
-.ui-about > .ui-link-btn {
-  display: inline-block;
-  margin: 0 0 2px;
 }
 
 .ui-switch {
@@ -6058,12 +5931,6 @@ button.ui-term__think:hover,
 
 .ui-actions {
   display: grid;
-  gap: 6px;
-}
-
-.ui-actions__row {
-  display: flex;
-  flex-wrap: wrap;
   gap: 6px;
 }
 

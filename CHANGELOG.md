@@ -1,8 +1,6 @@
 # What's new
 
-What went into each version of Habblaud. Each version has its section here, and its text becomes the release notes on
-[GitHub releases](https://github.com/marmottajr/habblaud/releases) (`npm run release`), which Habblaud opens in
-**Settings › About › See what's new**.
+What went into each version. Older versions are the history of Habblaud, which Bang_ver is forked from.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and numbers follow
 [semantic versioning](https://semver.org/): a fix bumps the last number (0.2.**1**), a new feature bumps the
@@ -10,21 +8,28 @@ middle one (0.**3**.0).
 
 ## [Unreleased]
 
+### Removed
+
+- Release tooling, Docker (`docker:up`, compose files), the legacy statusline and permission-hook installers and the statusline tap.
+- The update checker (the "New version" badge) and the news feed.
+- Demo mode (`?mock=1`, `npm run demo`, the simulator).
+- Codex support (sessions, hooks, usage, bridge).
+- The day timelapse and "My day" statistics.
+- The Claude Code mods and plugins (usage, permissions, messages) and what depended on them: answering permission requests and questions from the office, sending messages to agents, deliveries, and dictation.
+- The office rules engine ("Nội quy": rules, scope, limits, refusals, the rules hook).
+- The Board (to-do list, jobs and news tabs) and the `HANDOFF.md` to-do list.
+- The social simulation (hangouts, personalities, coins) and the Hangouts sounds.
+- Habblaud World (the online city, visits, uplink, account and waiting list).
+- Seasonal decorations (Christmas and Halloween themes).
+- `herdr`, `agy-up`, `agy-mode`, `agy-sync` and `roles.conf`.
+
 ### Added
 
-- **📜 Office rules ("Nội quy") in the page:** a toolbar button (shortcut R) shows how many rules of the office shown
-  are on, with a red ⚠ when something was refused today. Its dialog edits the office's scope (extra folders that may
-  be edited, paths that may not be read, commands that may not run), its rules (for the boss, the workers or
-  everyone, on/off), its limits (jobs at once, quota stop %), answers the boss's proposals and lists what was refused.
-  Saving from an older copy reloads it and says so. The tab menu has "📜 Rules…" and a scope line; the office dialog
-  shows the scope with a link. Each building's reception has a parchment rules poster that glows red for a few
-  seconds after a new refusal (no glow with reduced motion); clicking it opens the rules.
 - **Office folders never overlap:** an office's folder may not be inside another office's folder or hold one; an
   office from an older team file that overlaps shows ⚠ on its tab and in its menu.
 - **Office tab menu:** right-click an office tab (or long-press it, or press the ContextMenu key / Shift+F10 on it)
   for a menu like a browser tab's. Its header shows the office: full folder path, boss and its state, workers, running
-  jobs and to-do progress with the next task. Then: Show this office, Rename…, Change folder…, Copy folder path, Open
-  the Board on this office, ＋ Boss…, ＋ Worker…, ＋ New office… and a red "Delete office…" (asks first; disabled for
+  jobs. Then: Show this office, Rename…, Change folder…, Copy folder path, ＋ Boss…, ＋ Worker…, ＋ New office… and a red "Delete office…" (asks first; disabled for
   the last office). Arrows move, Enter picks, Esc or a click outside closes.
 - **Accounts window (👤 on the toolbar):** every Claude Code and Antigravity account on this computer, apart from
   sessions: e-mail, 5-hour and week usage, and "Sign in again". "＋ Add Claude account" asks for a name, makes
@@ -36,7 +41,7 @@ middle one (0.**3**.0).
   the office are always allowed.
 - **Antigravity workers named after their account:** "alice (Agy)" instead of "Antigravity acc6", on the
   character and the account card; the line under the name shows the role Claude gave the job (`agy-ask --role`) or
-  "free". An account marked `off` in `~/.agy_profiles/roles.conf` (vacant, e.g. out of quota) leaves the office.
+  "free".
 - **Model and effort on every character.** The name tag on the floor (when zoomed in, hovered or selected), the
   drawer (new Effort row) and the role tooltip show what each agent really uses: "Opus 5.5 · high" for Claude Code
   (model, effort and permission mode of its last answer, from the transcript), "Flash 3.8 · low" for an Antigravity
@@ -45,10 +50,6 @@ middle one (0.**3**.0).
   and effort (low, medium, high), saved at once to `~/.agy_profiles/defaults.json`. agy-ask uses them for calls
   without `--mode`/`--effort` (jobs sent from the office included); Claude passes its own for each job. "Send a job"
   no longer has its own mode and effort.
-- **Claude Code model, effort and plan mode from the office.** A session's drawer (with habblaud-mensagens) has
-  "Model and effort": model (Opus, Sonnet, Haiku, Fable, default), effort (low to max) and "Plan mode". Model and
-  effort apply to that session only (the plugin sets them on each of its requests; new sessions keep your default),
-  "Plan mode" runs `/plan`; the selects show the values once the session's next answer used them.
 - **Workers have no terminal of their own:** an Antigravity worker only gets jobs through `agy-ask` (from the boss or
   "Send a job"), and its drawer only shows them. Signing in to an agy account is in the Accounts window.
 - **Claude Code account cards named the same way:** "alice (Claude)" (the part of the account e-mail before @)
@@ -81,13 +82,10 @@ middle one (0.**3**.0).
   server restart and `claude --resume`. Appointing it is a small coronation: the crown drops
   onto its head, a party in its room and a line in the feed. The boss wears the crown, a gold BOSS badge and a suit
   with tie (unless you picked another character). In its drawer,
-  "Orders to boss" puts preset requests in the message box (delegate, report, review, stop all); requires the
-  habblaud-mensagens plugin (`npm run mod:install`).
   The boss and the workers form the team, kept in `~/.agy_profiles/team.json` (where `agy-ask` reads it too; the old
   `<dataDir>/boss.json` is carried over once). Every Antigravity profile is an account, but only the ones registered
   as workers get a character in the workers room; registering or removing one makes it walk in or leave right away,
-  and an account logged in while the server runs shows up within 30 s. On first run the accounts not marked `off` in
-  `roles.conf` are registered. A session opened from the office can be appointed before it shows up and is crowned
+  and an account logged in while the server runs shows up within 30 s. A session opened from the office can be appointed before it shows up and is crowned
   when it walks in (`POST /api/team`, which replaces `/api/boss`). A boss whose session is closed is named in the Boss
   group (the crown and agy-ask's rule wait for it), with a Step down button.
 - **Workers have a terminal of their own.** Each registered worker (an Antigravity account
@@ -103,30 +101,22 @@ middle one (0.**3**.0).
   to "hear" the order before heading to the desk; a new order makes the boss write on the board.
 - **Dragging characters.** Press on an agent and drag: it gets picked up ("Put me down!"), lands wherever you release
   (even in another room), gets dizzy, and walks back to its room.
-- **Board in the toolbar (B), with three tabs.** *Tasks*: the boss's todo list (or every session's, without a boss) and
-  the "next steps" section of each project's `HANDOFF*.md`. *Jobs*: the job board (the yellow number on the button
-  counts jobs in progress; clicking the board on the room wall opens this tab). *News*: what happened today, no LLM:
-  jobs finished or failed (time, tokens, and why it failed in one line, e.g. agy's `short_error`), quota hits, level-ups
-  and badges, new commits in each room. Keys 1 2 3 switch tabs. Long account names on the cards shrink with "…"; the
-  "ANTIGRAVITY" tag is dropped when the name already says "(Agy)".
 - **"Boss overloaded" (H).** A Claude Code session whose context passes 60% of the window (or that was compacted)
   gets tired: a drop of sweat over the head; from 80% (or two compactions) it is overloaded (😵 and 💤) and a 🥵
-  button appears in the toolbar. Its dialog asks the session for a handoff (through habblaud-mensagens) and opens a
-  new session in the same folder. Read from the transcript, no tokens. The window is the session's real one, which
-  the Habblaud mod reports with its poll (Claude Code's `context_window_size`); without the mod it is guessed from
-  the model (1M for the Claude 5 generation and "[1m]" variants, 200k otherwise), so an Opus 5.5 session at 422k is
-  no longer "overloaded".
+  button appears in the toolbar. Its dialog opens a new session in the same folder. Read from the transcript, no
+  tokens. The window is guessed from the model (1M for the Claude 5 generation and "[1m]" variants, 200k otherwise), so
+  an Opus 5.5 session at 422k is no longer "overloaded".
 - **New Claude Code sessions drop from the sky** onto their desk (into a room that is already lit; the first one into a
   new room still takes the elevator and turns the light on).
 - **The sidebar by role, not by folder: Boss, Workers, Others.** 👑 Boss (gold) and Workers are always there, each
-  with a ＋; everything else (a boss that stepped down, a session asking something on the side, Codex) goes under
+  with a ＋; everything else (a boss that stepped down, a session asking something on the side) goes under
   Others, folded by default (the browser remembers; a search or selecting one of them unfolds it). Each Claude row
   says which folder it works in (📁). Subagents stay under their agent.
   *＋ Boss* picks a logged-in Claude account and a folder, opens a new Claude Code session in the browser terminal and
   makes it the boss as soon as it starts (the current boss moves to Others). *＋ Workers* lists the logged-in
   Antigravity accounts that are not workers yet and registers one; a worker's drawer has "Remove from Workers".
 - **Hold Alt to see what everything does.** The screen dims and every button and area you can see gets a short note
-  ("Take over here", "End", the usage cards, the Board tabs, the drawer sections…); release Alt and it is gone. Alt in
+  ("Take over here", "End", the usage cards, the drawer sections…); release Alt and it is gone. Alt in
   a text box or the terminal is left alone, and Alt+Tab never flashes it. Without a keyboard, Help has a
   "👀 What does each button do?" button that shows the notes until the next tap.
 - **No more "New agent" button on the toolbar:** ＋ Boss in the sidebar opens sessions now (its folder list is the
@@ -135,8 +125,7 @@ middle one (0.**3**.0).
   server opens its terminal, where you talk to it (an account that was a worker leaves Workers: never both).
   *＋ Worker* lists Antigravity and Claude Code accounts (tagged), never the boss's. The Workers group shows the
   characters of the workers' terminal sessions. A worker's drawer has "👁 Watch its terminal" while one is open.
-  "Send a job" goes to the worker's terminal when it has one, and Claude Code workers get it too. Board › Jobs: terminal
-  jobs have "Cancel", the top has "🚫 Cancel all"; cancelled 🚫 jobs show as such.
+  "Send a job" goes to the worker's terminal when it has one, and Claude Code workers get it too.
 
 - **One building per office (server side):** each room and character now says which office's building it belongs to
   (`RoomInfo.office`, `AgentInfo.office`): an office's workers room, the room its boss sits in, and anything inside its
@@ -149,21 +138,9 @@ middle one (0.**3**.0).
   office, and an Antigravity account bosses one office at most (and is then nobody's worker). `POST /api/team` takes
   `office` and gains `createOffice`, `rename`, `folder` and `deleteOffice`; jobs carry their office. An Antigravity
   boss opens in its office's folder with `AGY_BOSS=1` and `AGY_OFFICE`.
-- **The Board is a to-do list and a job list:** one window, no tabs. Left, the boss's to-do list: the next steps of the
-  HANDOFF file in the boss's folder; tick, add and remove tasks there, and Habblaud edits the file in place (so the
-  boss reads the same list; if the boss changed the file meanwhile, nothing is written and the list reloads). A folder
-  without one gets "Start a to-do list". Right, the workers' jobs with a green ✓ when done (20 shown, "View more"; 50
-  kept). Below, important news only (failed jobs, quota hits, who needs you), by fixed rules, no tokens.
-- **Office rules (server side):** each office keeps its rules in its record of team.json (deleted with the office):
-  scope (the office folder plus extra write folders, paths that may not be read, forbidden commands), short rules for
-  the boss, the workers or both, limits (running jobs, quota stop %) and the boss's proposals. The user saves them
-  (`POST /api/team {office, rules, rev}`; an older copy is refused), a boss proposes (`{office, propose}`), the user
-  accepts or rejects (`{office, proposal, accept}`); `GET /api/team/rules` gives scripts the rules and the text agents
-  read. Refusals logged by agy-ask and the rules hook (`rules-log.jsonl`, 7 days) show per office and as Board news.
 - **Office tabs like a browser's:** the offices are tabs in a strip above the top bar; the office shown is the tab that
   joins the bar. ＋ after the last tab makes an office, ⋯ at the right end (or a double click on a tab) edits it. The
-  strip shows on phones too and takes no room without offices. It replaces the status strip (the boss's progress and
-  the running jobs are in the 📋 Board).
+  strip shows on phones too and takes no room without offices.
 - **Account usage moves into the 👤 Accounts window:** the top bar has no usage cards anymore (they grew too long with
   many accounts). The 👤 button shows "⚠2" when accounts reach 80% of their 5-hour or weekly limit (named in its
   tooltip), and those accounts are red in the window. The boss and each worker in the sidebar show their account's 5-hour
@@ -172,14 +149,14 @@ middle one (0.**3**.0).
 
 - **"Send a job" for every worker:** the Settings switch "Antigravity workers: Claude manages / Manual" is gone;
   every registered worker's drawer has "Send a job" (through its terminal, with its "Defaults for jobs"), Antigravity
-  and Claude Code alike. Board › Jobs shows a terminal job's final answer.
+  and Claude Code alike.
 - **The pixel office dims what is outside the office shown:** with more than one office, the other rooms get a
   soft dark veil and the characters that are not in that office (their names and bubbles too) fade, easing in and
   out over half a second when you switch offices.
 
 - **Several offices (office tabs):** an office is one team for one project folder: its own boss, its
-  workers (shared between offices) and its to-do list (that folder's HANDOFF file). The tabs pick the office shown
-  (remembered in this browser); the sidebar's Boss and Workers, the Board (its list and its jobs) and the quota
+  workers (shared between offices) and its jobs. The tabs pick the office shown
+  (remembered in this browser); the sidebar's Boss and Workers and the quota
   bars follow it, and the pixel office dims what is not part of it. ＋ makes an office (a name and a
   folder: a recent project or a full path; two offices never share a folder); ⋯ renames it, changes its folder or
   deletes it. ＋ Boss opens the boss in the office's folder; ＋ Worker also offers workers of other offices; an
@@ -188,7 +165,7 @@ middle one (0.**3**.0).
 - **One building per office (page side):** clicking an office tab flies the camera to that office's building, and
   picking a character or room in another building switches the tab. The sidebar lists the characters of the office
   shown (its boss, its workers, everyone else in its building); the search still looks in every building. A worker
-  in several offices has one character in each: the drawer, Board and terminal tabs know them all.
+  in several offices has one character in each: the drawer and terminal tabs know them all.
 
 - **One building per office:** each office is a full building (reception, kitchen, restrooms, lounge, the workers'
   room and its project rooms), side by side on one street in office order; a new office is an empty building whose
@@ -199,19 +176,11 @@ middle one (0.**3**.0).
   skills or slash commands and with only Bash, Read, Edit, Write, WebFetch and WebSearch, plus a short rule to answer
   compactly under the caller's limit (`claude-ask --full` keeps the account's full setup). A job then starts at ~8k
   tokens of context instead of ~24k. Jobs from "Send a job" are unchanged.
-- **Office rules reach the agents:** `agy-ask` / `claude-ask` put the office's rules for the workers on top of
-  every job and refuse a job (logged as a violation) whose folder is outside the office's write scope, when the office
-  already runs its maximum of jobs, or when the worker's quota use is at the office's stop level. Claude Code workers
-  (from `claude-ask` or "Send a job" for an office) run agy-hub's `rules-hook` before each edit, read and command; the
-  Habblaud mod does the same for a Claude Code boss and gives it its rules with the first prompt and again after you
-  change them. Nobody's agent may edit `team.json` or the violation log: rules change from the page only. Jobs on the
-  Board show the task without the rules. These are guardrails against mistakes, not a sandbox.
 - **Quota as energy:** the coffee mug on a boss's or worker's desk empties as its 5-hour quota is used (the weekly one
   for plans without a 5-hour window). With the quota exhausted and nothing to do, the character sleeps at its desk
   under a steady 💤, skips strolls and gatherings, and wakes by itself when the window renews; hover it for when.
 - **Hung workers as ghosts:** a worker whose job shows no progress for 10 minutes (no transcript or log writes), or an
-  agy process alive with no job (its parent gone or its job over), turns into a faint ghost on its seat, with one 👻
-  line on the Board giving its PID; hover it to see for how long. Nothing is stopped: the ghost clears by itself when
+  agy process alive with no job (its parent gone or its job over), turns into a faint ghost on its seat; hover it to see for how long. Nothing is stopped: the ghost clears by itself when
   the job moves again or the process goes away.
 - **"Boss overloaded" thresholds in Settings:** when a session counts as tired or overloaded (share of the context and
   compactions) can now be set under Settings › 🥵 Boss overloaded. The defaults stay 60% or 1 compaction and 80% or 2.
@@ -220,12 +189,8 @@ middle one (0.**3**.0).
 
 - **A worker signed in moments ago can be added at once:** adding an Antigravity account whose profile appeared
   since the last re-read of `~/.agy_profiles` (every 30 s) said "account not found"; the profiles are now re-read first.
-- **Board news of a rules refusal** shows what was refused (the path, command or job folder): several refusals no
-  longer read as the same line.
 - **Office folders:** a symlink to another office's folder is refused like that folder itself (the folder is kept
   with its symlinks resolved, as Claude Code sessions report it), and the whole disk (`/`) cannot be an office's folder.
-- **An office's to-do list without anyone in its folder:** the Board (and the tab menu) show and edit the HANDOFF list
-  of the office's folder even when its boss works elsewhere (e.g. in `~`), instead of "Nobody works in … yet".
 - **Office dialog:** Enter in the name or folder field saves (it did nothing: the form had no submit button).
 - **＋ Worker right after ＋ Boss** showed the boss dialog's content until something else changed on the page.
 - **A job no longer comes back with an old answer:** a job for a worker whose terminal was still closing could
@@ -238,36 +203,18 @@ middle one (0.**3**.0).
   "trust this folder?" question before reading the job, and the job waited until its timeout (30 min). Now, when the
   conversation has not started after 15 s and the account has not trusted the folder (or a parent), the job fails at
   once and says to open claude there once and answer yes, or to give the job another folder.
-- **`/habblaud` recognises a Habblaud too old for the mod again.** The check looked for the Portuguese "unknown
-  route" text only, so since the server answers in English it said Habblaud was offline instead of asking to update.
-
-- **The worker scripts ship with Habblaud:** `agy-ask`, `claude-ask`, `agy-as`, the rules hook, the agy plugins and the
+- **The worker scripts ship with Habblaud:** `agy-ask`, `claude-ask`, `agy-as`, the agy plugins and the
   skills are in `tools/agy`, and `tools/agy/install.sh` sets them up.
-
-- **The Board shows only the jobs of the office you are in.** A job from another session or folder, or with no office, no
-  longer appears under "The workers' jobs"; jobs keep their office after a server restart.
 
 - **"Boss overloaded" per office, and it warns you:** the 🥵 button and dialog list only the sessions of the office shown,
   with its name in the title. When a boss passes a threshold, in any office, a notice appears right away, once per level,
-  and suggests saving the work to the HANDOFF file and starting a new session; click it for the dialog. An overloaded
+  and suggests starting a new session; click it for the dialog. An overloaded
   boss's notice stays until you dismiss it. The boss itself is not told.
-- **Board › Jobs splits the cache:** a job that reports it shows "cache: 12k read, 3k written" next to its tokens.
-
 - **`npm run office`** builds Habblaud and starts it in the background with its web terminals on.
 
-- **Office rules look at shell commands too:** a redirect, `cp`, `mv`, `rm`, `tee`, `sed -i` and similar outside the office
-  folder are refused like an edit. `/tmp` and `/dev` stay free. It stops mistakes, not a determined script.
 - **Switching office tabs** closes the terminal and the drawer of the office you left; its sessions keep running.
 
-- **▶ Continue the to-do** on the Board tells the boss to read its list and do the next open task. Adding a task alone does
-  not wake it.
 - **📖 User guide** at the top of Help (?): one folded topic each, from starting the office to reading the characters.
-
-- **A Claude Code boss asks before writing outside its office folder** instead of being refused, and answers can come from the
-  page. Its own memory folder needs no asking. Workers and Antigravity bosses are still refused, and forbidden commands and
-  folders stay refused for everyone.
-
-- **A Claude Code boss knows its team:** with its rules it is told who its workers are and how to give them jobs.
 
 ## [1.0.3] - 2026-10-16
 

@@ -39,17 +39,9 @@ Before opening a pull request, run:
 ```sh
 npm run typecheck
 npm test
+npm run i18n:check
 npm run build
 ```
-
-If the change affects a Claude Code plugin, also validate the affected plugin:
-
-```sh
-claude plugin validate mod/habblaud
-claude plugin test mod/habblaud
-```
-
-Use the path of the modified plugin (`mod/habblaud-permissoes` or `mod/habblaud-mensagens`) when applicable.
 
 ## Opening a pull request
 
@@ -57,9 +49,6 @@ Use the path of the modified plugin (`mod/habblaud-permissoes` or `mod/habblaud-
 - Reference the related issue, if any.
 - For visual changes, include a screenshot or GIF if helpful to demonstrate results.
 - Update the **Unreleased** section of `CHANGELOG.md` when the change introduces something visible to Habblaud users.
-- PRs touching `shared/world/` or `server/world/` (Habblaud World) explain what changes in what leaves the machine, and
-  review cross-checks the [`docs/world/privacidade.md`](docs/world/privacidade.md) list against the code. Read
-  [`shared/world/README.md`](shared/world/README.md) first.
 - Do not include personal data, credentials, or private session content in screenshots, examples, or logs.
 
 If anything is unclear, ask in the related issue before heading in a direction that might change project behavior.

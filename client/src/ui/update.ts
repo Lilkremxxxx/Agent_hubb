@@ -1,5 +1,5 @@
 // New version notice: when the server starts serving another client build (e.g. after an
-// `npm run docker:up`), this page is outdated — it does not know new states and features.
+// `npm run office`), this page is outdated — it does not know new states and features.
 // Shows the notice and reloads on its own in a few seconds (can be postponed).
 import type { OfficeStore } from '../net/store';
 import { h, setHidden, setText } from './dom';

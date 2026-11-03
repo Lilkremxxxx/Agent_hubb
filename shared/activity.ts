@@ -1,5 +1,5 @@
 // Translation of Claude Code tool calls into readable activities (EN).
-// Pure code, used by the server (real transcripts) and the demo simulator.
+// Pure code, used by the server (real transcripts).
 import type { ActivityKind, AskQuestion } from './types';
 import { getLocale, tr } from './i18n';
 

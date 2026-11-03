@@ -74,11 +74,10 @@ class TeamRule(unittest.TestCase):
     def setUp(self):
         Office.bodies.clear()
         Office.snapshot = {"accounts": []}
-        for name in ("agy-ask.log.jsonl",):
-            try:
-                os.remove(os.path.join(self.root, name))
-            except FileNotFoundError:
-                pass
+        try:
+            os.remove(os.path.join(self.root, "agy-ask.log.jsonl"))
+        except FileNotFoundError:
+            pass
         try:
             os.remove(os.path.join(self.root, "team.json"))
         except FileNotFoundError:

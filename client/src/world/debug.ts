@@ -362,7 +362,7 @@ export function createDebug(sim: Sim, renderer: Renderer, camera: Camera, onCame
     },
 
     setUsage: (account, usage) => {
-      if (usage) sim.usagePatches.set(account, { source: 'statusline', fetchedAt: Date.now(), ...usage });
+      if (usage) sim.usagePatches.set(account, { source: 'cache', fetchedAt: Date.now(), ...usage });
       else sim.usagePatches.delete(account);
       sim.reapply(Date.now());
     },

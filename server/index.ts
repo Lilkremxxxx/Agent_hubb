@@ -475,7 +475,7 @@ function shutdown(signal: string): void {
   clearInterval(ticker);
   agents.stop();
   accounts.stop();
-    ghosts.stop();
+  ghosts.stop();
   hub.stop();
   terminals?.stop();
   ptys?.stopAll();

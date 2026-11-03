@@ -573,7 +573,7 @@ class AgentView {
     const team = this.ctx.store.snapshot?.team;
     const worker = team ? workerOfAgent(team, a) : undefined;
     const workerSession = sessionOfAgent(team, a.id);
-    // Appoint the boss: an open Claude Code main session (not a demo one), not a worker's character (＋ Boss with
+    // Appoint the boss: an open Claude Code main session, not a worker's character (＋ Boss with
     // that account makes it the boss; it then leaves Workers).
     setHidden(this.bossBtn, !live || !ptyControllable(a) || !!workerSession);
     // (while busy, the button may be showing an error)

@@ -53,11 +53,13 @@ describe('sound scheduler', () => {
     expect(s.decide('elevator', 9_050)).not.toBeNull();
   });
 
-  it('global cap of sounds per second (alert chime always passes)', () => {
+  it('never more than MAX_PER_SECOND sounds in a second (alert chime always passes)', () => {
     const s = on();
     const kinds: SoundKind[] = ['keys', 'elevator'];
     let played = 0;
     for (let t = 0; t < 1_000; t += 10) for (const k of kinds) if (s.decide(k, t) !== null) played++;
+    // With only these channels the per-channel gaps already keep the rate below the cap; the cap is a safety net.
+    expect(played).toBeGreaterThan(0);
     expect(played).toBeLessThanOrEqual(MAX_PER_SECOND);
     expect(s.decide('chime', 999)).not.toBeNull();
     // after the 1 s window passes, plays again

@@ -167,9 +167,9 @@ describe('usage (5h and weekly)', () => {
   it('source with newer numbers takes precedence; clearing one source restores the other', () => {
     const store = new UsageStore();
     store.set('x', usageFromWindows(windows, 'cache', NOW - 3_600_000)!);
-    store.set('x', usageFromWindows({ ...windows, five_hour: { utilization: 77, resets_at: null } }, 'statusline', NOW - 60_000)!);
-    expect(store.view('x', NOW)).toMatchObject({ status: 'ok', usage: { source: 'statusline', fiveHour: { utilization: 77 } } });
-    expect(store.clear('x', 'statusline')).toBe(true);
+    store.set('x', usageFromWindows({ ...windows, five_hour: { utilization: 77, resets_at: null } }, 'agy', NOW - 60_000)!);
+    expect(store.view('x', NOW)).toMatchObject({ status: 'ok', usage: { source: 'agy', fiveHour: { utilization: 77 } } });
+    expect(store.clear('x', 'agy')).toBe(true);
     expect(store.view('x', NOW)).toMatchObject({ status: 'stale', usage: { source: 'cache' } });
   });
 
@@ -202,7 +202,7 @@ describe('usage (5h and weekly)', () => {
         '.claude~2',
       ]);
       expect(changes).toBe(1);
-      // entries() = Claude Code only (watcher, history, and statusline); others see all.
+      // entries() = Claude Code only (watcher and history); others see all.
       expect(svc.entries().map((e) => [e.id, e.provider])).toEqual([['.claude', 'claude']]);
       expect(svc.entriesOf('agy').map((e) => e.id)).toEqual(['.agy', '.agy~2', '.claude~2']);
       expect(svc.allEntries().map((e) => e.id)).toEqual(['.claude', '.agy', '.agy~2', '.claude~2']);
@@ -212,15 +212,15 @@ describe('usage (5h and weekly)', () => {
       expect(infos[0]).not.toHaveProperty('provider');
       expect(infos[1]).toMatchObject({ id: '.agy', provider: 'agy', sessions: 2, usageStatus: 'disabled', configDir: '/Users/x/.agy' });
 
-      // Usage pushed by source (origin 'agy'), with noQuota account.
+      // Usage pushed by source (origin 'agy')
       changes = 0;
       expect(svc.setUsage('.agy', { source: 'agy', fetchedAt: NOW - 60_000, fiveHour: { utilization: 12.5, resetsAt: NOW + 3_600_000 } })).toBe(true);
       expect(changes).toBe(1);
       expect(svc.setUsage('.agy', { source: 'agy', fetchedAt: NOW - 60_000, fiveHour: { utilization: 12.5, resetsAt: NOW + 3_600_000 } })).toBe(false);
       expect(changes).toBe(1);
-      svc.setUsage('.agy~2', { source: 'agy', fetchedAt: NOW, noQuota: true });
+      svc.setUsage('.agy~2', { source: 'agy', fetchedAt: NOW });
       expect(svc.list(new Map()).find((a) => a.id === '.agy')).toMatchObject({ usageStatus: 'ok', usage: { source: 'agy', fiveHour: { utilization: 12.5 } } });
-      expect(svc.list(new Map()).find((a) => a.id === '.agy~2')?.usage).toEqual({ source: 'agy', fetchedAt: NOW, noQuota: true });
+      expect(svc.list(new Map()).find((a) => a.id === '.agy~2')?.usage).toEqual({ source: 'agy', fetchedAt: NOW });
       // Ages like other origins (periodic refresh detects and notifies).
       now = NOW + STALE_AFTER_MS;
       changes = 0;

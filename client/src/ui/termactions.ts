@@ -1,6 +1,6 @@
 // Buttons at the top of the terminal window: "Take over here" (session open in another terminal: ends it there and
 // continues the same conversation here, interactive) and "End". Both require a second click.
-// Only for real main agents (demo agents have no process) and with interactive terminal enabled; an Antigravity
+// Only for main agents and with interactive terminal enabled; an Antigravity
 // worker gets "End" only while its interactive agy runs here.
 import type { AgentInfo } from '../../../shared/types';
 import type { UiContext } from './context';

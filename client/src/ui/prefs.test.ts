@@ -77,6 +77,12 @@ describe('preferences', () => {
     expect(sanitizePrefs({ dayNight: true }).daylight).toBe('auto');
     expect(sanitizePrefs({ dayNight: false, daylight: 'night' }).daylight).toBe('night');
   });
+  it('a stored `theme` from the removed seasonal decorations is ignored and not carried on', () => {
+    const p = sanitizePrefs({ theme: 'christmas', daylight: 'night' });
+    expect(p).not.toHaveProperty('theme');
+    expect(p.daylight).toBe('night');
+    expect(worldOptionsFrom(p)).not.toHaveProperty('theme');
+  });
   it('sounds: off by default; volume and categories validated', () => {
     expect(DEFAULT_PREFS.sound).toBe(false);
     const p = sanitizePrefs({ sound: true, sounds: { volume: 3, keys: false, elevator: 'sim' } });
