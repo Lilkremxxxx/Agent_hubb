@@ -19,7 +19,7 @@ export const CODEX_BRIDGE_HINT = tr('To send messages to Codex: with Habblaud in
 export type ComposerMode = { kind: 'ready' } | { kind: 'hint'; text: string } | { kind: 'off'; text: string };
 
 export interface ComposerEnv {
-  /** Feature enabled on server (OfficeSnapshot.meta.messages; in ?mock=1, always). */
+  /** Feature enabled on server (OfficeSnapshot.meta.messages). */
   enabled: boolean;
   /** Page opened from local computer (server only accepts messages this way). */
   local: boolean;

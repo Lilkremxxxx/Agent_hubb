@@ -8,7 +8,7 @@
 //
 // Building tokens for World (`WorldUplink.tokens`): input + output of all real agents, today and
 // over the last 7 calendar days (today and the 6 prior), read from "My Day" (server/history/daystats.ts) always with
-// source `real`: demo mode agents are never included. Rounded to 2 significant digits (the world server
+// source `real`. Rounded to 2 significant digits (the world server
 // still converts to a tier). Past days do not change: they are cached; today's is re-read every `ttlMs`.
 import { addDays } from '../../shared/daystats';
 import { roundTokens } from '../../shared/world/projection';

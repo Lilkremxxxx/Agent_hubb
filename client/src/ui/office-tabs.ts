@@ -150,7 +150,7 @@ export class OfficeTabs implements UiComponent {
   /** What the tab menu's items know and do (ui/office-menu.ts). */
   private menuEnv(): OfficeMenuEnv {
     const snap = this.ctx.store.snapshot;
-    const locked = this.ctx.store.mock ? tr('Not in the demo') : snap?.meta.terminal ? '' : tr('This Habblaud does not let the page run commands');
+    const locked = snap?.meta.terminal ? '' : tr('This Habblaud does not let the page run commands');
     const office = (id: string) => teamOffices(snap?.team).find((o) => o.id === id);
     const onOffice = (id: string, fn: () => void) => {
       if (this.ctx.selectedOffice()?.id !== id) this.ctx.selectOffice(id);
@@ -177,9 +177,9 @@ export class OfficeTabs implements UiComponent {
     };
   }
 
-  /** Offices can be made and edited (not in the demo, and the server lets the page run commands). */
+  /** Offices can be made and edited (the server lets the page run commands). */
   private editable(): boolean {
-    return !this.ctx.store.mock && !!this.ctx.store.snapshot?.meta.terminal;
+    return !!this.ctx.store.snapshot?.meta.terminal;
   }
 
   /** The office dialog on an office (its folder), e.g. from the Board's "Choose its folder". */

@@ -137,7 +137,7 @@ describe('API HTTP', () => {
     expect(await ok.json()).toMatchObject({ agent: { id: '.claude:1' }, history: [] });
     expect((await fetch(`${env.base}/api/agents/does-not-exist`)).status).toBe(404);
     const health = await (await fetch(`${env.base}/api/health`)).json();
-    expect(health).toMatchObject({ ok: true, version: '9.9.9', demo: false, docker: false, terminal: false, accounts: [{ id: '.claude', usageStatus: 'disabled' }] });
+    expect(health).toMatchObject({ ok: true, version: '9.9.9', docker: false, terminal: false, accounts: [{ id: '.claude', usageStatus: 'disabled' }] });
   });
 
   it('terminal disabled: 403 JSON and meta.terminal false', async () => {
@@ -160,15 +160,6 @@ describe('API HTTP', () => {
     expect(((await del.json()) as { error: string }).error).toMatch(/disabled/);
   });
 
-  it('POST /api/demo toggles on and off', async () => {
-    const on = await fetch(`${env.base}/api/demo`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ enabled: true }) });
-    expect(await on.json()).toEqual({ ok: true, demo: true });
-    expect((await snapshotOf(env.base)).meta.demo).toBe(true);
-    expect((await fetch(`${env.base}/api/demo`, { method: 'POST', headers: JSON_HEADERS, body: '{"enabled":1}' })).status).toBe(400);
-    expect((await fetch(`${env.base}/api/demo`, { method: 'POST', headers: JSON_HEADERS, body: '{' })).status).toBe(400);
-    expect((await fetch(`${env.base}/api/demo`)).status).toBe(405);
-  });
-
   it('DNS rebinding: external Host domain rejected on all routes', async () => {
     const port = new URL(env.base).port;
     for (const path of ['/api/snapshot', '/api/stream', '/', '/bundle/main-abc12345.js']) {
@@ -183,17 +174,16 @@ describe('API HTTP', () => {
   });
 
   it('CSRF: POST requires JSON and local origin', async () => {
-    const demoOn = JSON.stringify({ enabled: true });
+    const body = '{}';
     // "Simple" form/fetch from external site: text/plain, no preflight.
-    const plain = await fetch(`${env.base}/api/demo`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: demoOn });
+    const plain = await fetch(`${env.base}/api/fun/party`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body });
     expect(plain.status).toBe(415);
-    const form = await raw(env.base, '/api/demo', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'enabled=true' });
+    const form = await raw(env.base, '/api/fun/party', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'a=1' });
     expect(form.status).toBe(415);
-    const cross = await raw(env.base, '/api/demo', { method: 'POST', headers: { ...JSON_HEADERS, Origin: 'http://attacker.example' }, body: demoOn });
+    const cross = await raw(env.base, '/api/fun/party', { method: 'POST', headers: { ...JSON_HEADERS, Origin: 'http://attacker.example' }, body });
     expect(cross.status).toBe(403);
-    expect((await snapshotOf(env.base)).meta.demo).toBe(false);
     const port = new URL(env.base).port;
-    const same = await raw(env.base, '/api/demo', { method: 'POST', headers: { ...JSON_HEADERS, Host: `localhost:${port}`, Origin: `http://localhost:${port}` }, body: demoOn });
+    const same = await raw(env.base, '/api/fun/party', { method: 'POST', headers: { ...JSON_HEADERS, Host: `localhost:${port}`, Origin: `http://localhost:${port}` }, body });
     expect(same.status).toBe(200);
   });
 
@@ -372,14 +362,10 @@ describe('GET /api/mod/summary (Claude Code mod)', () => {
     expect(s.waiting).toMatchObject([{ id: '.claude:2', answerable: true, waitingFor: 'answer in the terminal' }]);
   });
 
-  it('demo agents excluded (even when waiting); closed agents also excluded', async () => {
-    await fetch(`${env.base}/api/demo`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ enabled: true }) });
-    const snap = await snapshotOf(env.base);
-    expect(snap.agents.some((a) => a.id.startsWith('demo:'))).toBe(true);
+  it('closed agents excluded', async () => {
     env.office.closeMain('.claude-conta2:3');
     const s = await summary();
     expect(s.agents).toBe(3);
-    expect(s.waiting.every((w) => !w.id.startsWith('demo:'))).toBe(true);
   });
 
   it('GET/HEAD only (405 with Allow)', async () => {

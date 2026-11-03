@@ -203,7 +203,7 @@ export class Deliveries implements UiComponent {
     const store = this.ctx.store;
     // Mobile page only (remote port with auth and permitted terminal): on desktop, terminal and history
     // already show everything, and top bar adds neither button nor extra polling without configured mobile access.
-    const available = access().remote && access().terminal && !!store.snapshot?.meta.terminal && !store.mock && !store.replaying;
+    const available = access().remote && access().terminal && !!store.snapshot?.meta.terminal && !store.replaying;
     if (available !== this.available) {
       this.available = available;
       setHidden(this.button, !available);

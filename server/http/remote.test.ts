@@ -333,8 +333,8 @@ describe('remote port', () => {
     expect((await request(s.remoteBase, '/api/permissions/p1', { headers })).status).toBe(200);
     expect((await request(s.remoteBase, '/api/permissions/p1/decision', { method: 'POST', body: { behavior: 'allow' }, headers })).status).toBe(200);
     expect(JSON.parse((await request(s.remoteBase, '/api/health', { headers })).body).pty).toBe(false);
-    // Demo mode applies to everyone: phone cannot toggle it.
-    expect((await request(s.remoteBase, '/api/demo', { method: 'POST', body: { enabled: true }, headers })).status).toBe(403);
+    // Office-wide effects: phone cannot trigger them.
+    expect((await request(s.remoteBase, '/api/fun/party', { method: 'POST', body: { enabled: true }, headers })).status).toBe(403);
     // On local port, hook and interactive terminal continue as before.
     expect((await request(s.localBase, '/api/permissions', { method: 'POST', body: {} })).status).toBe(200);
     expect((await request(s.localBase, '/api/pty')).status).toBe(200);

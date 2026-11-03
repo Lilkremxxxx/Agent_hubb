@@ -78,7 +78,6 @@ export class CharacterEditor {
       terminal: !!store.snapshot?.meta.terminal,
       local: access().local,
       replaying: store.replaying,
-      mock: store.mock,
     });
     setHidden(this.button, !allowed);
     if (this.editing && !allowed) {

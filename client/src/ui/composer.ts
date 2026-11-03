@@ -125,8 +125,8 @@ export class MessageComposer {
   render(agent: AgentInfo | undefined, key = agent?.id ?? ''): ComposerMode['kind'] {
     const store = this.ctx.store;
     const mode = composerMode(agent, {
-      enabled: store.mock || !!store.snapshot?.meta.messages,
-      local: store.mock || access().messages,
+      enabled: !!store.snapshot?.meta.messages,
+      local: access().messages,
       replaying: store.replaying,
     });
     this.mode = mode;

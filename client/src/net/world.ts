@@ -1,6 +1,6 @@
 // Habblaud World in the browser: client for local /api/world/* routes (local Habblaud server talks to
-// world server; device token never reaches the browser) and FakeWorldApi for demo mode
-// (?mock=1&world=...) and tests. Errors arrive as `{error: {code}}`; UI translates the code
+// world server; device token never reaches the browser) and FakeWorldApi for
+// tests. Errors arrive as `{error: {code}}`; UI translates the code
 // (ui/world/world-model.ts) and never displays server `message`.
 //
 // Phase 2 (building in world): `building` in meta.world and in status, GET /api/world/last-uplink (last payload, to
@@ -1161,17 +1161,7 @@ export function fakeWorldStateFrom(search: string): WorldServerState | null {
   return (STATES as readonly string[]).includes(v) ? (v as WorldServerState) : 'logged_out';
 }
 
-/**
- * World for this page: with ?mock=1, FakeWorldApi only with `&world=` (README demo mode screenshots
- * still have no World, which is disabled by default); otherwise, local routes and live snapshot
- * `meta.world`.
- */
-export function worldSource(store: { mock: boolean; readonly liveSnapshot: OfficeSnapshot | null }, search = typeof location === 'undefined' ? '' : location.search): WorldSource {
-  if (store.mock) {
-    const state = fakeWorldStateFrom(search);
-    if (!state) return { client: null, fake: true, meta: () => undefined };
-    const fake = new FakeWorldApi({ state });
-    return { client: fake, fake: true, meta: () => fake.meta(), onChange: (cb) => fake.onChange(cb) };
-  }
+/** World for this page: local routes and live snapshot `meta.world`. */
+export function worldSource(store: { readonly liveSnapshot: OfficeSnapshot | null }): WorldSource {
   return { client: new HttpWorldApi(), fake: false, meta: () => readWorldMeta(store.liveSnapshot) };
 }

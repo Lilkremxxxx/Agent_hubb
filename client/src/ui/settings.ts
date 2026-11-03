@@ -1,4 +1,4 @@
-// Settings (popover): office options, alerts, demo mode, and About (version). Habblaud World has its own window
+// Settings (popover): office options, alerts, and About (version). Habblaud World has its own window
 // (ui/world/world-dialog.ts); this only provides the theme note under Appearance, which also applies to the building.
 import { access, remoteLogout } from '../net/access';
 import type { UiComponent, UiContext } from './context';
@@ -90,7 +90,7 @@ function numberField(label: string, min: number, max: number, onChange: () => vo
 
 export class SettingsPopover implements UiComponent {
   readonly el: HTMLElement;
-  private switches = new Map<BoolPref | 'demo', SwitchRefs>();
+  private switches = new Map<BoolPref, SwitchRefs>();
   private bubbles: ReturnType<typeof segmented<UiPrefs['bubbles']>>;
   private liveliness: ReturnType<typeof segmented<UiPrefs['liveliness']>>;
   private daylight: ReturnType<typeof segmented<UiPrefs['daylight']>>;
@@ -99,12 +99,10 @@ export class SettingsPopover implements UiComponent {
   private soundGroup: SoundSettingsGroup;
   /** "Boss overloaded" thresholds; shares shown in %. */
   private loadFields: Record<keyof LoadThresholds, HTMLInputElement>;
-  private demoGroup: HTMLElement;
   /** Mobile page only (remote port with login): sign out of this device. */
   private remoteGroup: HTMLElement;
   private logoutBtn: HTMLButtonElement;
   private about: AboutGroup;
-  private demoBusy = false;
   private anchor: HTMLElement | null = null;
 
   constructor(
@@ -114,7 +112,7 @@ export class SettingsPopover implements UiComponent {
     /** Habblaud World window: theme note in Appearance and sending theme to building. */
     private readonly world: WorldThemeLink,
   ) {
-    const sw = (key: BoolPref | 'demo', label: string, hint: string, onToggle: () => void) => {
+    const sw = (key: BoolPref, label: string, hint: string, onToggle: () => void) => {
       const r = switchRow(label, hint, onToggle);
       this.switches.set(key, r);
       return r.row;
@@ -181,13 +179,6 @@ export class SettingsPopover implements UiComponent {
       h('span', { class: 'ui-set__hint', text: tr('Activity texts come from the server: they follow HABBLAUD_LANG or the language of the system Habblaud runs on (Vietnamese with HABBLAUD_LANG=vi).') }),
     );
 
-    this.demoGroup = h(
-      'div',
-      { class: 'ui-set-group' },
-      h('h3', { text: tr('Data') }),
-      sw('demo', tr('Demo mode'), tr('Adds fictional agents to the office, alongside the real ones.'), () => void this.toggleDemo()),
-    );
-
     this.logoutBtn = h('button', { class: 'ui-btn', type: 'button', text: tr('Sign out'), on: { click: () => void this.logout() } }) as HTMLButtonElement;
     this.remoteGroup = h(
       'div',
@@ -240,7 +231,6 @@ export class SettingsPopover implements UiComponent {
       ),
       this.soundGroup.el,
       h('div', { class: 'ui-set-group' }, h('h3', { text: tr('Language') }), this.language.row),
-      this.demoGroup,
       this.remoteGroup,
       this.about.el,
     );
@@ -303,9 +293,7 @@ export class SettingsPopover implements UiComponent {
   render(): void {
     const p = this.ctx.prefs;
     for (const [key, r] of this.switches) {
-      const on = key === 'demo' ? !!this.ctx.store.liveSnapshot?.meta.demo : p[key];
-      setAttr(r.btn, 'aria-checked', String(on));
-      r.btn.disabled = key === 'demo' && this.demoBusy;
+      setAttr(r.btn, 'aria-checked', String(p[key]));
     }
     this.bubbles.set(p.bubbles);
     this.liveliness.set(p.liveliness);
@@ -314,7 +302,6 @@ export class SettingsPopover implements UiComponent {
     if (!Object.values(this.loadFields).includes(document.activeElement as HTMLInputElement)) this.showLoad(p.overload);
     this.language.set(savedLanguage());
     this.soundGroup.render();
-    setHidden(this.demoGroup, this.ctx.store.mock || access().remote);
     setHidden(this.remoteGroup, !access().remote);
     this.about.render();
 
@@ -355,21 +342,5 @@ export class SettingsPopover implements UiComponent {
     const state = await this.notifier.enableBrowserNotifications();
     this.ctx.updatePrefs({ browserNotifications: state === 'granted' });
     if (state === 'denied') this.ctx.announce(tr('Notifications blocked by the browser.'));
-  }
-
-  private async toggleDemo(): Promise<void> {
-    if (this.demoBusy) return;
-    this.demoBusy = true;
-    this.render();
-    const enable = !this.ctx.store.snapshot?.meta.demo;
-    try {
-      const ok = await this.ctx.store.setDemo(enable);
-      this.ctx.announce(ok ? (enable ? tr('Demo mode on.') : tr('Demo mode off.')) : tr("Couldn't change demo mode."));
-    } catch {
-      this.ctx.announce(tr("Couldn't reach the server."));
-    } finally {
-      this.demoBusy = false;
-      this.ctx.invalidate();
-    }
   }
 }

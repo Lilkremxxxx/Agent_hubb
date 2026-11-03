@@ -1,6 +1,5 @@
 // The World scene in the browser (Phase 3): the city stream (GET /api/world/stream, SSE) and player commands
-// (POST /api/world/cmd), plus a FakeWorldStream for demo mode (?mock=1&world=approved&scene=city) and
-// tests. The scene only uses `createWorldStream({mock})`:
+// (POST /api/world/cmd), plus a FakeWorldStream for tests. The scene only uses `createWorldStream({mock})`:
 //
 //   const ws = createWorldStream({ mock: store.mock });
 //   const off = ws.on((ev) => { ... });   // 'snapshot' (replaces whole state), 'message' (applies in order), 'status'

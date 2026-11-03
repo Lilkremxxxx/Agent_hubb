@@ -56,39 +56,4 @@ describe('BuildingTokens', () => {
     expect(t.read()).toEqual({ day: 300, week: 350 });
     expect(stats.calls.filter(([d]) => d === '2026-10-14')).toHaveLength(1);
   });
-
-  it('with real DayStatsService and demo on: only tokens from real agents', () => {
-    let now = T0;
-    const real: AgentInfo = {
-      id: '.claude:1', kind: 'main', roomId: '/p/loja', name: 'Ana', look: 'f', role: 'Main agent', sessionId: 'sess-1',
-      account: '.claude', status: 'working', recent: [], tasks: [], startedAt: T0 - 60_000, lastEventAt: T0, statusSince: T0,
-      stats: { toolCalls: 0, tokensIn: 0, tokensOut: 0, subagents: 0 }, seed: 1,
-    };
-    const demo: AgentInfo = { ...real, id: 'demo:abc-1', roomId: '/demo/loja', account: 'demo:.claude', sessionId: 'sess-demo' };
-    let agents = [real, demo];
-    const snap = (): Pick<OfficeSnapshot, 'agents' | 'rooms' | 'accounts' | 'meta'> => ({
-      agents,
-      rooms: [],
-      accounts: [],
-      meta: { demo: true, sources: [], startedAt: 0, version: 'teste' },
-    });
-    const svc = new DayStatsService({ dir: null, tz: 'UTC', now: () => now, snapshot: snap });
-    const step = (until: number) => {
-      while (now < until) {
-        now += S;
-        svc.sample(now);
-      }
-    };
-    step(T0 + 120 * S); // passes the boot settling period
-    agents = [
-      { ...real, stats: { ...real.stats, tokensIn: 40_000, tokensOut: 2_000 } },
-      { ...demo, stats: { ...demo.stats, tokensIn: 7_000_000, tokensOut: 900_000 } },
-    ];
-    step(T0 + 130 * S);
-    expect(svc.isDemo()).toBe(true);
-    // Without `source`, today with demo on would return the demo bucket: not here.
-    expect(svc.day('2026-10-15', 'UTC')?.source).toBe('demo');
-    const t = new BuildingTokens({ stats: svc, now: () => now });
-    expect(t.read()).toEqual({ day: 42_000, week: 42_000 });
-  });
 });

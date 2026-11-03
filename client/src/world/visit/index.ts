@@ -78,7 +78,7 @@ export function createVisitScene(o: VisitSceneOptions): VisitScene {
   canvas.id = 'visit';
   o.after.after(canvas);
   // Store dedicated to this visit, never connects: local machine office is untouched.
-  const store = new OfficeStore({ search: '' });
+  const store = new OfficeStore();
   const world = createWorld(canvas, store, { visit: true });
   const narrowMq = typeof matchMedia === 'function' ? matchMedia(NARROW_QUERY) : null;
   const narrow = () => !!narrowMq?.matches;

@@ -1,6 +1,5 @@
 // "Where did my day go": day stats (time per status, counts, tokens, cost, and waits).
-// Pure code (no Node or DOM): the server aggregates and persists (server/history/daystats.ts), and the browser
-// reuses the same logic in ?mock=1 (ui/daystats.ts). The GET /api/stats protocol also lives here.
+// Pure code (no Node or DOM): the server aggregates and persists (server/history/daystats.ts). The GET /api/stats protocol also lives here.
 //
 // How it aggregates: on each sample (~1 s), the tracker (StatsTracker) inspects office agents and integrates, per
 // agent, the time since previous sample in its current status, splitting interval at `statusSince` when status

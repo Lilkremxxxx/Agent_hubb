@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { DemoSimulator } from '../../../shared/demo/simulator';
 import {
   compactSnapshot,
   diffFrames,
@@ -112,12 +111,10 @@ describe('timelapse reconstruction', () => {
     r.moveTo(T0);
     const all = r.snapshot(T0, { includeDemo: true });
     expect(all.agents).toHaveLength(2);
-    expect(all.meta.demo).toBe(true);
     const real = r.snapshot(T0, { includeDemo: false });
     expect(real.agents.map((a) => a.id)).toEqual(['ana']);
     expect(real.rooms.map((x) => x.id)).toEqual(['/p/loja']);
     expect(real.accounts.map((x) => x.id)).toEqual(['.claude']);
-    expect(real.meta.demo).toBe(false);
   });
 
   it('per-minute chart and peak moments', () => {
@@ -132,47 +129,5 @@ describe('timelapse reconstruction', () => {
       { at: T0 + 2 * MIN, working: 2, present: 2 },
       { at: T0 + 30 * MIN, working: 1, present: 1 },
     ]);
-  });
-
-  it('matches simulator: reconstructed snapshot matches recorded one (in any query order)', () => {
-    // Records in memory like server (keyframe every 5 min, delta every ~1 s on changes).
-    const sim = new DemoSimulator({ seed: 3, speed: 2, sessions: 4 }, T0);
-    const recs: TimelineRecord[] = [];
-    const truth: { at: number; frame: TimelineFrame }[] = [];
-    let written: TimelineFrame | null = null;
-    let lastKey = -Infinity;
-    for (let now = T0; now <= T0 + 40 * MIN; now += 1_000) {
-      sim.tick(now);
-      const frame = compactSnapshot(sim.snapshot(now));
-      if (now - lastKey >= 5 * MIN || !written) {
-        recs.push(keyframeOf(frame, now, 5 * MIN));
-        lastKey = now;
-      } else {
-        const d = diffFrames(written, frame);
-        if (!d) continue;
-        recs.push(JSON.parse(JSON.stringify({ t: 'd', at: now, ...d })));
-      }
-      written = frame;
-      truth.push({ at: now, frame });
-    }
-    const r = new TimelineReplay('2026-10-07', recs);
-    const sequential = new TimelineReplay('2026-10-07', recs);
-    const rng = (() => {
-      let s = 7;
-      return () => ((s = (s * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
-    })();
-    const ids = (f: TimelineFrame) => [...f.agents.values()].map((a) => `${a.id}|${a.status}|${a.activity?.text ?? ''}|${a.shells?.length ?? 0}`).sort();
-    for (let i = 0; i < 80; i++) {
-      const t = T0 + Math.floor(rng() * 40 * MIN);
-      r.moveTo(t);
-      const got = r.snapshot(t, view).agents.map((a) => `${a.id}|${a.status}|${a.activity?.text ?? ''}|${a.shells?.length ?? 0}`).sort();
-      const exp = truth.filter((x) => x.at <= t).at(-1)!;
-      expect(got, `t=${t - T0}`).toEqual(ids(exp.frame));
-    }
-    for (let t = T0; t <= T0 + 40 * MIN; t += 7_000) {
-      sequential.moveTo(t);
-      const got = sequential.snapshot(t, view).agents.map((a) => `${a.id}|${a.status}|${a.activity?.text ?? ''}|${a.shells?.length ?? 0}`).sort();
-      expect(got).toEqual(ids(truth.filter((x) => x.at <= t).at(-1)!.frame));
-    }
   });
 });

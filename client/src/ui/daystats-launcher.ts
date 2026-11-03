@@ -1,6 +1,5 @@
 // "My day" top bar button. The panel (ui/daystats.ts, with charts and shared accumulator) lives in a
-// separate bundle chunk and is only fetched on first open; in ?mock=1 it loads immediately so the
-// local accumulator counts from page open.
+// separate bundle chunk and is only fetched on first open.
 import type { UiComponent, UiContext } from './context';
 import type { DayPanel } from './daystats';
 import { iconButton } from './dom';
@@ -23,7 +22,6 @@ export class DayLauncher implements UiComponent {
   ) {
     this.button = iconButton(DAY_ICON, tr('My day: where the time went (M)'), () => this.toggle());
     this.button.setAttribute('aria-haspopup', 'dialog');
-    if (ctx.store.mock) void this.load();
   }
 
   toggle(): void {

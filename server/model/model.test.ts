@@ -444,25 +444,6 @@ describe('Office', () => {
     expect(snap.rooms).toEqual([]);
   });
 
-  it('mixed demo: rooms in same allocator, own accounts, and toggle', () => {
-    const { office, now } = makeOffice();
-    office.addMain({ id: 'acc:1', account: 'acc', sessionId: 's1', cwd: '/p/real', role: 'x', startedAt: now(), status: 'idle' });
-    office.setDemo(true);
-    const snap = office.commit().snapshot;
-    expect(snap.meta.demo).toBe(true);
-    const slots = snap.rooms.map((r) => r.slot);
-    expect(new Set(slots).size).toBe(slots.length);
-    expect(snap.rooms.find((r) => r.id === '/p/real')!.slot).toBe(0);
-    expect(snap.agents.some((a) => a.id.startsWith('demo:'))).toBe(true);
-    expect(snap.accounts.map((a) => a.short)).toEqual(['C', 'X', 'Y', 'Z']);
-    const demoAgent = snap.agents.find((a) => a.id.startsWith('demo:'))!;
-    expect(office.detail(demoAgent.id)?.agent.id).toBe(demoAgent.id);
-    office.setDemo(false);
-    const off = office.commit().snapshot;
-    expect(off.meta.demo).toBe(false);
-    expect(off.agents.map((a) => a.id)).toEqual(['acc:1']);
-  });
-
   it('meta.terminal: only when terminal is enabled', () => {
     expect(makeOffice().office.commit().snapshot.meta.terminal).toBe(false);
     const deps = { names: new NameStore(null), version: 't', startedAt: 0, accounts: () => [], sources: () => [], accountName: () => undefined };
@@ -485,16 +466,8 @@ describe('Office', () => {
     // Terminated session does not receive, even if registry has not noticed yet.
     office.closeMain('acc:1');
     expect(office.commit().snapshot.agents.filter((a) => a.canMessage)).toEqual([]);
-    // Without registry (disabled feature): meta.messages false and demo main agents do not receive either.
-    const off = new Office(deps);
-    off.setDemo(true);
-    const offSnap = off.commit().snapshot;
-    expect(offSnap.meta.messages).toBe(false);
-    expect(offSnap.agents.some((a) => a.canMessage)).toBe(false);
-    const on = new Office({ ...deps, messages: () => new Set() });
-    on.setDemo(true);
-    expect(on.commit().snapshot.agents.filter((a) => a.canMessage).every((a) => a.kind === 'main' && a.id.startsWith('demo:'))).toBe(true);
-    expect(on.commit().snapshot.agents.some((a) => a.canMessage)).toBe(true);
+    // Without registry (disabled feature): meta.messages false.
+    expect(new Office(deps).commit().snapshot.meta.messages).toBe(false);
   });
 });
 
@@ -551,7 +524,7 @@ describe('Office: project character', () => {
     expect(nameKey(office.get('acc:9')!.name)).not.toBe('ana');
   });
 
-  it('conflicts: someone in office (case-insensitive), another room character, and demo', () => {
+  it('conflicts: someone in office (case-insensitive) and another room character', () => {
     const { office, advance, now } = makeOffice();
     office.addMain(main('acc:1', 's1', '/p/api', now()));
     office.addMain(main('acc:2', 's2', '/p/web', now()));
@@ -565,9 +538,6 @@ describe('Office: project character', () => {
     advance(OFFLINE_GRACE_MS + 1);
     office.tick();
     expect(office.setCharacter('acc:1', { name: 'zé', seed: 1, parts: {} })).toEqual({ result: 'conflict', message: "Zé is already web's character" });
-    office.setDemo(true);
-    const demo = office.commit().snapshot.agents.find((a) => a.id.startsWith('demo:'))!;
-    expect(office.setCharacter('acc:1', { name: demo.name, seed: 1, parts: {} })).toMatchObject({ result: 'conflict' });
   });
 
   it('conflict between Unicode normalizations: "Júlia" in NFD is same as NFC reserved for another room', () => {
@@ -584,13 +554,11 @@ describe('Office: project character', () => {
     });
   });
 
-  it('subagent, demo, departing agent, and unknown id: not-found', () => {
+  it('subagent, departing agent, and unknown id: not-found', () => {
     const { office, now } = makeOffice();
     office.addMain(main('acc:1', 's1', '/p/api', now()));
     office.addSub({ id: 's1:sub', parentId: 'acc:1', sessionId: 's1', role: 'Explore', background: false, startedAt: now() });
-    office.setDemo(true);
-    const demo = office.commit().snapshot.agents.find((a) => a.id.startsWith('demo:'))!;
-    for (const id of ['s1:sub', demo.id, 'nao-existe']) {
+    for (const id of ['s1:sub', 'nao-existe']) {
       expect(office.setCharacter(id, { name: 'Zé', seed: 1, parts: {} })).toEqual({ result: 'not-found' });
       expect(office.resetCharacter(id)).toBe('not-found');
     }

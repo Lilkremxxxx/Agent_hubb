@@ -1,6 +1,6 @@
 // Office messages via real routes (guard, app, and server/messages/http.ts): config lock
 // (terminal + HABBLAUD_MENSAGENS), route lock (feature disabled / non-local Host), statuses (400, 404,
-// 405, 409, 429), full flow page -> plugin inbox -> ack -> query, and demo.
+// 405, 409, 429), full flow page -> plugin inbox -> ack -> query.
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -31,7 +31,7 @@ interface MessageServer {
 }
 
 /** Office + Hub + real routes on a free 127.0.0.1 port, with a main agent in session "sess-1". */
-async function serveMessages(opts: { enabled?: boolean; demo?: boolean; registry?: Partial<MessageRegistryOptions> } = {}): Promise<MessageServer> {
+async function serveMessages(opts: { enabled?: boolean; registry?: Partial<MessageRegistryOptions> } = {}): Promise<MessageServer> {
   const tmp = tempDir();
   const enabled = opts.enabled ?? true;
   const late: { registry?: MessageRegistry } = {};
@@ -49,8 +49,6 @@ async function serveMessages(opts: { enabled?: boolean; demo?: boolean; registry
   const registry = enabled
     ? new MessageRegistry({
         office,
-        demoAgent: (id) => office.demoAgent(id),
-        demoDeliver: (id, text) => office.deliverDemoMessage(id, text),
         tickMs: 20,
         ...opts.registry,
       })
@@ -76,7 +74,6 @@ async function serveMessages(opts: { enabled?: boolean; demo?: boolean; registry
   await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
   const port = (server.address() as AddressInfo).port;
   office.addMain({ id: MAIN, account: 'acc', sessionId: SESSION, cwd: '/p/loja', role: 'Main agent', startedAt: Date.now(), status: 'idle' });
-  if (opts.demo) office.setDemo(true);
   return {
     base: `http://127.0.0.1:${port}`,
     office,
@@ -251,25 +248,5 @@ describe('routes', () => {
     expect((await snapshot(srv)).agents.find((a) => a.id === MAIN)?.canMessage).toBeUndefined();
     expect((await request(srv.base, `/api/messages/${encodeURIComponent(msg.id)}`)).json).toMatchObject({ status: 'failed', error: expect.stringMatching(/didn't fetch the message/) });
     expect((await post(srv, '/api/messages', { agentId: MAIN, text: 'hi' })).status).toBe(409);
-  });
-
-  it('demo: message to a demo agent is delivered without going through any session', async () => {
-    srv = await serveMessages({ demo: true, registry: { demoDeliveryMs: 50 } });
-    const demo = (await snapshot(srv)).agents.find((a) => a.id.startsWith('demo:') && a.kind === 'main' && a.status !== 'offline')!;
-    expect(demo.canMessage).toBe(true);
-    const created = await post(srv, '/api/messages', { agentId: demo.id, text: 'hi, demo' });
-    expect(created.status).toBe(201);
-    const msg = created.json as OutboxMessage;
-    expect((await post(srv, '/api/mod/inbox', { session: demo.sessionId })).json).toEqual({ messages: [] });
-    await sleep(150);
-    expect((await request(srv.base, `/api/messages/${encodeURIComponent(msg.id)}`)).json).toMatchObject({ status: 'delivered' });
-    srv.office.tick();
-    const after = (await snapshot(srv)).agents.find((a) => a.id === demo.id)!;
-    expect(after.recent.some((a) => a.text === 'Message via Habblaud' && a.detail === 'hi, demo')).toBe(true);
-  });
-
-  it('demo with feature disabled: demo agents do not receive either', async () => {
-    srv = await serveMessages({ enabled: false, demo: true });
-    expect((await snapshot(srv)).agents.filter((a) => a.canMessage)).toEqual([]);
   });
 });

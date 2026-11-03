@@ -19,8 +19,6 @@ import {
   type StatsView,
   type WaitRecord,
 } from './daystats';
-import { seedDemoHistory } from './demo/daystats';
-import { DEMO_PROJECT_NAMES } from './demo/simulator';
 
 const S = 1_000;
 const MIN = 60 * S;
@@ -387,48 +385,5 @@ describe('day file', () => {
     expect(d.accounts.get('.c')).toEqual({ name: 'C', short: 'CCC', color: '#8b98b3' });
     expect(d.waits.map((w) => w.agentId)).toEqual(['b']);
     expect(() => queryDay([d], DAY, 'UTC', T0)).not.toThrow();
-  });
-});
-
-describe('fictional demo history', () => {
-  it('fills day with demo rooms and accounts deterministically', () => {
-    const v: StatsView = {
-      agents: [
-        agent({ id: 'demo:1', roomId: 'demo:/dev/loja-virtual', account: 'demo:.claude' }),
-        agent({ id: 'demo:2', roomId: 'demo:/dev/api-pagamentos', account: 'demo:.claude-conta2', name: 'Bruno' }),
-      ],
-      rooms: [
-        { id: 'demo:/dev/loja-virtual', name: 'loja-virtual' },
-        { id: 'demo:/dev/api-pagamentos', name: 'api-pagamentos' },
-      ],
-      accounts: [
-        { id: 'demo:.claude', name: 'Demo X', short: 'X', color: '#5cc97b' },
-        { id: 'demo:.claude-conta2', name: 'Demo Y', short: 'Y', color: '#a77bf3' },
-      ],
-    };
-    const now = Date.UTC(2026, 9, 8, 18, 30);
-    const book = new StatsBook((t) => dayKeyOf(t, 'UTC'));
-    const run = () => {
-      const b = new StatsBook((t) => dayKeyOf(t, 'UTC'));
-      seedDemoHistory(b, v, now, 'UTC', 42);
-      return queryDay(b.list(), DAY, 'UTC', now);
-    };
-    seedDemoHistory(book, v, now, 'UTC', 42);
-    const d = queryDay(book.list(), DAY, 'UTC', now);
-    // All of yesterday too (for screenshots taken in the morning).
-    expect(queryDay(book.list(), '2026-10-07', 'UTC', now).hours.filter((h) => h.ms.working > 0).length).toBeGreaterThan(12);
-    expect(d.totals.ms.working).toBeGreaterThan(H);
-    expect(d.totals.ms.waiting).toBeGreaterThan(0);
-    expect(d.totals.counts.tokensIn).toBeGreaterThan(0);
-    expect(d.totals.counts.costUSD).toBeGreaterThan(0);
-    expect(d.waits.length).toBeGreaterThan(0);
-    // Open rooms and other demo projects, all with same prefix.
-    expect(new Set(d.rooms.map((r) => r.name))).toEqual(new Set(DEMO_PROJECT_NAMES));
-    expect(d.rooms.every((r) => r.id.startsWith('demo:/dev/'))).toBe(true);
-    expect(d.accounts.every((a) => a.id.startsWith('demo:'))).toBe(true);
-    // Nothing after "now", and night inactive.
-    expect(d.hours.filter((h) => h.t > now).every((h) => h.ms.working === 0)).toBe(true);
-    expect(d.hours[3].ms.working).toBe(0);
-    expect(run()).toEqual(d);
   });
 });

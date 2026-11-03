@@ -14,8 +14,6 @@ export interface ServerConfig {
   host: string;
   /** `--dev`: Vite in middleware mode (HMR) on the same server. */
   dev: boolean;
-  /** Starts demo simulator on launch. */
-  demo: boolean;
   /** Running inside a container (registry PIDs are from host: cannot check them). */
   inDocker: boolean;
   home: string;
@@ -231,7 +229,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     port: Number.isFinite(port) && port > 0 && port < 65536 ? port : 4747,
     host,
     dev: argv.includes('--dev'),
-    demo: isTruthy(env.HABBLAUD_DEMO),
     inDocker,
     home,
     claudeDirs: discoverClaudeDirs(env, home),

@@ -7,8 +7,7 @@
 // - keeps messages for each agent in order and tracks their status (queued → sent → delivered/failed);
 // - fails messages nobody fetched, unconfirmed by the session, from agents that left, or from a conversation that
 //   changed (/clear, /resume): each message applies only to the session it was sent to;
-// - adds the "Message from Habblaud" activity to the agent when the session confirms delivery;
-// - simulates delivery for demo agents (nothing goes to a real session).
+// - adds the "Message from Habblaud" activity to the agent when the session confirms delivery.
 // Text goes to the session exactly as typed (from the user) and is never returned in page responses or
 // logs; only the feed activity gets the beginning, masked and trimmed.
 //
@@ -33,8 +32,6 @@ export const QUEUED_TIMEOUT_MS = 60_000;
 export const SENT_TIMEOUT_MS = 30_000;
 /** Resolved message (delivered or not) stays this long for GET /api/messages/:id and then disappears. */
 export const KEEP_MS = 10 * 60_000;
-/** Mock delivery of a message to a demo agent. */
-export const DEMO_DELIVERY_MS = 1_000;
 export const MAX_TEXT = MESSAGE_MAX;
 /** Messages not yet resolved per agent (next receives 429). */
 export const MAX_OPEN = 5;
@@ -76,10 +73,6 @@ export interface CodexDeliveryOptions {
 
 export interface MessageRegistryOptions {
   office: OfficeLike;
-  /** Demo agent (Office.demoAgent): these only exist in the snapshot. */
-  demoAgent?: (id: string) => AgentInfo | undefined;
-  /** Mock delivery to a demo agent (Office.deliverDemoMessage); false = already left. */
-  demoDeliver?: (agentId: string, text: string) => boolean;
   /** Messages to Codex agents; absent = they do not receive messages. */
   codex?: CodexDeliveryOptions;
   now?: () => number;
@@ -89,7 +82,6 @@ export interface MessageRegistryOptions {
   queuedTimeoutMs?: number;
   sentTimeoutMs?: number;
   keepMs?: number;
-  demoDeliveryMs?: number;
 }
 
 export type SendResult = { message: OutboxMessage } | { error: 'not-found' | 'too-many' } | { error: 'unavailable'; reason: string };
@@ -119,8 +111,6 @@ interface Entry {
   /** Session that fetched the message (sent): only it confirms delivery. */
   session?: string;
   sentAt?: number;
-  /** Message to a demo agent: never leaves via inbox. */
-  demo?: boolean;
   /** Message to a Codex agent: goes via Codex deliverer ('node' = server ran it; 'bridge' = helper). */
   codex?: true;
   via?: 'node' | 'bridge';
@@ -212,7 +202,6 @@ export class MessageRegistry {
   private readonly queuedTimeoutMs: number;
   private readonly sentTimeoutMs: number;
   private readonly keepMs: number;
-  private readonly demoDeliveryMs: number;
 
   constructor(private readonly opts: MessageRegistryOptions) {
     this.now = opts.now ?? Date.now;
@@ -220,7 +209,6 @@ export class MessageRegistry {
     this.queuedTimeoutMs = opts.queuedTimeoutMs ?? QUEUED_TIMEOUT_MS;
     this.sentTimeoutMs = opts.sentTimeoutMs ?? SENT_TIMEOUT_MS;
     this.keepMs = opts.keepMs ?? KEEP_MS;
-    this.demoDeliveryMs = opts.demoDeliveryMs ?? DEMO_DELIVERY_MS;
   }
 
   start(): void {
@@ -277,11 +265,9 @@ export class MessageRegistry {
    */
   send(raw: unknown): SendResult {
     const { agentId, text, command } = parseSend(raw);
-    const real = this.opts.office.get(agentId);
-    const demo = real ? undefined : this.opts.demoAgent?.(agentId);
-    const agent = real ?? demo;
+    const agent = this.opts.office.get(agentId);
     if (!agent) return { error: 'not-found' };
-    const reason = unavailableReason(agent, real ? this.canMessage(agentId) : demo!.canMessage === true);
+    const reason = unavailableReason(agent, this.canMessage(agentId));
     if (reason) return { error: 'unavailable', reason };
     if (command && (agent.provider ?? 'claude') !== 'claude') return { error: 'unavailable', reason: tr('only Claude Code sessions take /model, /effort and /plan') };
     let open = 0;
@@ -292,8 +278,7 @@ export class MessageRegistry {
     const id = `m-${now.toString(36)}-${++this.seq}-${randomBytes(9).toString('base64url')}`;
     const entry: Entry = { msg: { id, agentId, status: 'queued', createdAt: now, updatedAt: now }, text, activity: describeMessage(text), target: agent.sessionId };
     if (command) entry.command = command;
-    if (demo) entry.demo = true;
-    else if (real?.provider === 'codex') entry.codex = true;
+    if (agent.provider === 'codex') entry.codex = true;
     this.messages.set(id, entry);
     const out = { ...entry.msg };
     if (entry.codex) this.pumpCodex();
@@ -330,7 +315,7 @@ export class MessageRegistry {
     const out: InboxMessage[] = [];
     for (const e of this.messages.values()) {
       if (out.length >= INBOX_BATCH) break;
-      if (e.demo || e.codex || e.msg.agentId !== agent.id || e.msg.status !== 'queued' || e.target !== session) continue;
+      if (e.codex || e.msg.agentId !== agent.id || e.msg.status !== 'queued' || e.target !== session) continue;
       this.setStatus(e, 'sent', now);
       e.session = session;
       e.sentAt = now;
@@ -351,7 +336,7 @@ export class MessageRegistry {
     const now = this.now();
     for (const x of ackResults(r)) {
       const e = this.messages.get(x.id);
-      if (!e || e.demo || e.codex || e.session !== session) continue;
+      if (!e || e.codex || e.session !== session) continue;
       if (e.msg.status !== 'sent' && !(e.msg.status === 'failed' && e.late)) continue;
       if (x.ok) this.finish(e, 'delivered', now);
       else this.fail(e, now, x.error ?? ERR_REFUSED);
@@ -408,20 +393,12 @@ export class MessageRegistry {
     }
   }
 
-  /** Clock: timeouts, agent that left, demo mock delivery, expired presence, and resolved messages cleanup. */
+  /** Clock: timeouts, agent that left, expired presence, and resolved messages cleanup. */
   tick(): void {
     const now = this.now();
     for (const [id, e] of this.messages) {
       if (isFinal(e)) {
         if (now - e.msg.updatedAt >= this.keepMs) this.messages.delete(id);
-        continue;
-      }
-      if (e.demo) {
-        if (!present(this.opts.demoAgent?.(e.msg.agentId))) this.fail(e, now, ERR_GONE);
-        else if (now - e.msg.createdAt >= this.demoDeliveryMs) {
-          if (this.opts.demoDeliver?.(e.msg.agentId, e.text)) this.finish(e, 'delivered', now);
-          else this.fail(e, now, ERR_GONE);
-        }
         continue;
       }
       const a = this.opts.office.get(e.msg.agentId);
@@ -510,8 +487,7 @@ export class MessageRegistry {
     delete e.late;
     if (status === 'delivered') {
       delete e.msg.error;
-      // Demo message goes to mock agent (Office.deliverDemoMessage).
-      if (!e.demo) this.opts.office.addActivity(e.msg.agentId, { id: `${e.msg.agentId}#msg:${e.msg.id}`, at: now, ...e.activity }, false);
+      this.opts.office.addActivity(e.msg.agentId, { id: `${e.msg.agentId}#msg:${e.msg.id}`, at: now, ...e.activity }, false);
     }
     e.text = '';
   }

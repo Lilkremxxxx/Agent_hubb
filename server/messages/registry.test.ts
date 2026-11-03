@@ -1,5 +1,5 @@
 // Office message registry: session presence (canMessage in snapshot), validation, limits, delivery
-// to plugin, acknowledgement, timeouts, agent leaving, cleanup of settled messages, and demo mock delivery.
+// to plugin, acknowledgement, timeouts, agent leaving, cleanup of settled messages.
 // All with synthetic data and injected clock.
 import { describe, expect, it } from 'vitest';
 import type { AgentInfo } from '../../shared/types';
@@ -45,12 +45,7 @@ function setup() {
   });
   office.addMain({ id: MAIN, account: 'acc', sessionId: SESSION, cwd: '/p/loja', role: 'Main agent', startedAt: 0, status: 'idle' });
   office.addMain({ id: OTHER, account: 'acc', sessionId: 'sess-2', cwd: '/p/api', role: 'Main agent', startedAt: 0, status: 'idle' });
-  registry = new MessageRegistry({
-    office,
-    demoAgent: (id) => office.demoAgent(id),
-    demoDeliver: (id, text) => office.deliverDemoMessage(id, text),
-    now: clock.now,
-  });
+  registry = new MessageRegistry({ office, now: clock.now });
   return { office, registry, clock };
 }
 
@@ -311,36 +306,5 @@ describe('MessageRegistry: timeouts and cleanup', () => {
     registry.tick();
     expect(registry.get(id)).toBeUndefined();
     expect(registry.size).toBe(0);
-  });
-});
-
-describe('MessageRegistry: demo', () => {
-  it('demo agent: mock delivery in ~1 s with activity on agent; never leaves via inbox', () => {
-    const { office, registry, clock } = setup();
-    office.setDemo(true);
-    const demo = office.commit().snapshot.agents.find((a) => a.id.startsWith('demo:') && a.kind === 'main' && a.status !== 'offline')!;
-    expect(demo.canMessage).toBe(true);
-    const id = sent(registry.send({ agentId: demo.id, text: 'hi, demo' }));
-    // Neither mock session nor a real one receives demo message.
-    expect(registry.inbox({ session: demo.sessionId })).toEqual([]);
-    expect(registry.inbox({ session: SESSION })).toEqual([]);
-    clock.advance(999);
-    registry.tick();
-    expect(registry.get(id)?.status).toBe('queued');
-    clock.advance(1);
-    registry.tick();
-    expect(registry.get(id)?.status).toBe('delivered');
-    const after = office.commit().snapshot.agents.find((a) => a.id === demo.id)!;
-    expect(after.recent.at(-1)).toMatchObject({ kind: 'communicate', text: 'Message via Habblaud', detail: 'hi, demo' });
-  });
-
-  it('demo turned off midway: message fails (agent left)', () => {
-    const { office, registry } = setup();
-    office.setDemo(true);
-    const demo = office.commit().snapshot.agents.find((a) => a.id.startsWith('demo:') && a.kind === 'main' && a.status !== 'offline')!;
-    const id = sent(registry.send({ agentId: demo.id, text: 'hi' }));
-    office.setDemo(false);
-    registry.tick();
-    expect(registry.get(id)).toMatchObject({ status: 'failed', error: ERR_GONE });
   });
 });

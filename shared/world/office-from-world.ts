@@ -95,7 +95,6 @@ export function officeFromBuilding(detail: WorldBuildingDetail, now: number, opt
     agents,
     accounts: toolAccounts(agents),
     meta: {
-      demo: false,
       sources: [],
       startedAt: now,
       version: String(opts.version),

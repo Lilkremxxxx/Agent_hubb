@@ -33,7 +33,7 @@ export interface PermissionServer {
 }
 
 export async function servePermissions(
-  opts: { enabled?: boolean; viewers?: number; demo?: boolean; registry?: Partial<RegistryOptions>; codex?: boolean; codexLive?: CodexLive } = {},
+  opts: { enabled?: boolean; viewers?: number; registry?: Partial<RegistryOptions>; codex?: boolean; codexLive?: CodexLive } = {},
 ): Promise<PermissionServer> {
   const tmp = tempDir();
   const enabled = opts.enabled ?? true;
@@ -54,8 +54,6 @@ export async function servePermissions(
     ? new PermissionRegistry({
         office,
         viewers: () => viewers,
-        demoDecide: (id, d) => office.decideDemoPermission(id, d),
-        demoDetail: (id) => office.demoPermission(id),
         tickMs: 50,
         ...opts.registry,
       })
@@ -85,7 +83,6 @@ export async function servePermissions(
   if (opts.codex) {
     office.addMain({ id: CODEX_MAIN, provider: 'codex', account: '.codex', sessionId: CODEX_THREAD, cwd: '/p/loja', role: 'Main agent', startedAt: Date.now(), status: 'working' });
   }
-  if (opts.demo) office.setDemo(true);
   return {
     base: `http://127.0.0.1:${port}`,
     port,

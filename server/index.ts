@@ -293,8 +293,6 @@ const permissions = config.terminal
       transcriptPathOf: (id) => claude.transcriptPathOf(id),
       // Requests from the Codex hook: account from CODEX_HOME directory it sends.
       codexAccount: (account, codexHome) => codexAccountOf(accounts.entriesOf('codex'), account, codexHome),
-      demoDecide: (id, d) => office.decideDemoPermission(id, d),
-      demoDetail: (id) => office.demoPermission(id),
     })
   : undefined;
 late.permissions = permissions;
@@ -323,8 +321,6 @@ const dictation = config.messages
 const messages = config.messages
   ? new MessageRegistry({
       office,
-      demoAgent: (id) => office.demoAgent(id),
-      demoDeliver: (id, text) => office.deliverDemoMessage(id, text),
       codex: {
         run: codexBin ? createCodexQueueRunner(codexBin) : undefined,
         homeOf: (account) => accounts.entriesOf('codex').find((e) => e.id === account)?.detected.configDir,
@@ -457,7 +453,6 @@ if (ptys) {
   }
 }
 
-if (config.demo) office.setDemo(true);
 // Synchronous sources (Claude Code) finish booting here, before the hub starts broadcasting.
 void agents.start();
 accounts.start();
@@ -691,7 +686,6 @@ server.listen(config.port, config.host, () => {
   } else {
     log.info(tr('   Codex: {0}.', [config.codex ? tr('no Codex folder found (set HABBLAUD_CODEX_DIRS)') : tr('off (HABBLAUD_CODEX=0)')]));
   }
-  if (office.isDemo()) log.info(tr('   Demo mode on (simulated agents mixed in with the real ones).'));
   if (config.terminal) log.info(tr('   Terminal: on (local access only).'));
   else log.info(tr('   Terminal: off ({0}).', [terminalOffReason(process.env, config.host, config.inDocker)]));
   log.info(ptys ? tr('   Interactive terminal: on ({0}).', [claudeBin]) : tr('   Interactive terminal: {0}.', [ptyOff ?? tr('off')]));

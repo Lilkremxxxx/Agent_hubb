@@ -63,7 +63,7 @@ export class Splash implements UiComponent {
 export function officeIsEmpty(ctx: UiContext): boolean {
   const { store } = ctx;
   const snap = store.snapshot;
-  const connected = store.connection === 'open' || store.connection === 'mock';
+  const connected = store.connection === 'open';
   // In timelapse, a moment with nobody isn't "open Claude Code (or Codex)".
   return connected && !store.replaying && !!snap && snap.agents.length === 0 && snap.rooms.length === 0;
 }
@@ -71,8 +71,6 @@ export function officeIsEmpty(ctx: UiContext): boolean {
 export class EmptyState implements UiComponent {
   readonly el: HTMLElement;
   private hint: HTMLElement;
-  private demoBtn: HTMLButtonElement;
-  private busy = false;
 
   constructor(private ctx: UiContext) {
     const art = h('div', { class: 'ui-empty__art', attrs: { 'aria-hidden': 'true' } });
@@ -91,14 +89,12 @@ export class EmptyState implements UiComponent {
     });
     art.append(img);
     this.hint = h('p', { class: 'ui-empty__text' });
-    this.demoBtn = h('button', { class: 'ui-btn ui-btn--primary', type: 'button', text: tr('View demo'), on: { click: () => void this.startDemo() } });
     this.el = h(
       'section',
       { class: 'ui-empty', hidden: true, attrs: { 'aria-labelledby': 'ui-empty-title' } },
       art,
       h('h2', { class: 'ui-empty__title', text: tr('The office is empty'), attrs: { id: 'ui-empty-title' } }),
       this.hint,
-      this.demoBtn,
     );
   }
 
@@ -109,22 +105,6 @@ export class EmptyState implements UiComponent {
     setHidden(this.el, !show);
     if (!show || !snap) return;
     setText(this.hint, emptyOfficeHint(snap.accounts));
-    this.demoBtn.disabled = this.busy;
-    setHidden(this.demoBtn, store.mock);
-  }
-
-  private async startDemo(): Promise<void> {
-    this.busy = true;
-    this.ctx.invalidate();
-    try {
-      const ok = await this.ctx.store.setDemo(true);
-      if (!ok) this.ctx.announce(tr("Couldn't start the demo."));
-    } catch {
-      this.ctx.announce(tr("Couldn't reach the server."));
-    } finally {
-      this.busy = false;
-      this.ctx.invalidate();
-    }
   }
 }
 

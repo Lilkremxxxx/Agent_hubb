@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OfficeSnapshot } from '../../../shared/types';
-import { mockOptionsFrom, OfficeStore, pageBuild, reconnectDelay, type EventSourceLike } from './store';
+import { OfficeStore, pageBuild, reconnectDelay, type EventSourceLike } from './store';
 
 /** Mock EventSource: test triggers open/error and updates readyState. */
 class FakeSource implements EventSourceLike {
@@ -33,28 +33,6 @@ class FakeSource implements EventSourceLike {
     this.fire('error');
   }
 }
-
-describe('mockOptionsFrom', () => {
-  it('uses defaults with no query parameters', () => {
-    expect(mockOptionsFrom('')).toEqual({ speed: 1, sessions: 4 });
-  });
-
-  it('accepts sessions=0 (empty office)', () => {
-    expect(mockOptionsFrom('?mock=1&sessions=0').sessions).toBe(0);
-  });
-
-  it('ignores invalid values and clamps excessive ones', () => {
-    expect(mockOptionsFrom('?sessions=abc&speed=-2')).toEqual({ speed: 1, sessions: 4 });
-    expect(mockOptionsFrom('?sessions=&speed=')).toEqual({ speed: 1, sessions: 4 });
-    expect(mockOptionsFrom('?sessions=6.7&speed=2')).toEqual({ speed: 2, sessions: 6 });
-    expect(mockOptionsFrom('?sessions=999&speed=999')).toEqual({ speed: 50, sessions: 40 });
-  });
-
-  it('for screenshots: fixed seed and Codex without quota', () => {
-    expect(mockOptionsFrom('?mock=1&seed=7&noquota=1')).toEqual({ speed: 1, sessions: 4, seed: 7, codexNoQuota: true });
-    expect(mockOptionsFrom('?seed=-1&noquota=0')).toEqual({ speed: 1, sessions: 4 });
-  });
-});
 
 describe('reconnectDelay', () => {
   it('doubles on each attempt up to 30 s', () => {
@@ -194,7 +172,7 @@ describe('OfficeStore: reconnection', () => {
     store.on('notice', (n) => notices.push(n));
     store.connect();
     last().open();
-    const snap = { rev: 1, serverTime: 0, rooms: [], agents: [], accounts: [], meta: { demo: false, sources: [], startedAt: 1, version: 't' } };
+    const snap = { rev: 1, serverTime: 0, rooms: [], agents: [], accounts: [], meta: { sources: [], startedAt: 1, version: 't' } };
     last().fire('snapshot', snap);
     expect(store.snapshot?.rev).toBe(1);
     last().fire('feed', [{ id: 'f1', agentId: 'a', roomId: 'r', agentName: 'Ana', roomName: 'x', activity: { id: 'x', at: 0, kind: 'tool', icon: '·', text: 't' } }]);
@@ -214,7 +192,7 @@ const snap = (rev: number, build?: string): OfficeSnapshot => ({
   rooms: [],
   agents: [],
   accounts: [],
-  meta: { demo: false, sources: [], startedAt: 1, version: '0.1.0', build },
+  meta: { sources: [], startedAt: 1, version: '0.1.0', build },
 });
 
 describe('new version detection', () => {
@@ -238,18 +216,15 @@ describe('new version detection', () => {
     expect(seen).toEqual(['main-old->main-new']);
   });
 
-  it('does not notify without server build, in dev mode, or in mock', () => {
+  it('does not notify without server build, or in dev mode', () => {
     const dev = new OfficeStore();
     dev.pageBuildId = undefined;
-    const mock = new OfficeStore({ mock: true });
-    mock.pageBuildId = 'main-old';
     const noBuild = new OfficeStore();
     noBuild.pageBuildId = 'main-old';
     let count = 0;
-    for (const s of [dev, mock, noBuild]) s.on('update', () => count++);
+    for (const s of [dev, noBuild]) s.on('update', () => count++);
     const apply = (s: OfficeStore, x: OfficeSnapshot) => (s as unknown as { applySnapshot(s: OfficeSnapshot): void }).applySnapshot(x);
     apply(dev, snap(1, 'main-new'));
-    apply(mock, snap(1, 'main-new'));
     apply(noBuild, snap(1));
     expect(count).toBe(0);
   });
@@ -312,15 +287,12 @@ describe('project character (store)', () => {
     expect(await store.saveCharacter('.claude:1', { name: 'Ana', seed: 1, parts: {} })).toBeUndefined();
   });
 
-  it('resetCharacter: DELETE with JSON body; no connection returns message; mock does not touch network', async () => {
+  it('resetCharacter: DELETE with JSON body; no connection returns message', async () => {
     const fetchMock = vi.fn(async () => new Response('{"ok":true}', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     expect(await new OfficeStore().resetCharacter('a')).toBeUndefined();
     expect(fetchMock).toHaveBeenLastCalledWith('/api/agents/a/character', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     fetchMock.mockRejectedValueOnce(new TypeError('failed to fetch'));
     expect(await new OfficeStore().resetCharacter('a')).toBe('No connection to Habblaud.');
-    const calls = fetchMock.mock.calls.length;
-    expect(await new OfficeStore({ mock: true }).resetCharacter('a')).toMatch(/live office/);
-    expect(fetchMock.mock.calls.length).toBe(calls);
   });
 });

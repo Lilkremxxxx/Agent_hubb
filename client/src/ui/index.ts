@@ -454,7 +454,6 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   addEventListener('keydown', (e) => onKey(e));
   // Easter egg: Konami code triggers party in all rooms (ui/konami.ts).
   const konami = attachKonami(() => {
-    if (store.mock) return;
     void fetch('/api/fun/party', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => undefined);
     ctx.announce(tr('🎮 Secret code! Party in every room.'));
   });
@@ -511,7 +510,6 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
         break;
       case 'l':
       case 'L':
-        if (store.mock) break;
         e.preventDefault();
         ctx.toggleTimelapse();
         break;

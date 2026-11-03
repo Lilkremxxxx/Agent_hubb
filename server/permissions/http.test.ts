@@ -1,6 +1,6 @@
 // Routes in /api/permissions: lock (disabled / non-local Host), guard (JSON and Origin),
 // statuses (400, 404, 405, 409), full flow (register -> wait -> decide), undecided long-poll,
-// immediate response when no pages open, AskUserQuestion questions, and mock demo requests.
+// immediate response when no pages open and AskUserQuestion questions.
 import { afterEach, describe, expect, it } from 'vitest';
 import type { OfficeSnapshot, PermissionRequestInfo } from '../../shared/types';
 import { setQuiet } from '../log';
@@ -163,43 +163,6 @@ describe('routes', () => {
         { question: 1, options: [0], other: 'lint' },
       ],
     });
-  });
-
-  it('demo: mock question answered via same route (and approving is rejected)', async () => {
-    srv = await servePermissions({ demo: true });
-    const sim = (srv.office as unknown as { demo: { forcePermission(now: number, kind?: string): string | undefined } }).demo;
-    const agentId = sim.forcePermission(Date.now(), 'question');
-    srv.office.tick();
-    const p = ((await request(srv.base, '/api/snapshot')).json as OfficeSnapshot).agents.find((a) => a.id === agentId)!.permission!;
-    expect(p.tool).toBe('AskUserQuestion');
-    const decide = (body: unknown) => request(srv!.base, `/api/permissions/${encodeURIComponent(p.id)}/decision`, { method: 'POST', body });
-    expect((await decide({ behavior: 'allow' })).status).toBe(400);
-    expect((await decide({ behavior: 'answer', answers: [{ question: 0, options: [0] }] })).status).toBe(400);
-    const [single, multi] = p.questions!;
-    expect((await decide({ behavior: 'answer', answers: [{ question: single!.index, options: [0] }, { question: multi!.index, options: [0, 1] }] })).status).toBe(200);
-    const after = ((await request(srv.base, '/api/snapshot')).json as OfficeSnapshot).agents.find((a) => a.id === agentId)!;
-    expect(after.permission).toBeUndefined();
-    expect(after.status).toBe('working');
-    expect(after.recent.at(-1)).toMatchObject({ icon: '💬', text: 'Answered in Habblaud' });
-  });
-
-  it('demo: mock request answered via same route', async () => {
-    srv = await servePermissions({ demo: true });
-    // Some demo agent requests permission now.
-    const sim = (srv.office as unknown as { demo: { forcePermission(now: number, kind?: string): string | undefined } }).demo;
-    const agentId = sim.forcePermission(Date.now(), 'permission');
-    srv.office.tick();
-    const snap = (await request(srv.base, '/api/snapshot')).json as OfficeSnapshot;
-    const agent = snap.agents.find((a) => a.id === agentId)!;
-    expect(agent.status).toBe('waiting');
-    const p = agent.permission!;
-    expect(p.id.startsWith('demo:')).toBe(true);
-    expect(p.input).toBeTruthy();
-    expect((await request(srv.base, `/api/permissions/${encodeURIComponent(p.id)}`)).json).toMatchObject({ id: p.id });
-    expect((await request(srv.base, `/api/permissions/${encodeURIComponent(p.id)}/decision`, { method: 'POST', body: { behavior: 'allow' } })).status).toBe(200);
-    const after = ((await request(srv.base, '/api/snapshot')).json as OfficeSnapshot).agents.find((a) => a.id === agentId)!;
-    expect(after.permission).toBeUndefined();
-    expect(after.status).toBe('working');
   });
 
   it('waitMs: ?timeout= in seconds, capped at 25 s', () => {

@@ -537,7 +537,6 @@ export interface OfficeSnapshot {
   /** Detected Claude accounts (with 5h/weekly usage when available). */
   accounts: AccountInfo[];
   meta: {
-    demo: boolean;
     sources: SourceInfo[];
     startedAt: number;
     version: string;

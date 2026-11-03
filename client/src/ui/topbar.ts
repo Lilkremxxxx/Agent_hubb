@@ -32,7 +32,6 @@ export class TopBar implements UiComponent {
   readonly el: HTMLElement;
   private pill: HTMLElement;
   private pillText: HTMLElement;
-  private demoBadge: HTMLElement;
   /** Bottom line of brand (connection, version, badges): Habblaud World chip goes here (ui/index.ts). */
   private status: HTMLElement;
   private counters = new Map<keyof Counters, CounterRefs>();
@@ -63,7 +62,6 @@ export class TopBar implements UiComponent {
 
     this.pillText = h('span', { class: 'ui-pill__text' });
     this.pill = h('span', { class: 'ui-pill', role: 'status', attrs: { 'aria-live': 'polite' } }, h('span', { class: 'ui-pill__dot' }), this.pillText);
-    this.demoBadge = h('span', { class: 'ui-demo-badge', text: tr('Demo'), title: tr('Demo agents on (turn them off in Settings)'), hidden: true });
 
     const counterWrap = h('div', { class: 'ui-counters', role: 'group', attrs: { 'aria-label': tr('Office summary') } });
     for (const c of COUNTERS) {
@@ -110,7 +108,7 @@ export class TopBar implements UiComponent {
     this.accounts = new AccountsDialog(ctx);
     ctx.root.append(this.accounts.el);
     this.version = new VersionChip(ctx, this.settingsBtn);
-    this.status = h('div', { class: 'ui-topbar__status' }, this.pill, this.version.el, this.demoBadge);
+    this.status = h('div', { class: 'ui-topbar__status' }, this.pill, this.version.el);
     const viewGroup = h(
       'div',
       { class: 'ui-btn-group', role: 'group', attrs: { 'aria-label': tr('Camera') } },
@@ -172,18 +170,13 @@ export class TopBar implements UiComponent {
     const conn = store.connection;
     if (conn === 'open') this.hadOpen = true;
     const label =
-      conn === 'open' ? tr('Connected') : conn === 'mock' ? tr('Simulation') : conn === 'closed' ? tr('Disconnected') : this.hadOpen ? tr('Reconnecting…') : tr('Connecting…');
+      conn === 'open' ? tr('Connected') : conn === 'closed' ? tr('Disconnected') : this.hadOpen ? tr('Reconnecting…') : tr('Connecting…');
     setText(this.pillText, label);
     setVariant(this.pill, 'is-', conn);
     setTitle(
       this.pill,
-      conn === 'mock'
-        ? tr('Simulated data in the browser (?mock=1)')
-        : conn === 'open'
-          ? tr('Receiving server events in real time')
-          : tr('No connection to the Habblaud server'),
+      conn === 'open' ? tr('Receiving server events in real time') : tr('No connection to the Habblaud server'),
     );
-    setHidden(this.demoBadge, !(conn === 'open' && snap?.meta.demo));
 
     // Counters.
     const now = this.ctx.now();
@@ -211,12 +204,11 @@ export class TopBar implements UiComponent {
 
     this.version.render();
     this.accounts.render();
-    setHidden(this.accounts.button, store.mock || store.replaying);
+    setHidden(this.accounts.button, store.replaying);
 
     this.sidebarBtn.setAttribute('aria-pressed', String(this.ctx.isPanelOpen('sidebar')));
     this.feedBtn.setAttribute('aria-pressed', String(this.ctx.isPanelOpen('feed')));
     this.timelapseBtn.setAttribute('aria-pressed', String(this.ctx.isTimelapseOpen()));
-    setHidden(this.timelapseBtn, store.mock);
   }
 
   private renderShells(n: number, now: number): void {

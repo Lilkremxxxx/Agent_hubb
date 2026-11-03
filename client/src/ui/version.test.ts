@@ -3,13 +3,12 @@ import type { OfficeSnapshot } from '../../../shared/types';
 import { versionInfo } from './version';
 
 function snap(version: string): OfficeSnapshot {
-  return { rev: 1, serverTime: 0, rooms: [], agents: [], accounts: [], meta: { demo: false, sources: [], startedAt: 0, version } };
+  return { rev: 1, serverTime: 0, rooms: [], agents: [], accounts: [], meta: { sources: [], startedAt: 0, version } };
 }
 
 describe('versionInfo', () => {
-  it('real versions only: demo, timelapse and no snapshot have none', () => {
+  it('real versions only: timelapse and no snapshot have none', () => {
     expect(versionInfo(snap('0.2.0'))).toEqual({ version: '0.2.0' });
-    expect(versionInfo(snap('demo'))).toBeNull();
     expect(versionInfo(snap('timelapse'))).toBeNull();
     expect(versionInfo(null)).toBeNull();
   });

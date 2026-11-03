@@ -14,7 +14,6 @@ export interface EditGate {
   /** Page opened via localhost/127.x (server rejects others). */
   local: boolean;
   replaying: boolean;
-  mock: boolean;
 }
 
 /**
@@ -22,7 +21,7 @@ export interface EditGate {
  * would reply 404) and with local access (terminal restriction).
  */
 export function canEditCharacter(a: Pick<AgentInfo, 'id' | 'kind' | 'status'>, g: EditGate): boolean {
-  return a.kind === 'main' && a.status !== 'offline' && g.live && g.terminal && g.local && !g.replaying && !g.mock && !isDemoId(a.id);
+  return a.kind === 'main' && a.status !== 'offline' && g.live && g.terminal && g.local && !g.replaying && !isDemoId(a.id);
 }
 
 /** Parts differing from seed-generated base appearance (sent in `parts`), in PART_KEYS order. */

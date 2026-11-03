@@ -11,7 +11,7 @@ const theme = { carpet: '#4f6d8f', carpet2: '#486685', wall: { base: '#e6e2da', 
 const art = { appearanceFromSeed: () => ({}) as Appearance, roomTheme: () => theme } as unknown as ArtModule;
 const violation = (at: number): RuleViolation => ({ at, office: 'a', who: 'acc2', kind: 'deny', detail: '~/.ssh/id', by: 'hook' });
 const snap = (offices: OfficeInfo[]): OfficeSnapshot =>
-  ({ rev: 1, serverTime: T0, rooms: [], agents: [], accounts: [], meta: { demo: true, sources: [], startedAt: T0, version: 't' }, team: { workers: [], agy: [], offices } }) as OfficeSnapshot;
+  ({ rev: 1, serverTime: T0, rooms: [], agents: [], accounts: [], meta: { sources: [], startedAt: T0, version: 't' }, team: { workers: [], agy: [], offices } }) as OfficeSnapshot;
 const rules = defaultRules();
 const office = (id: string, extra: Partial<OfficeInfo> = {}): OfficeInfo => ({ id, name: id, folder: `/${id}`, workers: [], ...extra });
 

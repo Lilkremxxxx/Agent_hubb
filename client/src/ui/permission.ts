@@ -481,9 +481,9 @@ export class PermissionCard {
     this.ctx.invalidate();
   }
 
-  /** This page can respond (local port, or remote with permissions allowed; or mock mode). */
+  /** This page can respond (local port, or remote with permissions allowed). */
   private isLocal(): boolean {
-    return this.ctx.store.mock || access().permissions;
+    return access().permissions;
   }
 
   /** Unable to answer right now: sending, already answered, or page opened remotely. */

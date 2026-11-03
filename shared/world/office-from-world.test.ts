@@ -88,7 +88,6 @@ describe('officeFromBuilding', () => {
       { id: 'world:codex', provider: 'codex', short: 'X', name: 'Codex', color: WORLD_TOOL_ACCOUNTS.codex.color, configDir: '', sessions: 2, usageStatus: 'disabled' },
     ]);
     expect(s.meta).toEqual({
-      demo: false,
       sources: [],
       startedAt: T0,
       version: '0.12.0',

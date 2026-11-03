@@ -721,13 +721,6 @@
   }
 }
 
-.ui-demo-badge {
-  font-size: 10.5px;
-  font-weight: 600;
-  color: #d3c2ff;
-  padding-left: 2px;
-}
-
 /* Version in the top bar: the number or, with a newer GitHub release, the "New version" badge. */
 .ui-version {
   display: inline-flex;
@@ -781,21 +774,6 @@
   50% {
     transform: translateY(-1px);
   }
-}
-
-/* With the "Demo" badge there is no room left for the number (it remains in Settings › About). */
-.ui-topbar__status:has(.ui-demo-badge:not([hidden])) .ui-version:not(.is-new) {
-  display: none;
-}
-
-/* Tight bar (or with "Demo" badge): badge keeps only the arrow; tooltip, toast, and settings
-   dot explain it. */
-.ui-topbar__status:has(.ui-demo-badge:not([hidden])) .ui-version.is-new {
-  padding: 0 6px;
-}
-
-.ui-topbar__status:has(.ui-demo-badge:not([hidden])) .ui-version.is-new .ui-version__text {
-  display: none;
 }
 
 @media (max-width: 1500px) {
@@ -3939,7 +3917,6 @@ button.ui-teamdlg__account:hover {
 @media (max-width: 1040px) {
   .ui-brand__name,
   .ui-pill__text,
-  .ui-demo-badge,
   .ui-version {
     display: none;
   }

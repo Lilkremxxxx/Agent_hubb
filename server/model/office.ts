@@ -1,4 +1,4 @@
-// Office model: agents (real and demo), rooms, feed, and notices.
+// Office model: agents, rooms, feed, and notices.
 // Source watchers (sources/watcher.ts) call mutation methods; the SSE hub
 // calls commit() (throttled) to obtain the new snapshot, feed, and pending notices.
 import type {
@@ -30,7 +30,6 @@ import type {
 } from '../../shared/types';
 import { SHELL_WAIT_TOOL, SPECIAL, type ShellOutcome } from '../../shared/activity';
 import { nameKey, type AppearanceParts } from '../../shared/appearance';
-import { DemoSimulator } from '../../shared/demo/simulator';
 import { describeGitHubEvent, githubEventKey, RoomEffects, type GitHubEvent } from '../../shared/github';
 import { hash32 } from '../../shared/hash';
 import { applyPermission } from '../permissions/registry';
@@ -217,8 +216,6 @@ export class Office {
   private rev = 0;
   private dirty = true;
   private last: OfficeSnapshot | null = null;
-  private demo: DemoSimulator | null = null;
-  private demoSnap: OfficeSnapshot | null = null;
   private booting = false;
   /** Sources booting right now (counted beginBoot/endBoot): boot finishes only when all complete. */
   private bootDepth = 0;
@@ -319,17 +316,11 @@ export class Office {
 
   detail(id: string): AgentDetail | undefined {
     const rec = this.agents.get(id);
-    if (rec) return { agent: cloneAgent(rec.info), history: rec.history.slice() };
-    const demo = this.demoSnap?.agents.find((a) => a.id === id);
-    return demo ? { agent: cloneAgent(demo), history: demo.recent.slice() } : undefined;
+    return rec ? { agent: cloneAgent(rec.info), history: rec.history.slice() } : undefined;
   }
 
   recentFeed(n: number): FeedItem[] {
     return this.feed.slice(-n);
-  }
-
-  isDemo(): boolean {
-    return this.demo !== null;
   }
 
   // ---------------------------------------------------------------- main agents
@@ -922,54 +913,6 @@ export class Office {
     this.markDirty();
   }
 
-  /** Decision for a mock demo request. true = request was from demo (and answered). */
-  decideDemoPermission(requestId: string, d: PermissionDecision): boolean {
-    if (!this.demo) return false;
-    const now = this.now();
-    if (!this.demo.decidePermission(requestId, d, now)) return false;
-    this.demoSnap = this.demo.snapshot(now);
-    this.markDirty();
-    return true;
-  }
-
-  /** Mock demo request (already complete in snapshot). */
-  demoPermission(requestId: string): PermissionRequestInfo | undefined {
-    return this.demoSnap?.agents.find((a) => a.permission?.id === requestId)?.permission;
-  }
-
-  // ---------------------------------------------------------------- messages from office (server/messages)
-
-  /** Mock demo agent (only exists in snapshot), for message registry. */
-  demoAgent(id: string): AgentInfo | undefined {
-    return this.demoSnap?.agents.find((a) => a.id === id);
-  }
-
-  /** Mock message delivery to demo agent. false = already left (or demo turned off). */
-  deliverDemoMessage(agentId: string, text: string): boolean {
-    if (!this.demo) return false;
-    const now = this.now();
-    if (!this.demo.receiveMessage(agentId, text, now)) return false;
-    this.demoSnap = this.demo.snapshot(now);
-    this.markDirty();
-    return true;
-  }
-
-  // ---------------------------------------------------------------- demo
-
-  setDemo(enabled: boolean): void {
-    if (enabled === this.isDemo()) return;
-    const now = this.now();
-    if (enabled) {
-      this.demo = new DemoSimulator({ idPrefix: 'demo:' }, now);
-      this.demoSnap = this.demo.snapshot(now);
-    } else {
-      this.demo = null;
-      this.demoSnap = null;
-    }
-    this.recomputeRoomNames();
-    this.markDirty();
-  }
-
   // ---------------------------------------------------------------- project character (editor)
 
   /** Chooses name and appearance for main agent `id` and saves as the room character. */
@@ -1025,7 +968,7 @@ export class Office {
     return 'ok';
   }
 
-  /** Real, present main agent (not subagent, demo, or leaving). */
+  /** Real, present main agent (not subagent or leaving). */
   private editable(id: string): AgentRecord | undefined {
     const rec = this.agents.get(id);
     return rec && rec.info.kind === 'main' && rec.removeAt === undefined ? rec : undefined;
@@ -1055,9 +998,6 @@ export class Office {
       if (r.info.id === id || (r.removeAt !== undefined && !leaving) || nameKey(r.info.name) !== key) continue;
       return tr('{0} is already in the office, in {1}', [r.info.name, this.roomName(r.info.roomId)]);
     }
-    for (const a of this.demoSnap?.agents ?? []) {
-      if (nameKey(a.name) === key) return tr('{0} is already in the office, in {1}', [a.name, this.roomName(a.roomId)]);
-    }
     for (const [n, room] of this.deps.names.reservedNames(roomId)) {
       if (nameKey(n) === key) return tr("{0} is already {1}'s character", [n, this.roomName(room)]);
     }
@@ -1066,20 +1006,9 @@ export class Office {
 
   // ---------------------------------------------------------------- clock
 
-  /** Advances demo and removes agents whose grace period expired. Call every ~250 ms. */
+  /** Removes agents whose grace period expired. Call every ~250 ms. */
   tick(): void {
     const now = this.now();
-    if (this.demo) {
-      const r = this.demo.tick(now);
-      if (r.changed) {
-        this.demoSnap = this.demo.snapshot(now);
-        this.recomputeRoomNames();
-        this.dirty = true;
-      }
-      if (r.feed.length) this.pushFeed(r.feed);
-      this.pendingNotices.push(...r.notices);
-      if (r.changed || r.feed.length || r.notices.length) this.markDirty();
-    }
     let removed = false;
     for (const [id, rec] of this.agents) {
       if (rec.removeAt !== undefined && now >= rec.removeAt) {
@@ -1115,7 +1044,6 @@ export class Office {
   private build(): OfficeSnapshot {
     const now = this.now();
     const entries = new Map(this.rooms);
-    for (const r of this.demoSnap?.rooms ?? []) entries.set(r.id, { path: r.path, createdAt: r.createdAt });
     this.slots.sync(entries.keys(), now);
     const rooms: RoomInfo[] = [...entries]
       .map(([id, r]) => ({
@@ -1128,9 +1056,9 @@ export class Office {
         ...(this.roomOffices.get(id) ? { office: this.roomOffices.get(id) } : {}),
       }))
       .sort((a, b) => a.slot - b.slot);
-    // party/alarm (GitHub events): from real rooms or demo
+    // party/alarm (GitHub events)
     for (const room of rooms) {
-      const effect = this.effects.get(room.id, now) ?? this.demoSnap?.rooms.find((r) => r.id === room.id)?.effect;
+      const effect = this.effects.get(room.id, now);
       if (effect) room.effect = { ...effect };
       const board = this.boards.get(room.id);
       if (board) room.board = board;
@@ -1140,14 +1068,8 @@ export class Office {
     const perms = this.deps.permissions?.();
     const real = [...this.agents.values()].map((r) => applyPermission(cloneAgent(r.info), perms?.get(r.info.id)));
     const reach = this.deps.messages?.();
-    // Messages from office: present main agents whose session has plugin connected. In demo simulator decides;
-    // when feature is disabled, nobody receives.
+    // Messages from office: present main agents whose session has plugin connected. When feature is disabled, nobody receives.
     for (const a of real) if (reach?.has(a.id) && a.kind === 'main' && a.status !== 'offline' && a.status !== 'done') a.canMessage = true;
-    const demoAgents = (this.demoSnap?.agents ?? []).map((a) => {
-      if (reach || !a.canMessage) return a;
-      const { canMessage: _off, ...rest } = a;
-      return rest;
-    });
     const trim = (a: AgentInfo): AgentInfo => (a.recent.length > SNAPSHOT_RECENT ? { ...a, recent: a.recent.slice(-SNAPSHOT_RECENT) } : a);
     const sessions = new Map<string, number>();
     for (const a of real) if (a.kind === 'main' && a.status !== 'offline') sessions.set(a.account, (sessions.get(a.account) ?? 0) + 1);
@@ -1156,13 +1078,12 @@ export class Office {
       rev: this.rev,
       serverTime: now,
       rooms,
-      agents: [...real, ...demoAgents].map(trim),
-      accounts: [...this.deps.accounts(sessions), ...(this.demoSnap?.accounts ?? [])],
+      agents: real.map(trim),
+      accounts: this.deps.accounts(sessions),
       ...(ptys ? { ptys: ptys.list } : {}),
       ...(this.news.length ? { news: this.news } : {}),
       ...(this.team ? { team: this.team } : {}),
       meta: {
-        demo: this.isDemo(),
         sources: this.deps.sources(),
         startedAt: this.deps.startedAt,
         version: this.deps.version,
@@ -1185,7 +1106,6 @@ export class Office {
       if (r.info.id === exceptId || (exceptSession && r.info.kind === 'main' && r.info.sessionId === exceptSession)) continue;
       used.add(r.info.name);
     }
-    for (const a of this.demoSnap?.agents ?? []) used.add(a.name);
     for (const n of this.deps.names.reservedNames().keys()) used.add(n);
     return used;
   }
@@ -1214,7 +1134,6 @@ export class Office {
 
   private recomputeRoomNames(): void {
     const paths = new Map([...this.rooms].map(([id, r]) => [id, r.path]));
-    for (const r of this.demoSnap?.rooms ?? []) paths.set(r.id, r.path);
     this.roomNames = roomDisplayNames(paths);
     for (const [id, path] of paths) {
       const alias = this.deps.roomAlias?.(path) ?? this.roomLabels.get(id);

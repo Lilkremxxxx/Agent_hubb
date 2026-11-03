@@ -1,5 +1,5 @@
 // Terminal: config lock (local bind only), route statuses, SSE transport
-// (init/append/reset/limit) with temporary JSONL and injected parser, demo, and transcript path
+// (init/append/reset/limit) with temporary JSONL and injected parser and transcript path
 // reported by the watcher.
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -125,7 +125,7 @@ async function serve(opts: { terminal?: boolean; streams?: Partial<TerminalOptio
   const hub = new Hub(office, { throttleMs: 10 });
   const accounts = new AccountsService({ dirs: [], home: tmp.dir, env: {}, onChange: () => {} });
   const paths = new Map<string, string>();
-  const terminals = new TerminalStreams({ office, transcriptPathOf: (id) => paths.get(id), createParser: fakeParser, pollMs: 20, demoPollMs: 20, ...opts.streams });
+  const terminals = new TerminalStreams({ office, transcriptPathOf: (id) => paths.get(id), createParser: fakeParser, pollMs: 20, ...opts.streams });
   const api = createApiHandler({ office, hub, accounts, sources: () => [], version: 't', inDocker: false, terminal, terminals });
   const guard = createRequestGuard({ allowedHosts: new Set(['habblaud.lan']) });
   const server = http.createServer((req, res) => {
@@ -482,55 +482,6 @@ describe('terminal: transport', () => {
       expect(env.office.get(MAIN)?.provider).toBeUndefined();
       sa.close();
       sb.close();
-    } finally {
-      await env.close();
-    }
-  });
-});
-
-// ------------------------------------------------------------------ demo
-
-describe('terminal: demo agents', () => {
-  it('simulated conversation (demoTerminalEntries): init with agent id', async () => {
-    const env = await serve();
-    try {
-      env.office.setDemo(true);
-      const demo = env.office.commit().snapshot.agents.find((a) => a.id.startsWith('demo:'))!;
-      const s = await open(env.base, route(demo.id));
-      expect(s.status).toBe(200);
-      await waitFor(() => expect(inits(s)).toHaveLength(1));
-      const init = inits(s)[0];
-      expect(init.agentId).toBe(demo.id);
-      expect(Array.isArray(init.entries)).toBe(true);
-      for (const e of init.entries) expect(typeof e.id).toBe('string');
-      s.close();
-    } finally {
-      await env.close();
-    }
-  });
-
-  it('append with new ids only; departed agent stops polling (stream stays open)', async () => {
-    const items = [user('d1'), user('d2')];
-    const env = await serve({ streams: { demoEntries: () => items.slice() } });
-    try {
-      env.office.setDemo(true);
-      const demo = env.office.commit().snapshot.agents.find((a) => a.id.startsWith('demo:'))!;
-      const s = await open(env.base, route(demo.id));
-      await waitFor(() => expect(inits(s)).toHaveLength(1));
-      expect(inits(s)[0]).toEqual({ agentId: demo.id, entries: items, truncated: false });
-      items.push(user('d3'));
-      await waitFor(() => expect(appendIds(s)).toEqual(['d3']));
-      // Window advances (d1 leaves): nothing resent.
-      items.shift();
-      items.push(user('d4'));
-      await waitFor(() => expect(appendIds(s)).toEqual(['d3', 'd4']));
-      env.office.setDemo(false);
-      await sleep(80);
-      const detail = vi.spyOn(env.office, 'detail');
-      await sleep(80);
-      expect(detail).not.toHaveBeenCalled();
-      expect(env.terminals.size).toBe(1);
-      s.close();
     } finally {
       await env.close();
     }

@@ -675,7 +675,7 @@ class AgentView {
     if (!this.bossBtn.disabled) setText(this.bossBtn, a.boss ? tr('Step down') : many && office ? tr('👑 Make boss of {0}', [office.name]) : tr('👑 Make boss'));
     this.bossBtn.title = a.boss ? tr('No boss until you appoint another session') : tr('Make this session the boss (orchestrator)');
     // (removes it from the office shown; a worker of another office only is removed from there)
-    setHidden(this.workerBtn, !live || !worker || (many && !officeForWorker(office, worker)) || access().remote || this.ctx.store.mock);
+    setHidden(this.workerBtn, !live || !worker || (many && !officeForWorker(office, worker)) || access().remote);
     setTitle(this.title, a.title ?? '');
     updateAccountChip(this.accChip, account, a.account, a.provider);
     setText(this.accName, account?.name ?? a.account);
@@ -712,7 +712,7 @@ class AgentView {
       setHidden(this.termBtn, false);
       this.renderTerminalButton(!!live);
     }
-    const here = !!live && !!this.ctx.store.snapshot?.meta.terminal && !access().remote && !this.ctx.store.mock;
+    const here = !!live && !!this.ctx.store.snapshot?.meta.terminal && !access().remote;
     // "Send a job": every registered worker (through its terminal; an older server without terminals: agy-ask).
     const manual = here && !!worker && !a.boss;
     setHidden(this.agySec.el, !manual);
@@ -741,7 +741,7 @@ class AgentView {
     // Without request in office: can answer from here with plugin (local-only check, like the card). Codex
     // does not answer questions from the office.
     const answerable =
-      !codex && !!asking?.questions?.length && !this.perm.visible && !this.ctx.store.mock && !!this.ctx.store.snapshot?.meta.terminal && access().permissions;
+      !codex && !!asking?.questions?.length && !this.perm.visible && !!this.ctx.store.snapshot?.meta.terminal && access().permissions;
     setHidden(this.alertAnswerHint, !answerable);
 
     // Waiting on shell.

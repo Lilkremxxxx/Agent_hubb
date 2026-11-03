@@ -1,5 +1,5 @@
 // Sample building, matching format sent by world server on building entry (`WorldBuildingDetail`): for tests
-// and visit demo mode (?mock=1) only. Incoming ONLY: nothing here uploads to world or enters building
+// only. Incoming ONLY: nothing here uploads to world or enters building
 // packet (packet produced only by projection.ts, from real office). 3 floors and 6 Claude Code and Codex agents:
 // working, waiting, watching a shell (counts as working in building summary), and idle, with one subagent
 // whose parent is on floor and one without (parent departed).

@@ -180,7 +180,6 @@ export class RulesDialog implements UiComponent {
 
   /** Why the rules cannot be changed here ('' = they can). */
   private locked(): string {
-    if (this.ctx.store.mock) return tr('Not in the demo');
     return this.ctx.store.snapshot?.meta.terminal ? '' : tr('This Habblaud does not let the page run commands');
   }
 

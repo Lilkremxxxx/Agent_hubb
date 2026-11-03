@@ -2,9 +2,6 @@
 // persists them in ${dataDir}/stats/YYYY-MM-DD.json (one file per day in server timezone), every 30 s and on
 // exit. On boot reloads recent files (day survives restarts), deletes files older than 30 days, and
 // builds an index of hours with data. Disk errors only produce a log warning: server never crashes because of this.
-//
-// Demo agents (prefix "demo:") never enter real data: when demo is enabled, they feed a separate,
-// in-memory-only bucket seeded with fictional history (shared/demo/daystats.ts) for dashboard and screenshots.
 import { mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentInfo, OfficeSnapshot } from '../../shared/types';
@@ -25,18 +22,15 @@ import {
   type StatsSource,
   type StatsView,
 } from '../../shared/daystats';
-import { seedDemoHistory } from '../../shared/demo/daystats';
 import { errMsg, log } from '../log';
 import { tr } from '../../shared/i18n';
 
-/** Demo agent ID prefix on the server (see Office.setDemo). */
-export const DEMO_ID_PREFIX = 'demo:';
 const FILE_RE = /^(\d{4}-\d{2}-\d{2})\.json$/;
 
 export interface DayStatsDeps {
   /** Files directory (`${dataDir}/stats`); null = memory only (tests). */
   dir: string | null;
-  /** Current office state (real and demo agents, rooms, and accounts). */
+  /** Current office state (agents, rooms, and accounts). */
   snapshot: () => Pick<OfficeSnapshot, 'agents' | 'rooms' | 'accounts' | 'meta'>;
   now?: () => number;
   /** Timezone for files and day rollover (default: process timezone; in Docker, UTC). */
@@ -51,7 +45,6 @@ export class DayStatsService {
   private readonly startedAt: number;
   private readonly book: StatsBook;
   private readonly tracker: StatsTracker;
-  private demo: { book: StatsBook; tracker: StatsTracker } | null = null;
   /** Hours with data for each disk file (to list days without opening all). */
   private readonly index = new Map<string, number[]>();
   private sampleTimer: ReturnType<typeof setInterval> | null = null;
@@ -104,23 +97,7 @@ export class DayStatsService {
   /** An office sample (timer calls every second). */
   sample(now = this.now()): void {
     const snap = this.deps.snapshot();
-    const realAgents: AgentInfo[] = [];
-    const demoAgents: AgentInfo[] = [];
-    // Demo = id and account with simulator prefix (an account directory named "demo" is not demo).
-    for (const a of snap.agents) (a.id.startsWith(DEMO_ID_PREFIX) && a.account.startsWith(DEMO_ID_PREFIX) ? demoAgents : realAgents).push(a);
-    const real: StatsView = { agents: realAgents, rooms: snap.rooms, accounts: snap.accounts };
-    const demo: StatsView = { agents: demoAgents, rooms: snap.rooms, accounts: snap.accounts };
-    this.tracker.observe(real, now);
-    if (snap.meta.demo) {
-      if (!this.demo) {
-        const book = new StatsBook((t) => dayKeyOf(t, this.tz));
-        seedDemoHistory(book, { ...demo, accounts: snap.accounts.filter((a) => a.id.startsWith(DEMO_ID_PREFIX)) }, now, this.tz);
-        this.demo = { book, tracker: new StatsTracker(book, { startedAt: now }) };
-      }
-      this.demo.tracker.observe(demo, now);
-    } else {
-      this.demo = null;
-    }
+    this.tracker.observe({ agents: snap.agents, rooms: snap.rooms, accounts: snap.accounts }, now);
   }
 
   /** Flushes dirty days, applies retention at day rollover, and evicts old days from memory. */
@@ -136,11 +113,6 @@ export class DayStatsService {
     }
     // Without disk, nothing is evicted from memory (dirty data stays until written).
     this.book.evictBefore(addDays(today, -1));
-    this.demo?.book.evictBefore(addDays(today, -1));
-  }
-
-  isDemo(): boolean {
-    return this.demo !== null;
   }
 
   /** Today in timezone `tz`. */
@@ -156,34 +128,24 @@ export class DayStatsService {
     for (const [key, hours] of this.index) if (!this.book.peek(key)) for (const d of daysFromHours(hours, tz)) real.add(d);
     for (const d of this.book.list()) for (const k of daysFromHours(d.hoursWithData(), tz)) real.add(k);
     real.add(today);
-    const list = (set: Set<string>) => [...set].filter((d) => d >= oldest && d <= today).sort().reverse();
-    const out: StatsDaysResponse = { tz, today, days: list(real), demoAvailable: this.demo !== null };
-    if (this.demo) {
-      const demoDays = new Set([today]);
-      for (const d of this.demo.book.list()) for (const k of daysFromHours(d.hoursWithData(), tz)) demoDays.add(k);
-      out.demoDays = list(demoDays);
-    }
-    return out;
+    return { tz, today, days: [...real].filter((d) => d >= oldest && d <= today).sort().reverse(), demoAvailable: false };
   }
 
   /**
-   * Stats for day `day` (timezone `tz`). Missing `source`: demo when enabled and day is today,
-   * otherwise real data. null = no data for this day (or requested demo is disabled).
+   * Stats for day `day` (timezone `tz`). null = no data for this day (or `source` is demo,
+   * which no longer exists).
    */
   day(day: string, tz: string, source?: StatsSource): DayStatsResponse | null {
     const now = this.now();
     const today = this.today(tz);
-    const src: StatsSource = source ?? (this.demo && day === today ? 'demo' : 'real');
-    if (src === 'demo' && !this.demo) return null;
-    const known = src === 'demo' ? this.days(tz).demoDays ?? [] : this.days(tz).days;
-    if (day !== today && !known.includes(day)) return null;
-    const book = src === 'demo' ? this.demo!.book : this.book;
+    if (source === 'demo') return null;
+    if (day !== today && !this.days(tz).days.includes(day)) return null;
     const datas: DayData[] = [];
     for (const key of fileDaysForQuery(day, tz, this.tz)) {
-      const d = book.peek(key) ?? (src === 'real' && this.index.has(key) ? this.readDay(key) : null);
+      const d = this.book.peek(key) ?? (this.index.has(key) ? this.readDay(key) : null);
       if (d) datas.push(d);
     }
-    return { source: src, demoAvailable: this.demo !== null, today, serverTime: now, stats: queryDay(datas, day, tz, now) };
+    return { source: 'real', demoAvailable: false, today, serverTime: now, stats: queryDay(datas, day, tz, now) };
   }
 
   // ---------------------------------------------------------------- disk

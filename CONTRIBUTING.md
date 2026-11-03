@@ -55,8 +55,7 @@ Use the path of the modified plugin (`mod/habblaud-permissoes` or `mod/habblaud-
 
 - Use a clear title and explain the problem, the change, and how it was verified.
 - Reference the related issue, if any.
-- For visual changes, include a screenshot or GIF if helpful to demonstrate results. Take screenshots in
-  demo mode (`?mock=1` in URL or `npm run demo`), which only shows fictional agents.
+- For visual changes, include a screenshot or GIF if helpful to demonstrate results.
 - Update the **Unreleased** section of `CHANGELOG.md` when the change introduces something visible to Habblaud users.
 - PRs touching `shared/world/` or `server/world/` (Habblaud World) explain what changes in what leaves the machine, and
   review cross-checks the [`docs/world/privacidade.md`](docs/world/privacidade.md) list against the code. Read

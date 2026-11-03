@@ -9,7 +9,7 @@ export const VERSION_ICONS = {
   up: pixelIcon(['...##...', '..####..', '.######.', '########', '..####..', '..####..', '..####..', '..####..']),
 };
 
-/** In-use version, from live snapshot (no real version in timelapse and ?mock=1). */
+/** In-use version, from live snapshot (no real version in timelapse). */
 export function versionInfo(snap: OfficeSnapshot | null | undefined): { version: string } | null {
   const v = snap?.meta.version;
   if (!v || !/^\d+\.\d+\.\d+/.test(v)) return null;

@@ -306,30 +306,9 @@ describe('data source resolution', () => {
     expect(fakeWorldStateFrom('?world=xyz')).toBe('logged_out');
   });
 
-  it('demo mode without &world: no World features (legacy screenshots unchanged)', () => {
-    const src = worldSource({ mock: true, liveSnapshot: null }, '?mock=1');
-    expect(src.client).toBeNull();
-    expect(src.meta()).toBeUndefined();
-  });
-
-  it('demo mode with &world: fake API responds (approved: building present in world)', () => {
-    const src = worldSource({ mock: true, liveSnapshot: null }, '?mock=1&world=approved');
-    expect(src.fake).toBe(true);
-    expect(src.client).toBeInstanceOf(FakeWorldApi);
-    expect(src.meta()).toEqual({
-      enabled: true,
-      configured: true,
-      state: 'approved',
-      // Phase 5: today likes (3 plus one per minute) and unseen demo mode summary
-      building: { connected: true, paused: false, floors: 2, agents: 3, lastUplinkAt: expect.any(Number), visitors: 0, likesToday: 3, awaySummary: true },
-      scene: { available: true },
-    });
-    expect(worldSource({ mock: true, liveSnapshot: null }, '?mock=1&world=waiting').meta()).toEqual({ enabled: true, configured: true, state: 'waiting' });
-  });
-
   it('live mode: local routes and meta.world from live snapshot', () => {
-    const store = { mock: false, liveSnapshot: snap({ enabled: true, configured: true, state: 'logged_out' }) };
-    const src = worldSource(store, '?world=waiting');
+    const store = { liveSnapshot: snap({ enabled: true, configured: true, state: 'logged_out' }) };
+    const src = worldSource(store);
     expect(src.client).toBeInstanceOf(HttpWorldApi);
     expect(src.meta()).toEqual({ enabled: true, configured: true, state: 'logged_out' });
   });

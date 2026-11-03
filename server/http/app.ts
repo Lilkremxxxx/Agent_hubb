@@ -320,13 +320,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     sendJson(res, 405, { error: tr('method not allowed') });
   };
 
-  const handleDemo = async (req: IncomingMessage, res: ServerResponse) => {
-    const body = (await readJson(req)) as { enabled?: unknown };
-    if (typeof body?.enabled !== 'boolean') throw new HttpError(400, tr('expected {enabled: boolean}'));
-    office.setDemo(body.enabled);
-    sendJson(res, 200, { ok: true, demo: office.isDemo() });
-  };
-
   const handleCharacter = async (req: IncomingMessage, res: ServerResponse, id: string, method: string) => {
     if (method === 'DELETE') {
       req.resume();
@@ -458,7 +451,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         sendJson(res, 200, {
           ok: true,
           version: deps.version,
-          demo: office.isDemo(),
           docker: deps.inDocker,
           remote,
           terminal: !!terminals && (!remote || trusted(req, 'terminal')),
@@ -947,13 +939,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     }
     if (path === '/api/stats' || path.startsWith('/api/stats/')) {
       handleStatsRoute(req, res, url, deps.stats, sendJson);
-      return true;
-    }
-    if (path === '/api/demo') {
-      // Enables demo mode for everyone: computer only (mobile login only sees allowed features).
-      if (method !== 'POST') methodNotAllowed(res, 'POST');
-      else if (isRemote(req)) sendJson(res, 403, { error: tr('not allowed over remote access (see HABBLAUD_REMOTE_ALLOW)') });
-      else handleDemo(req, res).catch((err) => fail(res, err));
       return true;
     }
     if (deps.timeline?.(req, res, url)) return true;

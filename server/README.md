@@ -79,7 +79,6 @@ turns into a party) or 10 min. Push only notifies. The same CI seen again within
 | `GET /api/timeline/days` | `{recording, days:[{day, bytes, from, to}]}`: days recorded for timelapse, most recent to oldest |
 | `GET /api/timeline/:dia` | Day file (`AAAA-MM-DD`) in JSONL (`application/x-ndjson`, gzip if accepted); 400 for invalid day, 404 without recording |
 | `GET /api/health` | `{ok, version, demo, docker, terminal, permissions, messages, sources, accounts:[{id, usageStatus}]}` |
-| `POST /api/demo` | `{enabled: boolean}` enables/disables simulated agents (mixed with real ones) |
 | `GET /api/mod/summary?account=&session=` | `ModSummary` for Claude Code mod: `{version, agents, working, waiting:[{id, name, room, account, waitingFor, since, answerable}]}`, without demo and excluding caller session (see below) |
 | `/api/world/*` | Habblaud World (account, character and building; enabled by default, `HABBLAUD_WORLD=0` disables): local port with local `Host` only; see below |
 | `POST /api/permissions` | (hook) registers a permission request: `201 {id, expiresAt}` or `200 {skip}`; local bind only (see below) |
@@ -474,7 +473,6 @@ geometry in `shared/world/city.ts` (source of truth; world server keeps exact co
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` (Docker: `/data`) | Habblaud state (project names and characters persisted in `names.json`, timeline in `timeline/`, My day stats in `stats/`, last version check in `updates.json`) |
 | `HABBLAUD_TIMELINE` | enabled | `0` disables timelapse timeline recording |
 | `HABBLAUD_LANG` | system language (`LC_ALL`/`LANG`/Intl) | Language of server-assembled texts: `pt-BR` or `fr` (shared/i18n.ts) |
-| `HABBLAUD_DEMO` | disabled | `1` enables demo mode on startup |
 | `HABBLAUD_IN_DOCKER` | auto (`/.dockerenv`) | `1` = skip PID checks (they belong to host) |
 | `HABBLAUD_ACCOUNTS` | — | JSON with account metadata from host (Docker): `[{id, configDir, mountDir, short, name, email, organization, plan, color, cachedUsage}]`, matched by `id`, `mountDir` or `configDir` |
 | `HABBLAUD_USAGE_DIR` | `~/.habblaud/usage` (Docker: `/usage`) | Directory for usage captured by statusline tap or Claude Code mod, re-read every 5 s |

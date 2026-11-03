@@ -272,7 +272,7 @@ export class Sidebar implements UiComponent {
     const text = this.roleNote(g);
     if (r.note.firstChild?.nodeType === Node.TEXT_NODE) r.note.firstChild.textContent = text;
     else r.note.prepend(text);
-    const waiting = g.key === 'boss' && !!this.ctx.selectedOffice()?.waitingBoss && !this.ctx.store.mock;
+    const waiting = g.key === 'boss' && !!this.ctx.selectedOffice()?.waitingBoss;
     for (const b of r.note.querySelectorAll('button')) setHidden(b, !waiting);
     setHidden(r.note, g.nodes.length > 0);
     section.classList.toggle('is-empty', g.present === 0 && g.nodes.length > 0);
@@ -286,7 +286,7 @@ export class Sidebar implements UiComponent {
       const snap = this.ctx.store.snapshot;
       const blocked = g.key === 'boss' ? this.dialogs.bossBlocked() : snap?.team ? '' : tr('This Habblaud server does not keep a team yet (restart it to get one).');
       const label = g.key === 'boss' ? tr('Open a new boss') : tr('Add a worker');
-      r.add.disabled = !snap || !!this.ctx.store.mock;
+      r.add.disabled = !snap;
       setTitle(r.add, blocked ? `${label} — ${blocked}` : label);
       setAttr(r.add, 'aria-label', label);
     }

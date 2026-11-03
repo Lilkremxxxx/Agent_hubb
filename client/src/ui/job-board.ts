@@ -207,7 +207,7 @@ export class JobBoardDialog {
     this.renderTools(board, team);
     // A terminal job's final answer (or its error), from the team's recent jobs.
     const jobs = new Map((team?.jobs ?? []).map((j) => [j.id, j]));
-    const local = !!this.ctx.store.snapshot?.meta.terminal && !this.ctx.store.mock;
+    const local = !!this.ctx.store.snapshot?.meta.terminal;
     setHidden(this.jobEmpty, board.items.length > 0);
     const shown = this.showAll ? board.items : board.items.slice(0, JOBS_SHOWN);
     setHidden(this.jobMore, board.items.length <= JOBS_SHOWN);
@@ -250,7 +250,7 @@ export class JobBoardDialog {
 
   /** Top of the Jobs tab: "Cancel all" while terminal jobs run. */
   private renderTools(board: JobBoard, team: TeamInfo | undefined): void {
-    const local = !!this.ctx.store.snapshot?.meta.terminal && !this.ctx.store.mock;
+    const local = !!this.ctx.store.snapshot?.meta.terminal;
     const office = this.ctx.selectedOffice();
     const many = teamOffices(team).length > 1;
     const queued = officeItems(team?.jobs?.filter((j) => j.status === 'queued') ?? [], office);
@@ -298,7 +298,7 @@ export class JobBoardDialog {
 
   /** The boss's to-do list (its folder's HANDOFF file), editable from here when the page runs on this computer. */
   private renderTodo(todo: TodoList | undefined, office: OfficeInfo | undefined): void {
-    const local = !this.ctx.store.mock && !!this.ctx.store.snapshot?.meta.terminal;
+    const local = !!this.ctx.store.snapshot?.meta.terminal;
     const plan = todo?.plan;
     if (plan) {
       const done = plan.items.filter((i) => i.done).length;

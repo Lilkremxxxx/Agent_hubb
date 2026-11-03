@@ -38,18 +38,16 @@ function agent(p: Partial<AgentInfo> & { id: string }): AgentInfo {
 
 type Snap = Pick<OfficeSnapshot, 'agents' | 'rooms' | 'accounts' | 'meta'>;
 
-function snapOf(agents: AgentInfo[], demo = false): Snap {
+function snapOf(agents: AgentInfo[]): Snap {
   return {
     agents,
     rooms: [
       { id: '/p/loja', name: 'loja', path: '/p/loja', slot: 0, seed: 1, createdAt: 0 },
-      { id: '/demo/loja-virtual', name: 'loja-virtual', path: '/demo/loja-virtual', slot: 1, seed: 2, createdAt: 0 },
     ],
     accounts: [
       { id: '.claude', short: 'C', name: 'Account C', color: '#f08a3c', configDir: '~/.claude', sessions: 1, usageStatus: 'disabled' },
-      { id: 'demo:.claude', short: 'X', name: 'Demo X', color: '#5cc97b', configDir: '(demo)', sessions: 1, usageStatus: 'ok' },
     ],
-    meta: { demo, sources: [], startedAt: 0, version: 'test' },
+    meta: { sources: [], startedAt: 0, version: 'test' },
   };
 }
 
@@ -187,57 +185,6 @@ describe('DayStatsService: persistence', () => {
       expect(readdirSync(dir).sort()).toEqual(['2026-10-01.json', '2026-10-08.json', '2026-10-09.json', 'other.txt']);
       expect(svc.day('2026-10-09', 'UTC')!.stats.totals.ms.working).toBe(10 * S);
       expect(svc.day('2026-10-08', 'UTC')!.stats.totals.ms.working).toBe(10 * S);
-    } finally {
-      tmp.cleanup();
-    }
-  });
-});
-
-describe('DayStatsService: demo mode', () => {
-  it('demo agents stay in a separate bucket, seeded and in-memory only', () => {
-    const tmp = tempDir();
-    try {
-      const dir = join(tmp.dir, 'stats');
-      const env = setup(dir);
-      const svc = env.make();
-      svc.load();
-      const real = agent({ id: '.claude:1' });
-      // An account folder named "demo" remains real.
-      const realDemoDir = agent({ id: 'demo:42', sessionId: 'sess-42', account: 'demo', status: 'idle' });
-      const demo = agent({ id: 'demo:abc-1', roomId: '/demo/loja-virtual', account: 'demo:.claude', name: 'Bruno', status: 'waiting', statusSince: T0 });
-      env.set(snapOf([real, realDemoDir, demo], true));
-      svc.sample();
-      env.run(svc, T0 + 20 * S);
-      expect(svc.isDemo()).toBe(true);
-
-      const r = svc.day(DAY, 'UTC', 'real')!;
-      expect(r.source).toBe('real');
-      expect(r.demoAvailable).toBe(true);
-      expect(r.stats.totals.ms).toEqual({ working: 20 * S, waiting: 0, idle: 20 * S, shell: 0 });
-      expect(r.stats.rooms.map((x) => x.id)).toEqual(['/p/loja']);
-
-      // Without `source`, with demo active and today's date: demo (fictional history + live activity).
-      const d = svc.day(DAY, 'UTC')!;
-      expect(d.source).toBe('demo');
-      expect(d.stats.rooms.map((x) => x.name)).toContain('loja-virtual');
-      expect(d.stats.rooms.every((x) => x.id.startsWith('/demo/'))).toBe(true);
-      expect(d.stats.totals.ms.working).toBeGreaterThan(20 * MIN);
-      expect(d.stats.accounts.every((a) => a.id.startsWith('demo:'))).toBe(true);
-      expect(svc.days('UTC').demoDays).toContain(DAY);
-
-      svc.flush();
-      const saved = readFileSync(join(dir, `${DAY}.json`), 'utf8');
-      expect(saved).not.toContain('demo:');
-      expect(saved).not.toContain('loja-virtual');
-      expect(saved).not.toContain('Bruno');
-
-      // Demo off: bucket disappears.
-      env.set(snapOf([real]));
-      svc.sample();
-      expect(svc.isDemo()).toBe(false);
-      expect(svc.day(DAY, 'UTC', 'demo')).toBeNull();
-      expect(svc.day(DAY, 'UTC')!.source).toBe('real');
-      expect(svc.days('UTC').demoDays).toBeUndefined();
     } finally {
       tmp.cleanup();
     }

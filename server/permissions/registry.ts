@@ -80,10 +80,6 @@ export interface RegistryOptions {
    * calculated by the hook does not know about disambiguated ids, e.g. ".codex~2"). undefined = use hook's account.
    */
   codexAccount?: (account: string | undefined, codexHome: string | undefined) => string | undefined;
-  /** Decision for a fake demo request (Office.decideDemoPermission); true = was demo. */
-  demoDecide?: (id: string, d: PermissionDecision) => boolean;
-  /** Detail of a fake demo request (snapshot already includes it). */
-  demoDetail?: (id: string) => PermissionRequestInfo | undefined;
   now?: () => number;
   /** Internal clock interval (start). */
   tickMs?: number;
@@ -452,7 +448,7 @@ export class PermissionRegistry {
   detail(id: string): PermissionRequestInfo | undefined {
     const p = this.pending.get(id);
     if (p && !p.outcome) return { ...p.info, ...this.queueOf(p) };
-    return this.opts.demoDetail?.(id);
+    return undefined;
   }
 
   /**
@@ -499,15 +495,10 @@ export class PermissionRegistry {
     return { result, cancel: () => waiter && this.dropWaiter(p, waiter) };
   }
 
-  /** Decision from page. Demo request routes to `demoDecide` (with same rules for questions). */
+  /** Decision from page. */
   decide(id: string, d: PermissionDecision): DecideResult {
     const p = this.pending.get(id);
-    if (!p) {
-      const demo = this.opts.demoDetail?.(id);
-      if (demo && unsupportedByCodex(demo, d)) return 'unsupported';
-      if (demo && (wrongKind(demo, d) || (d.behavior === 'answer' && !checkAnswers(demo.questions ?? [], d.answers)))) return 'invalid-answer';
-      return this.opts.demoDecide?.(id, d) ? 'ok' : 'not-found';
-    }
+    if (!p) return 'not-found';
     if (p.outcome) return 'conflict';
     if (unsupportedByCodex(p.info, d)) return 'unsupported';
     if (d.suggestion !== undefined && !p.info.suggestions?.some((s) => s.index === d.suggestion)) return 'invalid';

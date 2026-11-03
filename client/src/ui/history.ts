@@ -206,7 +206,7 @@ export class HistoryPopover implements UiComponent {
 
   /** Feature available (terminal enabled: local access and real server). */
   private get available(): boolean {
-    return !!this.ctx.store.snapshot?.meta.terminal && access().terminal && !this.ctx.store.mock;
+    return !!this.ctx.store.snapshot?.meta.terminal && access().terminal;
   }
 
   toggle(): void {

@@ -1,15 +1,14 @@
 // Office state in browser: receives snapshots/feed/notices from server via SSE
-// (or local simulator when URL has ?mock=1) and notifies subscribers.
+// and notifies subscribers.
 // Alternative source (timelapse, ui/timelapse.ts): pushReplay() publishes reconstructed snapshots while
 // SSE remains connected underneath, keeping live snapshots until stopReplay().
 // Also handles reconnection: when browser gives up on stream (EventSource closed after HTTP error,
 // e.g. server restarting behind proxy), retries with exponential backoff.
 import type { AppearanceParts } from '../../../shared/appearance';
 import type { Activity, AgentDetail, AgentInfo, FeedItem, Notice, OfficeSnapshot, OutboxMessage, PermissionDecision, PermissionRequestInfo, RoomInfo, SessionCommand } from '../../../shared/types';
-import { DemoSimulator } from '../../../shared/demo/simulator';
 import { tr } from '../../../shared/i18n';
 
-export type ConnectionState = 'connecting' | 'open' | 'closed' | 'mock';
+export type ConnectionState = 'connecting' | 'open' | 'closed';
 
 export interface StoreEvents {
   snapshot: OfficeSnapshot;
@@ -42,9 +41,6 @@ export interface EventSourceLike {
 }
 
 export interface StoreOptions {
-  mock?: boolean;
-  /** Mock mode parameters (default: page query string). */
-  search?: string;
   /** Stream factory (default: `new EventSource(url)`). */
   eventSource?: (url: string) => EventSourceLike;
 }
@@ -60,43 +56,17 @@ export function reconnectDelay(attempt: number): number {
   return Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** Math.max(0, attempt));
 }
 
-/**
- * Simulator options from query string (?speed=2&sessions=6). `sessions=0` is valid: empty office. For
- * screenshots: `seed=N` repeats the same office and `noquota=1` leaves Codex account "out of quota".
- */
-export function mockOptionsFrom(search: string): { speed: number; sessions: number; seed?: number; codexNoQuota?: boolean } {
-  const params = new URLSearchParams(search);
-  const num = (name: string): number | null => {
-    const raw = params.get(name);
-    if (raw === null || raw.trim() === '') return null;
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : null;
-  };
-  const speed = num('speed');
-  const sessions = num('sessions');
-  const seed = num('seed');
-  return {
-    speed: speed !== null && speed > 0 ? Math.min(speed, 50) : 1,
-    sessions: sessions !== null && sessions >= 0 ? Math.min(Math.floor(sessions), 40) : 4,
-    ...(seed !== null && seed >= 0 ? { seed: Math.floor(seed) } : {}),
-    ...(params.get('noquota') === '1' ? { codexNoQuota: true } : {}),
-  };
-}
-
 export class OfficeStore {
   snapshot: OfficeSnapshot | null = null;
   /** Global feed, from oldest to newest. */
   feed: FeedItem[] = [];
   connection: ConnectionState = 'connecting';
-  readonly mock: boolean;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private listeners = new Map<keyof StoreEvents, Set<(value: any) => void>>();
   private agentIndex = new Map<string, AgentInfo>();
   private roomIndex = new Map<string, RoomInfo>();
   private source: EventSourceLike | null = null;
-  private mockTimer: ReturnType<typeof setInterval> | null = null;
-  private readonly search: string;
   private readonly openStream: (url: string) => EventSourceLike;
   /** Reconnection: consecutive failed attempts and next attempt timer. */
   private attempts = 0;
@@ -112,8 +82,6 @@ export class OfficeStore {
   private live: { snap: OfficeSnapshot; at: number } | null = null;
 
   constructor(opts: StoreOptions = {}) {
-    this.mock = !!opts.mock;
-    this.search = opts.search ?? (typeof location !== 'undefined' ? location.search : '');
     this.openStream = opts.eventSource ?? ((url) => new EventSource(url));
   }
 
@@ -127,7 +95,6 @@ export class OfficeStore {
   connect(): void {
     if (!this.stopped) return;
     this.stopped = false;
-    if (this.mock) return this.startMock();
     this.startSSE();
   }
 
@@ -136,13 +103,10 @@ export class OfficeStore {
     if (typeof removeEventListener === 'function') removeEventListener('online', this.onOnline);
     this.clearRetry();
     this.closeSource();
-    if (this.mockTimer) clearInterval(this.mockTimer);
-    this.mockTimer = null;
   }
 
   /** Reconnects immediately ("Try now" button), without waiting for next interval. */
   reconnectNow(): void {
-    if (this.mock) return;
     this.clearRetry();
     this.closeSource();
     this.stopped = false;
@@ -166,24 +130,13 @@ export class OfficeStore {
     return (this.snapshot?.agents ?? []).filter((a) => a.roomId === roomId);
   }
 
-  /** Long agent history (server). In mock mode and timelapse returns `recent`. */
+  /** Long agent history (server). In timelapse returns `recent`. */
   async agentHistory(id: string): Promise<Activity[]> {
-    if (this.mock || this.replay) return this.agent(id)?.recent ?? [];
+    if (this.replay) return this.agent(id)?.recent ?? [];
     const res = await fetch(`/api/agents/${encodeURIComponent(id)}`);
     if (!res.ok) return this.agent(id)?.recent ?? [];
     const detail = (await res.json()) as AgentDetail;
     return detail.history;
-  }
-
-  /** Enables/disables demo agents on server. */
-  async setDemo(enabled: boolean): Promise<boolean> {
-    if (this.mock) return true;
-    const res = await fetch('/api/demo', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled }),
-    });
-    return res.ok;
   }
 
   // ---------------------------------------------------------------- timelapse
@@ -224,13 +177,12 @@ export class OfficeStore {
   }
 
   /**
-   * Detail of a permission request (with arguments: command, diff...). Demo requests arrive
-   * complete in snapshot; real ones come from GET /api/permissions/:id (local access only).
+   * Detail of a permission request (with arguments: command, diff...). Requests may arrive
+   * complete in snapshot; otherwise they come from GET /api/permissions/:id (local access only).
    */
   async permissionDetail(agentId: string, id: string): Promise<PermissionRequestInfo | undefined> {
     const inline = this.agent(agentId)?.permission;
     if (inline?.id === id && inline.input !== undefined) return inline;
-    if (this.mock) return inline?.id === id ? inline : undefined;
     const res = await fetch(`/api/permissions/${encodeURIComponent(id)}`);
     if (!res.ok) return undefined;
     return (await res.json()) as PermissionRequestInfo;
@@ -241,12 +193,6 @@ export class OfficeStore {
    * message (request already answered, non-local access...).
    */
   async decidePermission(id: string, d: PermissionDecision): Promise<string | undefined> {
-    if (this.mock) {
-      const sim = this.mockSim;
-      if (!sim?.decidePermission(id, d)) return tr('This request has already been answered.');
-      this.applySnapshot(sim.snapshot());
-      return undefined;
-    }
     const res = await fetch(`/api/permissions/${encodeURIComponent(id)}/decision`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -276,7 +222,7 @@ export class OfficeStore {
   }
 
   private async characterRequest(id: string, method: 'PUT' | 'DELETE', body: object): Promise<string | undefined> {
-    if (this.mock || this.replay) return tr('Editing the character only works with the live office.');
+    if (this.replay) return tr('Editing the character only works with the live office.');
     let res: Response;
     try {
       res = await fetch(`/api/agents/${encodeURIComponent(id)}/character`, {
@@ -323,10 +269,8 @@ export class OfficeStore {
   /**
    * Sends message to an agent (POST /api/messages): created message (status `queued`) or server error
    * (agent does not accept messages, queue full, non-local access...). No connection: throws.
-   * In ?mock=1 delivery is simulated (simulator attaches activity to agent).
    */
   async sendMessage(agentId: string, text: string): Promise<{ message: OutboxMessage } | { error: string }> {
-    if (this.mock) return this.mockSend(agentId, text);
     const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, text }) });
     let body: unknown;
     try {
@@ -344,7 +288,6 @@ export class OfficeStore {
    * habblaud-mensagens plugin runs `/model`, `/effort` or `/plan` there. Same answers as sendMessage.
    */
   async sendCommand(agentId: string, command: SessionCommand): Promise<{ message: OutboxMessage } | { error: string }> {
-    if (this.mock) return { error: tr('not in the demo') };
     const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, command }) });
     let body: unknown;
     try {
@@ -359,34 +302,10 @@ export class OfficeStore {
 
   /** Status of a message (GET /api/messages/:id). null = server does not know it (404). No connection: throws. */
   async messageStatus(id: string): Promise<OutboxMessage | null> {
-    if (this.mock) {
-      const m = this.mockOutbox.get(id);
-      return m ? { ...m } : null;
-    }
     const res = await fetch(`/api/messages/${encodeURIComponent(id)}`);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(tr('error {0}', [res.status]));
     return (await res.json()) as OutboxMessage;
-  }
-
-  /** Messages in ?mock=1 (delivered by simulator after ~1 s). */
-  private mockOutbox = new Map<string, OutboxMessage>();
-  private mockSeq = 0;
-
-  private mockSend(agentId: string, text: string): { message: OutboxMessage } | { error: string } {
-    const a = this.agent(agentId);
-    if (!a) return { error: tr('unknown agent: has it already left the office?') };
-    if (!a.canMessage || a.kind !== 'main' || a.status === 'offline') return { error: tr("this agent can't receive messages right now") };
-    const now = Date.now();
-    const msg: OutboxMessage = { id: `mock-${now.toString(36)}-${++this.mockSeq}`, agentId, status: 'queued', createdAt: now, updatedAt: now };
-    this.mockOutbox.set(msg.id, msg);
-    setTimeout(() => {
-      const sim = this.mockSim;
-      const ok = !!sim?.receiveMessage(agentId, text);
-      Object.assign(msg, { status: ok ? 'delivered' : 'failed', updatedAt: Date.now() }, ok ? {} : { error: tr('the agent left the office') });
-      if (ok && sim) this.applySnapshot(sim.snapshot());
-    }, 1_000);
-    return { message: { ...msg } };
   }
 
   // ---------------------------------------------------------------- internal
@@ -428,7 +347,7 @@ export class OfficeStore {
 
   /** Notifies (once) when server starts serving a different client build. */
   private checkBuild(serverBuild: string | undefined): void {
-    if (this.updateAnnounced || this.mock || !serverBuild) return;
+    if (this.updateAnnounced || !serverBuild) return;
     const current = this.pageBuildId;
     if (!current || current === serverBuild) return;
     this.updateAnnounced = true;
@@ -509,7 +428,7 @@ export class OfficeStore {
   }
 
   private scheduleRetry(): void {
-    if (this.retryTimer || this.mock || this.stopped) return;
+    if (this.retryTimer || this.stopped) return;
     const delay = reconnectDelay(this.attempts);
     this.attempts++;
     this.retryAt = Date.now() + delay;
@@ -527,23 +446,5 @@ export class OfficeStore {
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
     this.retryAt = null;
-  }
-
-  /** Simulator for ?mock=1 mode (also answers mock permission requests). */
-  private mockSim: DemoSimulator | null = null;
-
-  private startMock(): void {
-    if (this.mockTimer) return;
-    this.setConnection('mock');
-    const sim = new DemoSimulator(mockOptionsFrom(this.search));
-    this.mockSim = sim;
-    this.applySnapshot(sim.snapshot());
-    this.mockTimer = setInterval(() => {
-      const now = Date.now();
-      const r = sim.tick(now);
-      if (r.changed) this.applySnapshot(sim.snapshot(now));
-      this.applyFeed(r.feed);
-      r.notices.forEach((n) => this.emit('notice', n));
-    }, 250);
   }
 }

@@ -178,7 +178,6 @@ export class TimelineReplay {
       agents,
       accounts,
       meta: {
-        demo: agents.some((a) => this.frame.agents.get(a.id)?.demo),
         sources: [],
         startedAt: this.createdAt,
         version: 'timelapse',

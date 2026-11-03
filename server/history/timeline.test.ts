@@ -40,7 +40,7 @@ function snap(agents: AgentInfo[]): OfficeSnapshot {
     rooms: agents.length ? [{ id: '/p/loja', name: 'loja', path: '/p/loja', slot: 0, seed: 3, createdAt: T0 }] : [],
     agents,
     accounts: [],
-    meta: { demo: false, sources: [], startedAt: T0, version: 't' },
+    meta: { sources: [], startedAt: T0, version: 't' },
   };
 }
 

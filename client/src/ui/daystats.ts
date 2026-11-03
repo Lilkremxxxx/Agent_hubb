@@ -1,7 +1,6 @@
 // "My day": dialog showing where the day went — agent time by status, highlighting time
 // waiting on you (the human bottleneck), by project, by hour, and by account, longest waits, tokens, and cost.
-// Data from GET /api/stats (in ?mock=1, from the same accumulator in shared/daystats.ts running in the browser
-// over the simulator). Charts in pure DOM: thin stacked bars, tooltip on hover and focus, equivalent table in each
+// Data from GET /api/stats. Charts in pure DOM: thin stacked bars, tooltip on hover and focus, equivalent table in each
 // card, and legend that toggles each status. When open on today, refreshes every 30 s.
 // The model (highlights, scales, labels) is pure and tested in ui/daystats-model.test.ts.
 import {
@@ -17,8 +16,6 @@ import {
   type StatsSource,
   type TimedStatus,
 } from '../../../shared/daystats';
-import { seedDemoHistory } from '../../../shared/demo/daystats';
-import type { OfficeStore } from '../net/store';
 import type { UiComponent, UiContext } from './context';
 import { h, iconButton, setAttr, setHidden, setStyleVar, setText } from './dom';
 import {
@@ -52,7 +49,7 @@ const NOTE =
   tr('“Waiting on you” is the time spent with a hand raised in the office (permission, question or choice). ') +
   tr("Habblaud only counts what happens while it's running.");
 
-/** Where numbers come from: the server or, in ?mock=1, the local accumulator. */
+/** Where numbers come from. */
 interface DaySource {
   days(tz: string): Promise<StatsDaysResponse>;
   day(day: string, tz: string, source?: StatsSource): Promise<DayStatsResponse>;
@@ -69,43 +66,6 @@ const httpSource: DaySource = {
   days: (tz) => getJson<StatsDaysResponse>(daysUrl(tz)),
   day: (day, tz, source) => getJson<DayStatsResponse>(statsUrl(day, tz, source)),
 };
-
-/**
- * ?mock=1: the same server tracker over simulator snapshots, with fake demo history.
- * Starts counting when page opens (not when panel opens).
- */
-class LocalSource implements DaySource {
-  private readonly tz = systemTimeZone();
-  private readonly book = new StatsBook((t) => dayKeyOf(t, this.tz));
-  private readonly tracker = new StatsTracker(this.book, { startedAt: Date.now() });
-  private seeded = false;
-  private last = 0;
-
-  constructor(store: OfficeStore) {
-    store.on('snapshot', (snap) => {
-      const now = Date.now();
-      if (now - this.last < 1_000) return;
-      this.last = now;
-      if (!this.seeded) {
-        seedDemoHistory(this.book, snap, now, this.tz);
-        this.seeded = true;
-      }
-      this.tracker.observe(snap, now);
-    });
-  }
-
-  async days(tz: string): Promise<StatsDaysResponse> {
-    const today = dayKeyOf(Date.now(), tz);
-    const days = new Set([today]);
-    for (const d of this.book.list()) for (const k of daysFromHours(d.hoursWithData(), tz)) days.add(k);
-    return { tz, today, days: [...days].sort().reverse(), demoAvailable: false };
-  }
-
-  async day(day: string, tz: string): Promise<DayStatsResponse> {
-    const now = Date.now();
-    return { source: 'demo', demoAvailable: false, today: dayKeyOf(now, tz), serverTime: now, stats: queryDay(this.book.list(), day, tz, now) };
-  }
-}
 
 interface TipRow {
   status?: TimedStatus;
@@ -130,7 +90,6 @@ export class DayPanel implements UiComponent {
   private error: string | null = null;
   private seq = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
-  private demoSeen: boolean | undefined;
   private opener: HTMLElement | null = null;
 
   private select: HTMLSelectElement;
@@ -149,7 +108,7 @@ export class DayPanel implements UiComponent {
     private ctx: UiContext,
     private button: HTMLElement,
   ) {
-    this.source = ctx.store.mock ? new LocalSource(ctx.store) : httpSource;
+    this.source = httpSource;
 
     this.select = h('select', { class: 'ui-day__select', attrs: { 'aria-label': tr('Day') }, on: { change: () => this.pickDay(this.select.value) } });
     this.segDemo = h('button', { class: 'ui-seg__opt', type: 'button', role: 'radio', text: tr('Demo'), on: { click: () => this.pickSource('demo') } });
@@ -210,14 +169,7 @@ export class DayPanel implements UiComponent {
     else this.open();
   }
 
-  /** Demo enabled or disabled while dialog is open: reloads (default source changes). */
-  render(): void {
-    const demo = this.ctx.store.snapshot?.meta.demo;
-    if (demo === this.demoSeen) return;
-    const changed = this.demoSeen !== undefined;
-    this.demoSeen = demo;
-    if (changed && this.el.open && !this.ctx.store.mock) void this.load(true);
-  }
+  render(): void {}
 
   private onClosed(): void {
     this.seq++;

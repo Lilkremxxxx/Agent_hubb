@@ -114,16 +114,4 @@ describe('GET /api/stats', () => {
     expect(post.status).toBe(405);
     expect(post.headers.get('allow')).toBe('GET');
   });
-
-  it('with demo enabled, default is demo bucket (and real can be requested)', async () => {
-    office.setDemo(true);
-    stats.sample();
-    const demo = (await (await fetch(`${base}/api/stats?tz=UTC`)).json()) as DayStatsResponse;
-    expect(demo.source).toBe('demo');
-    expect(demo.demoAvailable).toBe(true);
-    expect(demo.stats.rooms.every((r) => r.id !== '/p/loja')).toBe(true);
-    const real = (await (await fetch(`${base}/api/stats?tz=UTC&source=real`)).json()) as DayStatsResponse;
-    expect(real.source).toBe('real');
-    expect(real.stats.accounts.every((a) => !a.id.startsWith('demo:'))).toBe(true);
-  });
 });

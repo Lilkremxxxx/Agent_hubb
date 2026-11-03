@@ -78,10 +78,6 @@ export function handleStatsRoute(req: IncomingMessage, res: ServerResponse, url:
     send(res, q.status, { error: q.error });
     return;
   }
-  if (q.source === 'demo' && !stats.isDemo()) {
-    send(res, 404, { error: tr('demo mode is off') });
-    return;
-  }
   const body = stats.day(q.day, q.tz, q.source);
   if (body) send(res, 200, body);
   else send(res, 404, { error: tr('no stats for this day') });

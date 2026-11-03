@@ -122,7 +122,7 @@ export class OverloadDialog {
   /** A boss past a threshold, in any office: a notice right away, once per level. The boss itself is not told. */
   private warn(): void {
     const snap = this.ctx.store.snapshot;
-    if (!snap || this.ctx.store.mock) return;
+    if (!snap) return;
     const offices = teamOffices(snap.team);
     const bosses = loadedSessions(snap.agents, this.ctx.prefs.overload).filter((s) => s.agent.boss);
     for (const { agent, load } of risenLoads(bosses, this.told)) {
