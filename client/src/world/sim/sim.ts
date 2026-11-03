@@ -151,8 +151,8 @@ export class Sim {
   /** Debugging: agents forced offline and rooms forced to disappear from snapshot. */
   readonly forcedOffline = new Set<string>();
   readonly hiddenRooms = new Set<string>();
-  /** Snapshot accounts (id -> color/letter/name) for badges: Codex gets hollow chip and badge. */
-  accounts = new Map<string, { short: string; color: string; name: string; provider?: Provider; usage?: AccountUsage }>();
+  /** Snapshot accounts (id -> color/letter/name) for badges. */
+  accounts = new Map<string, { short: string; color: string; name: string; usage?: AccountUsage }>();
   /** Claude Code workers' characters (Antigravity ones are told by their provider): they get a mug like the boss. */
   private workerAgents = new Set<string>();
   /** Debugging: extra rooms/agents merged on each snapshot (simulated sessions). */
@@ -207,7 +207,7 @@ export class Sim {
     this.now = now;
     const first = !this.initialized;
     this.initialized = true;
-    this.accounts = new Map(snap.accounts.map((a) => [a.id, { short: a.short, color: a.color, name: a.name, ...(a.provider === 'codex' ? { provider: a.provider } : {}), ...(this.usagePatches.has(a.id) || a.usage ? { usage: this.usagePatches.get(a.id) ?? a.usage } : {}) }]));
+    this.accounts = new Map(snap.accounts.map((a) => [a.id, { short: a.short, color: a.color, name: a.name, ...(this.usagePatches.has(a.id) || a.usage ? { usage: this.usagePatches.get(a.id) ?? a.usage } : {}) }]));
     this.workerAgents = new Set((snap.team?.sessions ?? []).flatMap((s) => [s.agentId, ...Object.values(s.agentIds ?? {})]));
 
     // ---- buildings (one per office) and rooms

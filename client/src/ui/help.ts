@@ -1,11 +1,10 @@
-// Help ("?"): the user guide, status and icon legend, controls, what the office shows, accounts and usage, and Codex.
+// Help ("?"): the user guide, status and icon legend, controls, what the office shows, accounts and usage.
 import type { AgentStatus } from '../../../shared/types';
 import type { HelpSection } from './context';
 import { h, iconButton, prefersReducedMotion } from './dom';
 import { ICONS } from './icons';
 import { SHELL_STAGES, STATUS_LABEL } from './model';
-import { CODEX_LIVE_HINT } from './provider';
-import { createUsageSetup, richText } from './usage';
+import { createUsageSetup } from './usage';
 import { createAccountChip, updateAccountChip } from './widgets';
 import { tr } from '../../../shared/i18n';
 
@@ -56,18 +55,6 @@ const GITHUB_HELP: [string, string][] = [
   ['🚀', tr('Push: just the notice and the feed, nothing changes in the room.')],
 ];
 
-/** Codex in the office: what differs from Claude Code (snippets `like this` become code). */
-const CODEX_HELP: string[] = [
-  tr('Each project open in Codex (in the terminal or the app) becomes a room: the same one as Claude Code for that folder, and the two share the room.'),
-  tr('Codex agents have a hollow account chip (only the border in the account color) and the CODEX badge on the label and in the details.'),
-  tr("{0} Without the hooks, the office reads Codex's session files: each step shows up when it finishes.", [CODEX_LIVE_HINT]),
-  tr("Approving from the office: in Codex, the approval only shows up in the terminal after you answer here or the time runs out (a few seconds). There's no “don't ask again” or “interrupt”, and denying asks for a reason."),
-  tr("Messages: they join the session queue and become the next prompt when Codex finishes what it's doing (up to ~10 s). With Habblaud in Docker, keep `npm run codex:bridge` running; in Node mode it works on its own."),
-  tr('Codex questions are answered in Codex itself.'),
-  tr("Usage: comes from Codex's session files, with nothing to install, and only refreshes while a session is running (that's why the card shows its age, e.g. “12 min ago”). “no quota” means no quota or credits to use right now."),
-  tr("My day: Codex counts tokens but doesn't record cost."),
-];
-
 /** End of waiting (the server marks with a ✅ or ❌ activity). */
 const SHELL_END_HELP: [string, string][] = [
   ['🎉', tr('Finished well: stands up, celebrates with confetti and a star.')],
@@ -75,7 +62,7 @@ const SHELL_END_HELP: [string, string][] = [
 ];
 
 const INTRO =
-  tr('Each project open in Claude Code or Codex becomes a room (both on the same project share the room), and each open session is a character with its own name. ') +
+  tr('Each project open in Claude Code becomes a room, and each open session is a character with its own name. ') +
   tr("Subagents arrive as new coworkers, work in the same room and leave when they're done. ") +
   tr("When a room's last session closes, whoever leaves turns off the light and the room is taken down.");
 
@@ -218,7 +205,7 @@ export class HelpDialog {
             h('li', { text: tr('Click a character or room to see its details; double-click zooms the camera in.') }),
             h('li', { text: tr("Hover over a character to see what they're doing.") }),
             h('li', {
-              text: tr("In an agent's details, “Open terminal” shows the session's conversation as in Claude Code (or Codex), live (requires local access, bind 127.0.0.1)."),
+              text: tr("In an agent's details, “Open terminal” shows the session's conversation as in Claude Code, live (requires local access, bind 127.0.0.1)."),
             }),
             h('li', {
               text: tr('With the habblaud-mensagens plugin (npm run mod:install), you can send messages to the main agent from its details or from the box at the bottom of the terminal: the text enters the session as if you had typed it. Enter sends, Shift+Enter adds a line break.'),
@@ -233,7 +220,6 @@ export class HelpDialog {
           shortcuts,
         ),
         this.usageSection(),
-        this.codexSection(),
       ),
     );
     // Click on background (outside content) closes dialog.
@@ -331,7 +317,7 @@ export class HelpDialog {
         'ul',
         { class: 'ui-help__list' },
         h('li', { text: tr('The colored chip with the letter (C, D…) shows which Claude Code account each agent belongs to: each terminal shortcut uses a different config folder.') }),
-        h('li', {}, accountSample('C', '#f08a3c'), tr(' Claude Code account · '), accountSample('X', '#a77bf3', true), tr(" Codex account (outlined chip, with the CODEX badge where there's room).")),
+        h('li', {}, accountSample('C', '#f08a3c'), tr(' Claude Code account · ')),
         h('li', {
           text: tr("At the top, each account shows its 5-hour session and weekly usage. The ↻ shows when each limit resets (a countdown if it's less than a day away). Green below 50%, amber up to 80% and red beyond that."),
         }),
@@ -344,27 +330,15 @@ export class HelpDialog {
     return el;
   }
 
-  /** Codex in the office ("How it works" on a Codex account's usage card opens here). */
-  private codexSection(): HTMLElement {
-    const el = h(
-      'section',
-      { class: 'ui-help__usage', attrs: { 'aria-labelledby': 'ui-help-codex' } },
-      h('h3', { text: 'Codex', tabIndex: -1, attrs: { id: 'ui-help-codex' } }),
-      h('ul', { class: 'ui-help__list' }, ...CODEX_HELP.map((text) => h('li', {}, ...richText(text)))),
-    );
-    this.sections.set('codex', el);
-    return el;
-  }
-
   get isOpen(): boolean {
     return this.el.open;
   }
 }
 
 /** An example account chip (legend). */
-function accountSample(short: string, color: string, codex = false): HTMLElement {
+function accountSample(short: string, color: string): HTMLElement {
   const chip = createAccountChip('sm');
-  updateAccountChip(chip, { id: short, short, name: codex ? 'Codex' : tr('Account {0}', [short]), color, configDir: '', sessions: 0, usageStatus: 'disabled', ...(codex ? { provider: 'codex' as const } : {}) });
+  updateAccountChip(chip, { id: short, short, name: tr('Account {0}', [short]), color, configDir: '', sessions: 0, usageStatus: 'disabled' });
   chip.setAttribute('aria-hidden', 'true');
   return chip;
 }

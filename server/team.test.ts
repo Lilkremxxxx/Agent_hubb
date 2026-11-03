@@ -21,7 +21,7 @@ function setup(profiles = ['acc1', 'acc2', 'acc3']) {
   const dir = mkdtempSync(join(tmpdir(), 'habblaud-team-'));
   dirs.push(dir);
   const office = new Office({ names: new NameStore(null), version: 'test', startedAt: T0, accounts: () => [], sources: () => [], accountName: () => undefined, now: () => T0 });
-  const main = (id: string, sessionId: string, extra: { provider?: 'codex'; account?: string } = {}) =>
+  const main = (id: string, sessionId: string, extra: { provider?: 'agy'; account?: string } = {}) =>
     office.addMain({ id, account: '.claude', sessionId, cwd: `/w/${id}`, role: 'Main agent', startedAt: T0, status: 'idle', ...extra });
   const file = join(dir, 'team.json');
   const legacyBossFile = join(dir, 'boss.json');
@@ -75,10 +75,10 @@ describe('TeamService: the boss', () => {
   it('only an open Claude Code main session; a new session does not take the crown', () => {
     const t = setup();
     t.main('.claude:1', 's1');
-    t.main('codex:9', 's9', { provider: 'codex' });
+    t.main('agy:9', 's9', { provider: 'agy' });
     const b = t.team();
     expect(b.appoint(undefined, 'nope')).toMatchObject({ ok: false, status: 404 });
-    expect(b.appoint(undefined, 'codex:9')).toMatchObject({ ok: false, status: 400 });
+    expect(b.appoint(undefined, 'agy:9')).toMatchObject({ ok: false, status: 400 });
     b.appoint(undefined, '.claude:1');
     t.main('.claude:3', 's3');
     b.sync();

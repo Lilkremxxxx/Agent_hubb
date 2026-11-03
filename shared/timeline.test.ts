@@ -113,16 +113,16 @@ describe('timeline: snapshot compacting', () => {
 
 describe('timeline: tool (provider)', () => {
   it('copies provider from agent and account (absent = Claude Code) and round-trips identically', () => {
-    const cx = agent('.codex:t1', { provider: 'codex', account: '.codex' });
-    const acc: AccountInfo = { ...account('.codex'), provider: 'codex', usage: { source: 'codex', fetchedAt: T0, noQuota: true } };
-    const f = compactSnapshot(snap([cx, agent('.claude:1')], [room('/p/loja')], [account('.claude'), acc]));
-    expect(f.agents.get('.codex:t1')!.provider).toBe('codex');
+    const ag = agent('agy:acc1', { provider: 'agy', account: 'agy:acc1' });
+    const acc: AccountInfo = { ...account('agy:acc1'), provider: 'agy', usage: { source: 'agy', fetchedAt: T0, noQuota: true } };
+    const f = compactSnapshot(snap([ag, agent('.claude:1')], [room('/p/loja')], [account('.claude'), acc]));
+    expect(f.agents.get('agy:acc1')!.provider).toBe('agy');
     expect(f.agents.get('.claude:1')).not.toHaveProperty('provider');
-    expect(f.accounts.get('.codex')).toMatchObject({ provider: 'codex', usage: { source: 'codex', noQuota: true } });
+    expect(f.accounts.get('agy:acc1')).toMatchObject({ provider: 'agy', usage: { source: 'agy', noQuota: true } });
     expect(f.accounts.get('.claude')).not.toHaveProperty('provider');
-    expect(toAgentInfo(f.agents.get('.codex:t1')!).provider).toBe('codex');
+    expect(toAgentInfo(f.agents.get('agy:acc1')!).provider).toBe('agy');
     expect(toAgentInfo(f.agents.get('.claude:1')!)).not.toHaveProperty('provider');
-    expect(toAccountInfo(f.accounts.get('.codex')!, T0)).toMatchObject({ provider: 'codex', usage: { source: 'codex', noQuota: true } });
+    expect(toAccountInfo(f.accounts.get('agy:acc1')!, T0)).toMatchObject({ provider: 'agy', usage: { source: 'agy', noQuota: true } });
     expect(toAccountInfo(f.accounts.get('.claude')!, T0)).not.toHaveProperty('provider');
   });
 });

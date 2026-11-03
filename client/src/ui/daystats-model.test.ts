@@ -27,27 +27,21 @@ const counts = (p: Partial<DayStats['totals']['counts']> = {}) => ({ prompts: 0,
 const totals = (p: Partial<RoomDayStats> = {}) => ({ ms: ms(), counts: counts(), sessions: 0, subagents: 0, waits: 0, longestWaitMs: 0, ...p });
 const clock = (t: number) => new Date(t).toISOString().slice(11, 16);
 
-describe('My day with Codex', () => {
+describe('My day cost', () => {
   const acc = (id: string, p: Partial<AccountDayStats> = {}): AccountDayStats => ({ id, name: id, short: 'X', color: '#000', ...totals(), ...p });
 
-  it('cost only for Claude Code: Codex account shows tokens without cost', () => {
-    const cards = accountCards(
-      [acc('.claude', { ms: ms({ working: H }), counts: counts({ tokensIn: 10, costUSD: 1.5 }) }), acc('.codex', { ms: ms({ working: H }), counts: counts({ tokensIn: 2_000_000 }) })],
-      (id) => id === '.codex',
-    );
-    expect(cards.map((c) => [c.id, c.codex, c.cost, c.tokens])).toEqual([
-      ['.claude', false, '$1.50', '10'],
-      ['.codex', true, null, '2 M'],
+  it('account cards show cost and tokens', () => {
+    const cards = accountCards([acc('.claude', { ms: ms({ working: H }), counts: counts({ tokensIn: 10, costUSD: 1.5 }) }), acc('.claude2', { ms: ms({ working: H }), counts: counts({ tokensIn: 2_000_000 }) })]);
+    expect(cards.map((c) => [c.id, c.cost, c.tokens])).toEqual([
+      ['.claude', '$1.50', '10'],
+      ['.claude2', '—', '2 M'],
     ]);
-    // Without the function, no one is Codex (as before).
-    expect(accountCards([acc('.codex', { ms: ms({ working: H }) })])[0]).toMatchObject({ codex: false, cost: '—' });
   });
 
-  it('cost hint explains that Codex does not record cost', () => {
+  it('cost hint', () => {
     const day = (c: Partial<DayStats['totals']['counts']>) => ({ totals: { ...totals(), counts: counts(c), waitWallMs: 0 }, waits: [] }) as unknown as DayStats;
-    expect(highlights(day({ tokensIn: 5, costUSD: 2 }), clock, true).costHint).toBe("Claude Code only: Codex doesn't record cost, only tokens");
-    expect(highlights(day({ tokensIn: 5 }), clock, true).costHint).toBe("Codex doesn't record cost, only tokens");
     expect(highlights(day({ tokensIn: 5, costUSD: 2 }), clock).costHint).toBe('Cost calculated by Claude Code itself');
+    expect(highlights(day({ tokensIn: 5 }), clock).costHint).toBe("The transcripts didn't include the cost");
   });
 });
 

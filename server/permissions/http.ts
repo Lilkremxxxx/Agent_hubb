@@ -2,7 +2,6 @@
 // checked in http/app.ts; guard (http/guard.ts) already required JSON and local Origin on POST (against CSRF).
 //
 //   POST /api/permissions                 (hook)    registers request: 201 {id, expiresAt} or 200 {skip}
-//                                                   (Codex hook also sends provider: "codex", account, and codexHome)
 //   GET  /api/permissions/:id/wait        (hook)    long-poll: {status: pending | decided | released}
 //   GET  /api/permissions/:id             (page)    detail with arguments (command, diff...)
 //   POST /api/permissions/:id/decision    (page)    {behavior: allow | deny | terminal | answer, message?, answers?, ...}
@@ -76,8 +75,6 @@ export function createPermissionRoutes(registry: PermissionRegistry): (req: Inco
         return sendJson(res, 400, { error: tr('unknown rule suggestion for this request') });
       case 'invalid-answer':
         return sendJson(res, 400, { error: tr('response doesn\'t fit this request: questions are answered with "answer" (each question once, with its own options); other requests, with "allow" or "deny"') });
-      case 'unsupported':
-        return sendJson(res, 400, { error: tr('Codex doesn\'t accept interrupting or "always allow" from Habblaud: approve, deny (with a reason, if you want) or answer in the terminal') });
     }
   };
 

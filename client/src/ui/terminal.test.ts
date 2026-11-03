@@ -14,7 +14,6 @@ import {
   sessionProjectName,
   sessionTerminalUrl,
   showToolInput,
-  spinnerFrames,
   splitPreview,
   splitToolTitle,
   TerminalLog,
@@ -226,7 +225,6 @@ describe('terminalFooter', () => {
     expect(terminalFooter(agent({ status: 'waiting', waitingFor: 'approve a permission' }), [], now).text).toBe(
       "Waiting on you: approve a permission · answer in Claude Code: this request didn't reach Habblaud or timed out",
     );
-    expect(terminalFooter(agent({ status: 'waiting', provider: 'codex' }), [], now).text).toMatch(/^Waiting on you · answer in Codex:/);
     expect(terminalFooter(agent({ status: 'idle' }), [], now)).toEqual({ kind: 'idle', text: 'Waiting for the next prompt' });
     expect(terminalFooter(agent({ status: 'offline' }), [], now).kind).toBe('ended');
     expect(terminalFooter(agent({ kind: 'sub', status: 'done' }), [], now).kind).toBe('ended');
@@ -274,14 +272,10 @@ describe('utilities', () => {
   });
 });
 
-describe('Codex footer', () => {
-  it('neutral spinner and glyph (✻ is from Claude Code); remainder is identical', () => {
-    expect(spinnerFrames('claude')).toContain('✻');
-    expect(spinnerFrames('codex')).not.toContain('✻');
-    expect(spinnerFrames('codex')).toHaveLength(spinnerFrames('claude').length);
-    expect(footerGlyph('working', 'claude')).toBe('✻');
-    expect(footerGlyph('working', 'codex')).toBe('•');
-    expect(footerGlyph('waiting', 'codex')).toBe('✋');
-    expect(footerGlyph('ended', 'claude')).toBe('■');
+describe('footer glyph', () => {
+  it('one symbol per footer kind', () => {
+    expect(footerGlyph('working')).toBe('✻');
+    expect(footerGlyph('waiting')).toBe('✋');
+    expect(footerGlyph('ended')).toBe('■');
   });
 });

@@ -11,18 +11,12 @@
 //   decision ("answer in terminal");
 // - discards orphaned requests: hook timeout, dead hook (no one waiting), agent
 //   exited, and request answered directly in the terminal (tool_result appears in the transcript).
-//
-// Codex uses the same routes (PermissionRequest hook from mod/habblaud-codex/hook.mjs, with `provider: "codex"` and
-// account in body). Differences: agent matches by thread (agent_id ?? session_id) among Codex agents; no
-// suggestions or questions; deny only with message (no interruption); no search for answer in transcript (in Codex
-// terminal only prompts for approval after hook finishes, so it is never answered there while hook waits).
 import { randomBytes } from 'node:crypto';
 import { describeTool, maskSecrets, truncate } from '../../shared/activity';
 import { ANSWER_OTHER_MAX, answerSummary, ASK_TOOL, checkAnswers } from '../../shared/answers';
 import type { Activity, AgentInfo, PermissionAnswer, PermissionDecision, PermissionRequestInfo, PermissionSuggestionInfo } from '../../shared/types';
 import { errMsg, log } from '../log';
 import { toolView } from '../sources/terminal';
-import { codexToolView } from './codex';
 import { callSignature, scanToolCall } from './transcript';
 import { tr } from '../../shared/i18n';
 
@@ -75,11 +69,6 @@ export interface RegistryOptions {
   answerLater?: () => boolean;
   /** Transcript of a present agent (ClaudeWatcher.transcriptPathOf). */
   transcriptPathOf?: (agentId: string) => string | undefined;
-  /**
-   * Codex account (AgentInfo.account) of a Codex hook request, from the CODEX_HOME path it sends (the basename
-   * calculated by the hook does not know about disambiguated ids, e.g. ".codex~2"). undefined = use hook's account.
-   */
-  codexAccount?: (account: string | undefined, codexHome: string | undefined) => string | undefined;
   now?: () => number;
   /** Internal clock interval (start). */
   tickMs?: number;
@@ -104,10 +93,9 @@ export type WaitResult =
 
 /**
  * invalid = unknown rule suggestion; invalid-answer = decision incompatible with request type (question
- * requires `answer`, and only that) or answers mismatching questions; unsupported = not accepted by Codex
- * (interrupt or "always allow").
+ * requires `answer`, and only that) or answers mismatching questions.
  */
-export type DecideResult = 'ok' | 'not-found' | 'conflict' | 'invalid' | 'invalid-answer' | 'unsupported';
+export type DecideResult = 'ok' | 'not-found' | 'conflict' | 'invalid' | 'invalid-answer';
 
 /** Validation error for payload from hook (becomes 400). */
 export class InvalidRequest extends Error {}
@@ -127,8 +115,6 @@ interface AskFormat {
 interface Pending {
   /** Full version (with `input`): GET /api/permissions/:id. */
   info: PermissionRequestInfo;
-  /** Codex request (no search for answer in transcript). */
-  codex?: boolean;
   /** Question (AskUserQuestion): format of `tool_input.questions`, by index (undefined = invalid input). */
   askFormat?: Array<AskFormat | undefined>;
   agentId: string;
@@ -163,14 +149,9 @@ function isIndex(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0;
 }
 
-/** Request answered with `answer` (AskUserQuestion questions; Codex does not send them via hook). */
-function isQuestion(info: { tool: string; provider?: string }): boolean {
-  return info.tool === ASK_TOOL && info.provider !== 'codex';
-}
-
-/** Codex does not support interrupt or "always allow" (its hook only allows or denies with message). */
-function unsupportedByCodex(info: PermissionRequestInfo, d: PermissionDecision): boolean {
-  return info.provider === 'codex' && (d.interrupt === true || d.suggestion !== undefined);
+/** Request answered with `answer` (AskUserQuestion questions). */
+function isQuestion(info: { tool: string }): boolean {
+  return info.tool === ASK_TOOL;
 }
 
 /**
@@ -251,19 +232,14 @@ export function applyPermission(a: AgentInfo, p: PermissionRequestInfo | undefin
     a.status = 'waiting';
     a.statusSince = p.createdAt;
   }
-  a.waitingFor ??= isQuestion(p) ? tr('answer a question') : p.provider === 'codex' ? tr('approve a command') : tr('approve a permission');
+  a.waitingFor ??= isQuestion(p) ? tr('answer a question') : tr('approve a permission');
   return a;
 }
 
 /**
- * Validates hook JSON (identical to what Claude Code passes on stdin, with hook `timeout_ms`). Codex hook also
- * sends `provider: "codex"`, account (`account`, basename of CODEX_HOME) and its path (`codexHome`); in it,
- * `agent_id` is subagent thread (and `session_id`, root thread).
+ * Validates hook JSON (identical to what Claude Code passes on stdin, with hook `timeout_ms`).
  */
 export function parseHookInput(raw: unknown): {
-  provider?: 'codex';
-  account?: string;
-  codexHome?: string;
   sessionId: string;
   agentId?: string;
   agentType?: string;
@@ -278,16 +254,14 @@ export function parseHookInput(raw: unknown): {
   const tool = shortStr(r?.tool_name, 200);
   if (!r || !sessionId || !tool) throw new InvalidRequest(tr('expected the PermissionRequest hook JSON (session_id and tool_name)'));
   const t = typeof r.timeout_ms === 'number' && Number.isFinite(r.timeout_ms) ? r.timeout_ms : DEFAULT_TIMEOUT_MS;
-  const codex = r.provider === 'codex';
   return {
-    ...(codex ? { provider: 'codex' as const, account: shortStr(r.account, 200), codexHome: shortStr(r.codexHome, 4_096) } : {}),
     sessionId,
     agentId: shortStr(r.agent_id, 200),
     agentType: shortStr(r.agent_type, 120),
     cwd: shortStr(r.cwd, 4_096),
     tool,
     input: rec(r.tool_input) ?? {},
-    suggestions: codex ? undefined : r.permission_suggestions,
+    suggestions: r.permission_suggestions,
     timeoutMs: Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, t)),
   };
 }
@@ -390,25 +364,20 @@ export class PermissionRegistry {
    */
   register(raw: unknown): RegisterResult {
     const req = parseHookInput(raw);
-    const codex = req.provider === 'codex';
-    const desc = codex ? codexToolView(req.tool, req.input, req.cwd) : describeTool(req.tool, req.input);
+    const desc = describeTool(req.tool, req.input);
     const questions = 'questions' in desc ? desc.questions : undefined;
     const ask = isQuestion(req);
     // Question: all must appear in office (hook only answers if each has an answer).
     if (ask && (!questions?.length || questions.length !== askCount(req.input.questions))) return { skip: 'unsupported-tool' };
     if (this.opts.viewers() <= 0) return { skip: 'no-viewers' };
-    const target = codex
-      ? this.resolveCodexAgent(req.sessionId, req.agentId, req.agentType, this.opts.codexAccount?.(req.account, req.codexHome) ?? req.account)
-      : this.resolveAgent(req.sessionId, req.agentId, req.agentType);
+    const target = this.resolveAgent(req.sessionId, req.agentId, req.agentType);
     if (!target) return { skip: 'unknown-session' };
     if (this.size >= this.maxPending) return { skip: 'too-many' };
 
     const now = this.now();
     const id = `p-${now.toString(36)}-${++this.seq}-${randomBytes(9).toString('base64url')}`;
-    // Codex: title, summary, and arguments based on its tool names (permissions/codex.ts).
-    const view = 'title' in desc ? desc : toolView(req.tool, req.input, req.cwd);
+    const view = toolView(req.tool, req.input, req.cwd);
     const info: PermissionRequestInfo = { id, tool: req.tool, title: view.title, text: desc.text, icon: desc.icon, createdAt: now, expiresAt: now + req.timeoutMs };
-    if (codex) info.provider = 'codex';
     if (view.input) info.input = view.input;
     if (view.inputKind) info.inputKind = view.inputKind;
     if (target.subagent) info.subagent = target.subagent;
@@ -420,12 +389,11 @@ export class PermissionRegistry {
       info,
       agentId: target.id,
       sessionId: req.sessionId,
-      signature: codex ? '' : callSignature(req.tool, req.input),
+      signature: callSignature(req.tool, req.input),
       lastScanAt: 0,
       waiters: new Set(),
       idleSince: now,
     };
-    if (codex) p.codex = true;
     if (req.agentId) p.hookAgentId = req.agentId;
     if (ask) p.askFormat = askFormat(req.input.questions);
     this.pending.set(id, p);
@@ -500,7 +468,6 @@ export class PermissionRegistry {
     const p = this.pending.get(id);
     if (!p) return 'not-found';
     if (p.outcome) return 'conflict';
-    if (unsupportedByCodex(p.info, d)) return 'unsupported';
     if (d.suggestion !== undefined && !p.info.suggestions?.some((s) => s.index === d.suggestion)) return 'invalid';
     if (d.behavior === 'terminal') {
       this.release(p, 'terminal');
@@ -550,8 +517,6 @@ export class PermissionRegistry {
       else if (!p.waiters.size && now - p.idleSince >= this.orphanMs) this.release(p, 'orphan');
       else if (!present(this.opts.office.get(p.agentId))) this.release(p, 'gone');
       else if (unwatched && p.info.expiresAt - p.info.createdAt > DEFAULT_TIMEOUT_MS) this.release(p, 'unwatched');
-      // In Codex terminal only asks for approval after hook finishes: no terminal answers to scan for.
-      else if (p.codex) continue;
       else if (now - p.lastScanAt >= SCAN_EVERY_MS && this.answeredInTerminal(p, now)) this.release(p, 'answered');
       else if (this.leftWaiting(p, now)) this.release(p, 'answered');
     }
@@ -564,29 +529,11 @@ export class PermissionRegistry {
     if (agentId) {
       const subId = `${sessionId}:${agentId}`;
       const sub = office.get(subId);
-      if (present(sub) && sub.provider !== 'codex') return { id: subId };
+      if (present(sub)) return { id: subId };
     }
-    const main = office.list().find((a) => a.kind === 'main' && a.provider !== 'codex' && a.sessionId === sessionId && a.status !== 'offline');
+    const main = office.list().find((a) => a.kind === 'main' && a.sessionId === sessionId && a.status !== 'offline');
     if (!main) return undefined;
     return agentId ? { id: main.id, subagent: agentType ?? tr('subagent') } : { id: main.id };
-  }
-
-  /**
-   * Codex agent for a request: thread matching `agent_id ?? session_id` (subagent has own thread; main is
-   * root thread). Account only breaks ties (thread ids are UUIDs). Subagent hidden by Habblaud: request goes
-   * to main agent, with its type.
-   */
-  private resolveCodexAgent(sessionId: string, agentId: string | undefined, agentType: string | undefined, account: string | undefined): { id: string; subagent?: string } | undefined {
-    const find = (thread: string): AgentInfo | undefined => {
-      const found = this.opts.office.list().filter((a) => a.provider === 'codex' && a.sessionId === thread && present(a));
-      return found.find((a) => a.account === account) ?? found[0];
-    };
-    const sub = agentId && agentId !== sessionId ? agentId : undefined;
-    const own = sub ? find(sub) : undefined;
-    if (own) return { id: own.id };
-    const main = find(sessionId);
-    if (!main) return undefined;
-    return sub ? { id: main.id, subagent: agentType ?? tr('subagent') } : { id: main.id };
   }
 
   private queueOf(p: Pending): { queued?: number } {

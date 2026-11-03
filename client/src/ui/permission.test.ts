@@ -3,7 +3,6 @@ import type { AgentInfo, AskQuestion, PermissionRequestInfo } from '../../../sha
 import {
   answerFor,
   buildAnswers,
-  CODEX_PERMISSION_NOTE,
   destinationLabel,
   expiryText,
   isLocalHostname,
@@ -44,25 +43,9 @@ describe('replying from the office (pure functions)', () => {
     expect(expiryText(0, 5)).toBe('returning to the terminal…');
   });
 
-  it('expiryText with seconds (Codex short timeout)', () => {
-    expect(expiryText(25_000, 0, true)).toBe('returns to the terminal in 25 s');
-    expect(expiryText(25_000, 24_200, true)).toBe('returns to the terminal in 1 s');
-    expect(expiryText(25_000, 25_000, true)).toBe('returning to the terminal…');
-    expect(expiryText(5 * 60_000, 0, true)).toBe('returns to the terminal in 5 min');
-  });
-
-  it('Codex card: no "always allow" or "interrupt", rejection with reason, and terminal notice', () => {
+  it('card options: "always allow" needs suggestions; background subagent gets a note', () => {
     const suggestions = [{ index: 0, rules: ['Bash(npm test:*)'], destination: 'localSettings' }];
-    expect(permissionOptions({ provider: 'codex', suggestions }, { kind: 'main' })).toEqual({
-      always: false,
-      interrupt: false,
-      reasonRequired: true,
-      seconds: true,
-      note: CODEX_PERMISSION_NOTE,
-    });
-    expect(CODEX_PERMISSION_NOTE).toBe('In Codex, the approval only shows up in the terminal after you answer here or the time runs out.');
-    // Claude Code: as before.
-    expect(permissionOptions({ suggestions }, { kind: 'main' })).toEqual({ always: true, interrupt: true, reasonRequired: false, seconds: false, note: '' });
+    expect(permissionOptions({ suggestions }, { kind: 'main' })).toEqual({ always: true, interrupt: true, note: '' });
     expect(permissionOptions({}, { kind: 'main' }).always).toBe(false);
     expect(permissionOptions({}, { kind: 'sub', background: true }).note).toMatch(/^This subagent runs in the background/);
   });
@@ -102,8 +85,6 @@ describe('question card (AskUserQuestion)', () => {
     expect(isQuestionRequest({ tool: 'AskUserQuestion', questions: [] })).toBe(false);
     expect(isQuestionRequest({ tool: 'Bash' })).toBe(false);
     expect(isQuestionRequest(undefined)).toBe(false);
-    // Codex does not ask questions via the office: never becomes question card.
-    expect(isQuestionRequest({ tool: 'AskUserQuestion', questions: [single], provider: 'codex' })).toBe(false);
   });
 
   it('answerFor: single choice = option OR "Other"; multiple = combined; "Other" without text = no answer', () => {

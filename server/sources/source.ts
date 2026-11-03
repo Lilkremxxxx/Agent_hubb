@@ -1,9 +1,9 @@
-// Agent sources (one per tool: Claude Code, Codex...) and what the rest of the server expects from them.
+// Agent sources (one per tool: Claude Code...) and what the rest of the server expects from them.
 //
 // Each source watches OPEN sessions of its tool and feeds the Office (addMain, addActivity...). The
 // server binds them all via a SourceSet: snapshot (meta.sources), /api/health, terminal, and agent
 // transcript path go through it, agnostic of which tool the agent comes from. Currently there is Claude
-// Code (sources/watcher.ts, ClaudeWatcher); Codex connects through the same contract.
+// Code (sources/watcher.ts, ClaudeWatcher).
 //
 // Terminal history (recent sessions, open or closed): one HistoryProvider per tool, united in a
 // HistorySet serving /api/sessions/* routes. Claude Code's is SessionHistory (sources/history.ts).

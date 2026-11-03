@@ -68,7 +68,7 @@ export interface TeamFile {
 
 export type TeamResult = { ok: true } | { ok: false; status: number; error: string };
 
-/** Only an open Claude Code main session can be a Claude boss (not a subagent, a Codex thread or a worker). */
+/** Only an open Claude Code main session can be a Claude boss (not a subagent or a worker). */
 export function canBeBoss(a: Pick<AgentInfo, 'kind' | 'provider' | 'status' | 'id'>): boolean {
   return a.kind === 'main' && (a.provider ?? 'claude') === 'claude' && a.status !== 'offline' && a.status !== 'done' && pidOf(a.id) > 0;
 }

@@ -6,7 +6,7 @@ import http from 'node:http';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import type { PtyInfo } from '../shared/types';
-import { codexDirsRefused, isDefaultDir } from './accounts/detect';
+import { isDefaultDir } from './accounts/detect';
 import { AccountsService } from './accounts/service';
 import { isTruthy, loadConfig, messagesOffReason, terminalOffReason, worldSocketUrl } from './config';
 import { createApiHandler, sendJson } from './http/app';
@@ -30,14 +30,9 @@ import { openMainAgent, SessionHistory } from './sources/history';
 import { HistorySet, SourceSet } from './sources/source';
 import { createPermissionRoutes } from './permissions/http';
 import { PermissionRegistry } from './permissions/registry';
-import { codexAccountOf } from './codex/http';
-import { createCodexQueueRunner, findCodexBin } from './messages/codex';
 import { createMessageRoutes } from './messages/http';
 import { MessageRegistry } from './messages/registry';
-import type { CodexLive } from './sources/codex/live';
 import { ClaudeWatcher } from './sources/watcher';
-import { discoverCodexDirs } from './sources/codex/accounts';
-import { CodexHistory } from './sources/codex/history';
 import { AgySource, type AgySeat } from './sources/agy/source';
 import { CLAUDE_WORKER, seatSuffix, TeamService, workerAgentId } from './team';
 import { GhostWatch } from './workers/ghosts';
@@ -46,7 +41,6 @@ import { BoardService } from './board';
 import { agyProfilesRoot } from './sources/agy/profiles';
 import { RulesLog } from './rules-log';
 import { rulesText } from '../shared/rules';
-import { CodexSource } from './sources/codex/source';
 import { createBuildReader, readBuildInfo } from './build';
 import { tr } from '../shared/i18n';
 import type { WorldLocale } from '../shared/world/protocol';
@@ -118,15 +112,9 @@ const office = new Office({
   ptys: () => (late.ptys ? { status: late.ptys.status(), list: late.ptys.list() } : { status: { enabled: false, reason: late.ptyOff ?? tr('off') }, list: [] }),
   world: () => world?.meta() ?? { enabled: false, configured: false, state: 'off' },
 });
-// Agent sources, one per tool (sources/source.ts): Claude Code's and, after it, Codex's (when Codex
-// directories exist; HABBLAUD_CODEX=0 turns it off), with its history in HistorySet below and accounts registered by
-// itself (accounts.setProviderAccounts). `codex` also receives events from Codex hooks (CodexLive).
 // Claude workers' sessions run in the office's terminals and are shown by server/workers, not as sessions.
 const claude = new ClaudeWatcher({ accounts, office, inDocker: config.inDocker, ignore: (_acc, pid) => !!late.workers?.ownsPid(pid) });
 const agents = new SourceSet([claude]);
-const codexDirs = config.codex ? discoverCodexDirs(process.env, config.home) : [];
-const codex = codexDirs.length ? new CodexSource({ accounts, office, dirs: codexDirs, env: process.env, home: config.home }) : undefined;
-if (codex) agents.add(codex);
 // Board › Tasks (server/board.ts): each room's handoff file.
 const board = new BoardService({ office, folders: () => team.offices.map((o) => o.folder) });
 // Antigravity CLI workers (sources/agy/): every profile in ~/.agy_profiles is an account, the ones registered in the
@@ -192,9 +180,6 @@ function agySeats(): AgySeat[] {
   return out;
 }
 team.start();
-// Events from Codex hooks (POST /api/codex/events, mod/habblaud-codex/hook.mjs): go to live Codex source
-// (CodexLive); without it (no Codex directory or HABBLAUD_CODEX=0) the route responds with {ok: false}.
-const codexLive: CodexLive | undefined = codex;
 late.office = office;
 late.agents = agents;
 // Page that can answer on behalf of the office: local Host on local port; on remote, only with permissions allowed.
@@ -250,7 +235,6 @@ const terminals = config.terminal
 const history = config.terminal
   ? new HistorySet([new SessionHistory({ accounts: () => accounts.entries(), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) })])
   : undefined;
-if (history && codex) history.add(new CodexHistory({ accounts: () => accounts.entriesOf('codex'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
 // Deliveries: the end of each prompt, read from history transcripts (same lock as terminal). Delivered files
 // are read here (Node, or account directory mounted in Docker) or by the host helper.
 const deliveries = history
@@ -291,22 +275,17 @@ const permissions = config.terminal
       answerLater: () => !!config.remote?.allow.has('permissions'),
       // Claude Code only: searching for the response given in the terminal reads its transcript format.
       transcriptPathOf: (id) => claude.transcriptPathOf(id),
-      // Requests from the Codex hook: account from CODEX_HOME directory it sends.
-      codexAccount: (account, codexHome) => codexAccountOf(accounts.entriesOf('codex'), account, codexHome),
     })
   : undefined;
 late.permissions = permissions;
 // Messages from the office (plugin habblaud-mensagens): enter the session as if you typed them, so they
-// follow the same lock (and HABBLAUD_MENSAGENS=0 disables only them). Sent to Codex via `codex queue`
-// (messages/codex.ts): outside Docker the server itself runs the command (HABBLAUD_CODEX_BIN or `codex` in PATH);
-// in Docker, via the host helper (npm run codex:bridge).
-const codexBin = config.messages && !config.inDocker ? findCodexBin(process.env) : undefined;
+// follow the same lock (and HABBLAUD_MENSAGENS=0 disables only them).
 // Interactive terminal and New agent: both run Claude Code on this computer, so require the same opt-in,
 // HABBLAUD_PTY=1 (accepts the same values as HABBLAUD_TERMINAL).
 const ptyFlag = process.env.HABBLAUD_PTY?.trim();
 const ptyOptIn = isTruthy(ptyFlag);
 // New agent from the office (Claude Code background session, or pre-filled Claude app screen): the
-// opt-in above plus the messages lock. In Docker, run by the host helper (npm run codex:bridge).
+// opt-in above plus the messages lock.
 const spawnOn = config.messages && ptyOptIn;
 const attachments = spawnOn ? new AttachmentStore() : undefined;
 const spawnBin = config.inDocker ? undefined : runnableClaudeBin(process.env);
@@ -319,13 +298,7 @@ const dictation = config.messages
   ? new DictationService(whisper && !('missing' in whisper) ? { transcriber: createWhisperTranscriber(whisper) } : {})
   : undefined;
 const messages = config.messages
-  ? new MessageRegistry({
-      office,
-      codex: {
-        run: codexBin ? createCodexQueueRunner(codexBin) : undefined,
-        homeOf: (account) => accounts.entriesOf('codex').find((e) => e.id === account)?.detected.configDir,
-      },
-    })
+  ? new MessageRegistry({ office })
   : undefined;
 late.messages = messages;
 
@@ -567,7 +540,6 @@ const api = createApiHandler({
     const rooms = snap.rooms.filter((r) => !isDemoId(r.id)).map((r) => ({ path: r.path, lastAt: last.get(r.id) ?? 0 }));
     return recentFolders(history ? await history.list().catch(() => []) : [], rooms);
   },
-  codexLive,
   stats,
   remote: config.remote ? { is: isRemoteRequest, allows: (f) => config.remote!.allow.has(f) } : undefined,
   world: world ? createWorldRoutes(world, worldViewer, worldSocial) : undefined,
@@ -668,23 +640,10 @@ server.listen(config.port, config.host, () => {
   log.info(tr('🏢 Habblaud {0}{1}{2} at http://{3}:{4}', [config.version, config.dev ? ' (dev)' : '', config.inDocker ? ' (docker)' : '', host, config.port]));
   const list = accounts.entries();
   if (!list.length) log.warn(tr('No Claude Code folder found (set HABBLAUD_CLAUDE_DIRS).'));
-  for (const dir of codexDirsRefused(process.env, config.home)) {
-    log.warn(tr('{0} is a Codex folder, not a Claude Code one: it stays out of the Claude Code accounts.', [dir]));
-  }
   for (const a of list) {
     const src = agents.sources().find((s) => s.label === a.id);
     const usage = accounts.usageView(a.id).status;
     log.info(tr('   Account {0} ({1}): {2} open session(s) · usage: {3} · {4}', [a.detected.short, a.id, src?.sessions ?? 0, usage, a.dir]));
-  }
-  if (codex) {
-    const codexAccounts = codex.accountEntries();
-    const open = codex.sources().reduce((n, s) => n + s.sessions, 0);
-    log.info(tr('   Codex: {0} account(s), {1} open session(s).', [codexAccounts.length, open]));
-    for (const a of codexAccounts) {
-      log.info(tr('   Codex account {0} ({1}): usage: {2} · {3}', [a.detected.short, a.id, accounts.usageView(a.id).status, a.detected.configDir]));
-    }
-  } else {
-    log.info(tr('   Codex: {0}.', [config.codex ? tr('no Codex folder found (set HABBLAUD_CODEX_DIRS)') : tr('off (HABBLAUD_CODEX=0)')]));
   }
   if (config.terminal) log.info(tr('   Terminal: on (local access only).'));
   else log.info(tr('   Terminal: off ({0}).', [terminalOffReason(process.env, config.host, config.inDocker)]));
@@ -693,7 +652,7 @@ server.listen(config.port, config.host, () => {
     !spawn
       ? tr('   New agent: off ({0}).', [!ptyOptIn ? tr('turn it on with HABBLAUD_PTY=1') : tr('same lock as messages')])
       : config.inDocker
-        ? tr('   New agent: on, via the host helper (keep npm run codex:bridge running on the computer).')
+        ? tr('   New agent: on, via the host helper.')
         : spawnBin
           ? tr('   New agent: on ({0} --bg; a folder not yet trusted opens in the Claude app).', [spawnBin])
           : tr('   New agent: on, only via the Claude app (claude not found in PATH).'),
@@ -705,15 +664,6 @@ server.listen(config.port, config.host, () => {
       ? tr('   Messages from the office: on (needs the habblaud-mensagens plugin: npm run mod:install).')
       : tr('   Messages from the office: off ({0}).', [messagesOffReason(process.env, config.host, config.inDocker)]),
   );
-  if (config.messages) {
-    log.info(
-      codexBin
-        ? tr('   Messages to Codex: via codex queue ({0}).', [codexBin])
-        : config.inDocker
-          ? tr('   Messages to Codex: via the host helper (keep npm run codex:bridge running on the Mac).')
-          : tr('   Messages to Codex: no Codex binary (codex in PATH or HABBLAUD_CODEX_BIN); the npm run codex:bridge helper also works.'),
-    );
-  }
   if (config.world.warning) log.warn(`   ${config.world.warning}.`);
   log.info(
     !world

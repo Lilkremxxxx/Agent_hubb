@@ -12,11 +12,11 @@ export type AgentKind = 'main' | 'sub';
 
 /**
  * Which tool the agent (or account, source, session, request) comes from. In protocol types the `provider`
- * field is optional and ABSENT means 'claude' (everything prior to Codex remains unchanged).
+ * field is optional and ABSENT means 'claude'.
  * - claude: Claude Code;
- * - codex: OpenAI Codex (`codex` CLI and desktop app, both writing to the same CODEX_HOME).
+ * - agy: Antigravity CLI.
  */
-export type Provider = 'claude' | 'codex' | 'agy';
+export type Provider = 'claude' | 'agy';
 
 /**
  * High-level state of an agent — drives character behavior.
@@ -167,7 +167,6 @@ export interface AgentGhost {
 export interface AgentInfo {
   /**
    * Stable while agent exists. Claude Code: main "<account>:<pid>", sub "<sessionId>:<agentId>".
-   * Codex: main and sub "<account>:<threadId>" (sub with `parentId`).
    */
   id: string;
   /** The office (OfficeInfo.id) whose building this character is drawn in; absent = the first office's building. */
@@ -371,15 +370,14 @@ export interface AccountUsage {
    * - 'statusline': captured live and written to ~/.habblaud/usage/<account>.json by Habblaud mod
    *   (mod/habblaud, recommended) or scripts/statusline-tap.mjs (statusline rate_limits field);
    * - 'cache': `cachedUsageUtilization` written by Claude Code itself (updates when someone runs /usage);
-   * - 'codex': `rate_limits` from Codex session files (only renews while a session runs);
    * - 'agy': Antigravity CLI `/usage`, run periodically by its source (local command, no model).
    */
-  source: 'cache' | 'statusline' | 'codex' | 'agy';
+  source: 'cache' | 'statusline' | 'agy';
   /** Who wrote live file ('statusline'): Habblaud mod in Claude Code or statusline tap. */
   via?: 'mod' | 'tap';
   /**
-   * Account without quota or credits to use right now (Codex: `rate_limits.primary` null, e.g.: exhausted
-   * workspace credits). Not "0% used": windows are absent.
+   * Account without quota or credits to use right now (e.g.: exhausted workspace
+   * credits). Not "0% used": windows are absent.
    */
   noQuota?: boolean;
   /** The plan has no 5-hour window, only the weekly one (Antigravity account without Pro). */
@@ -388,7 +386,7 @@ export interface AccountUsage {
   fetchedAt: number;
 }
 
-/** A Claude account (a config dir: ~/.claude, ~/.claude-account2, ...) or Codex (a CODEX_HOME: ~/.codex). */
+/** A Claude account (a config dir: ~/.claude, ~/.claude-account2, ...). */
 export interface AccountInfo {
   /** = AgentInfo.account (config dir basename, e.g.: ".claude"); unique across accounts of all tools. */
   id: string;

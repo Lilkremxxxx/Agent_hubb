@@ -1,15 +1,11 @@
 // Message composer (ui/composer.ts), pure logic tested in ui/composer-model.test.ts: when composer appears (and
 // why not), what Enter does, status line for each send, and delivery polling cadence.
-// In Codex, message enters session queue (`codex queue`) and becomes prompt when idle: "Delivered" means
-// this; without a delivery bridge (in Docker, host bridge), hint suggests `npm run codex:bridge`.
 import { MESSAGE_MAX } from '../../../shared/messages';
-import type { AgentInfo, OutboxStatus, Provider } from '../../../shared/types';
+import type { AgentInfo, OutboxStatus } from '../../../shared/types';
 import { tr } from '../../../shared/i18n';
 
 /** Hint for users with feature enabled, but agent session does not have plugin connected. */
 export const PLUGIN_HINT = tr('To send messages from here: npm run mod:install (plugin habblaud-mensagens)');
-/** Same hint for Codex agent without delivery bridge (in Node mode server delivers itself). */
-export const CODEX_BRIDGE_HINT = tr('To send messages to Codex: with Habblaud in Docker, keep npm run codex:bridge running; in Node mode it works on its own');
 
 /**
  * - ready: can send (main agent with plugin connected, feature enabled, local page);
@@ -31,18 +27,15 @@ export function composerMode(agent: AgentInfo | undefined, env: ComposerEnv): Co
   if (env.replaying) return { kind: 'off', text: tr('No messages in timelapse: the office shown is from another moment') };
   if (agent?.kind === 'sub') return { kind: 'off', text: tr("Subagents don't receive messages: write to the main agent") };
   if (!agent || agent.status === 'offline' || agent.status === 'done') return { kind: 'off', text: tr('Session ended') };
-  const codex = agent.provider === 'codex';
-  if (!env.enabled) return { kind: 'off', text: codex ? tr('To reply, use Codex') : tr('To reply, use the Claude Code terminal') };
+  if (!env.enabled) return { kind: 'off', text: tr('To reply, use the Claude Code terminal') };
   if (!env.local) return { kind: 'off', text: tr('To send messages from here, open Habblaud at http://localhost (or 127.0.0.1)') };
-  if (!agent.canMessage) return { kind: 'hint', text: codex ? CODEX_BRIDGE_HINT : PLUGIN_HINT };
+  if (!agent.canMessage) return { kind: 'hint', text: PLUGIN_HINT };
   return { kind: 'ready' };
 }
 
 /** Hint under composer (drawer): how message enters the session. */
-export function composerTip(provider: Provider = 'claude'): string {
-  return provider === 'codex'
-    ? tr("Joins the session queue and becomes the next prompt when Codex finishes what it's doing. Enter sends; Shift+Enter adds a new line.")
-    : tr('Goes into the session as if you had typed it. Enter sends; Shift+Enter adds a new line.');
+export function composerTip(): string {
+  return tr('Goes into the session as if you had typed it. Enter sends; Shift+Enter adds a new line.');
 }
 
 /** Composer output: typed text without trailing whitespace or blank lines. */
@@ -83,23 +76,19 @@ export function isSettled(phase: SendPhase): boolean {
 export const DELIVERED_SHOW_MS = 12_000;
 
 /** Status line text ('' = nothing to show). */
-export function sendStatusText(s: SendState | undefined, now: number, provider: Provider = 'claude'): string {
+export function sendStatusText(s: SendState | undefined, now: number): string {
   if (!s) return '';
-  const codex = provider === 'codex';
   switch (s.phase) {
     case 'sending':
       return tr('Sending…');
     case 'queued':
-      return codex ? tr('Queued: delivering to Codex…') : tr('Queued: waiting for the session to pick up the message…');
+      return tr('Queued: waiting for the session to pick up the message…');
     case 'sent':
       return tr('Delivering to the session…');
     case 'delivered':
-      // Delivered = entered session or its queue (if agent is busy, enters when turn ends). In
-      // Codex it is always the queue: session owner polls every ~10 s and consumes only when idle.
+      // Delivered = entered session or its queue (if agent is busy, enters when turn ends).
       if (now - s.at >= DELIVERED_SHOW_MS) return '';
-      return codex
-        ? tr("Delivered ✓ to the session queue: goes in when Codex finishes what it's doing (up to ~10 s)")
-        : tr('Delivered ✓ (if the agent is busy, it goes in when it finishes)');
+      return tr('Delivered ✓ (if the agent is busy, it goes in when it finishes)');
     case 'rejected':
       return tr("Couldn't send: {0}", [s.error ?? tr('unknown error')]);
     case 'failed':
@@ -119,10 +108,9 @@ export function pollDelay(elapsed: number): number {
 
 export const LOST_ERROR = tr('Habblaud no longer knows this message (did it restart?)');
 export const TIMEOUT_ERROR = tr('no word on delivery: check the Claude Code terminal');
-export const CODEX_TIMEOUT_ERROR = tr('no word on delivery: check Codex');
 export const OFFLINE_ERROR = tr("couldn't reach Habblaud");
 
 /** Polling timeout reached with no word: where to check. */
-export function timeoutError(provider: Provider = 'claude'): string {
-  return provider === 'codex' ? CODEX_TIMEOUT_ERROR : TIMEOUT_ERROR;
+export function timeoutError(): string {
+  return TIMEOUT_ERROR;
 }

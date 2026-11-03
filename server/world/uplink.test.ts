@@ -161,7 +161,7 @@ async function start(
     agents: [
       agent('.claude:101', '/Users/ana/projeto-secreto'),
       agent('s-101:agent-1', '/Users/ana/projeto-secreto', { kind: 'sub', parentId: '.claude:101', look: 'm' }),
-      agent('.codex:thr-9', '/Users/ana/outro', { provider: 'codex', status: 'idle' }),
+      agent('.claude-b:thr-9', '/Users/ana/outro', { status: 'idle' }),
       agent('demo:agente-1', 'demo:/sala', { status: 'working' }),
     ],
     goodbyes: [] as GoodbyeReason[],
@@ -219,7 +219,7 @@ describe('BuildingUplink: connection and dispatches', () => {
     expect(uplink.floors).toHaveLength(2);
     expect(agentsOf(uplink)).toHaveLength(3);
     expect(uplink.tokens).toEqual({ day: 12_000, week: 680_000 });
-    for (const leak of ['demo', '/Users', 'projeto-secreto', 'outro', '.claude', '.codex', 'thr-9', 's-101']) {
+    for (const leak of ['demo', '/Users', 'projeto-secreto', 'outro', '.claude', 'thr-9', 's-101']) {
       expect(JSON.stringify(uplink), leak).not.toContain(leak);
     }
     const sub = agentsOf(uplink).find((a) => a.kind === 'sub')!;

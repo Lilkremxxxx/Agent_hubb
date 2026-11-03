@@ -4,10 +4,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { NAME_MAX, parseAppearanceParts, parseCharacterName, parseSeed } from '../../shared/appearance';
 import type { AccessInfo, AgentInfo, ModSummary, OfficeSnapshot, PtyInfo, SourceInfo, WorkerJob } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
-import { handleCodexEvent } from '../codex/http';
 import type { DayStatsService } from '../history/daystats';
 import type { Office } from '../model/office';
-import type { CodexLive } from '../sources/codex/live';
 import type { SessionLookup } from '../sources/source';
 import { isJsonContentType, isLoopbackHost } from './guard';
 import type { RemoteFeature } from './remote';
@@ -54,8 +52,8 @@ export interface ApiDeps {
    */
   permissions?: (req: IncomingMessage, res: ServerResponse, path: string) => void;
   /**
-   * Routes for messages across the office (/api/messages, plugin inbox at /api/mod/inbox, and Codex helper
-   * at /api/codex/bridge/*, server/messages/http.ts). Only exist with ServerConfig.messages (terminal lock
+   * Routes for messages across the office (/api/messages, and plugin inbox at /api/mod/inbox,
+   * server/messages/http.ts). Only exist with ServerConfig.messages (terminal lock
    * and HABBLAUD_MENSAGENS); local Host lock is checked here before calling them.
    */
   messages?: (req: IncomingMessage, res: ServerResponse, path: string) => void;
@@ -64,12 +62,6 @@ export interface ApiDeps {
    * Missing = disabled (without HABBLAUD_PTY=1, Docker, without node-pty, or without local bind).
    */
   pty?: (req: IncomingMessage, res: ServerResponse, path: string) => void;
-  /**
-   * Live Codex source: receives Codex hook events (POST /api/codex/events, server/codex/http.ts). Without
-   * it route responds {ok: false}. Only with local Host and, outside Docker, loopback connection (events only observe:
-   * they do not depend on terminal lock).
-   */
-  codexLive?: CodexLive;
   /** New agent from the office (/api/spawn and, for host helper, /api/host/spawn/*; server/spawn/spawn.ts). */
   spawn?: SpawnService;
   /** Suggested folders in "New agent" (GET /api/spawn/folders; spawn/folders.ts): recent projects. */
@@ -170,7 +162,6 @@ function isLocalOnlyPath(path: string): boolean {
     /^\/api\/permissions\/[^/]+\/wait$/.test(path) ||
     path === '/api/mod/inbox' ||
     path === '/api/mod/inbox/ack' ||
-    path.startsWith('/api/codex/') ||
     path.startsWith('/api/host/')
   );
 }
@@ -180,9 +171,7 @@ function isMessagesPath(path: string): boolean {
     path === '/api/messages' ||
     path.startsWith('/api/messages/') ||
     path === '/api/mod/inbox' ||
-    path === '/api/mod/inbox/ack' ||
-    path === '/api/codex/bridge/poll' ||
-    path === '/api/codex/bridge/ack'
+    path === '/api/mod/inbox/ack'
   );
 }
 
@@ -458,7 +447,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           // Interactive terminal (pty) is never allowed over remote port.
           pty: !!deps.pty && !remote,
           messages: !!deps.messages && (!remote || trusted(req, 'messages')),
-          codexEvents: !!deps.codexLive,
           sources: deps.sources(),
           accounts: accounts.allEntries().map((a) =>
             a.provider === 'claude'
@@ -562,16 +550,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         }
         handleCharacter(req, res, id, method).catch((err) => fail(res, err));
       }
-      return true;
-    }
-    if (path === '/api/codex/events') {
-      // Codex hook events: observe only, but only accepted from computer itself. Outside Docker the hook
-      // always connects via loopback (Host alone can be forged by LAN clients); in Docker it arrives via published
-      // port with gateway address.
-      if (method !== 'POST') methodNotAllowed(res, 'POST');
-      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
-        sendJson(res, 403, { error: denied(req, tr('Codex events are only accepted from the computer running Habblaud (http://localhost or http://127.0.0.1)')) });
-      } else handleCodexEvent(req, res, { live: deps.codexLive, entries: () => accounts.entriesOf('codex') }).catch((err) => fail(res, err));
       return true;
     }
     if (path === '/api/spawn' || path.startsWith('/api/spawn/')) {

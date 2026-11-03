@@ -2,7 +2,7 @@
 // JSON: guard requires JSON on every POST) and polls GET /api/dictation/:id until text arrives. Local Whisper
 // transcribes (dictation/whisper.ts):
 // - Node mode: server itself, if whisper-cli, ffmpeg, and a model are found;
-// - Docker: host helper (scripts/codex-bridge.ts) polls POST /api/host/dictation/poll and returns text via
+// - Docker: host helper polls POST /api/host/dictation/poll and returns text via
 //   POST /api/host/dictation/ack. It only polls when Whisper is present, so "available" = helper recently seen.
 // Audio lives in memory only and is deleted once delivered; text remains until read (or 5 min).
 import { randomUUID } from 'node:crypto';
@@ -78,7 +78,7 @@ export class DictationService {
     const audio = parseAudio(raw);
     if ('error' in audio) return { error: 'invalid', reason: audio.error };
     if (!this.available()) {
-      return { error: 'unavailable', reason: tr("dictation unavailable: Whisper isn't installed on the computer or the helper (npm run codex:bridge) stopped") };
+      return { error: 'unavailable', reason: tr("dictation unavailable: Whisper isn't installed on the computer or the helper stopped") };
     }
     let open = 0;
     for (const e of this.entries.values()) if (e.info.status === 'queued' || e.info.status === 'sent') open++;

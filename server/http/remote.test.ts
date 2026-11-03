@@ -318,8 +318,6 @@ describe('remote port', () => {
       ['GET', '/api/permissions/p1/wait'],
       ['POST', '/api/mod/inbox'],
       ['POST', '/api/mod/inbox/ack'],
-      ['POST', '/api/codex/bridge/poll'],
-      ['POST', '/api/codex/events'],
       ['POST', '/api/host/files/poll'],
       ['POST', '/api/host/spawn/poll'],
     ];
@@ -398,7 +396,7 @@ describe('remote port', () => {
     // Without host helper running: 409 with reason.
     const off = await request(t.remoteBase, '/api/spawn', { method: 'POST', body, headers: { Cookie: c2 } });
     expect(off.status).toBe(409);
-    expect(off.body).toMatch(/codex:bridge/);
+    expect(off.body).toMatch(/helper isn't running/);
     expect((await request(t.remoteBase, '/api/host/spawn/poll', { method: 'POST', body: {}, headers: { Cookie: c2 } })).status).toBe(403);
     // Helper (local port) passes: phone requests, helper polls, opens and confirms.
     expect(JSON.parse((await request(t.localBase, '/api/host/spawn/poll', { method: 'POST', body: {} })).body)).toEqual({ spawns: [] });

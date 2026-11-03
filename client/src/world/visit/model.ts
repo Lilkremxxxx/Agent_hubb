@@ -96,12 +96,11 @@ export function statusText(s: VisitStatus): string {
 /** A panel row (name, role, tool, and status: nothing else exists in visits). */
 export function agentRow(a: WorldAgent): VisitAgentRow {
   const status: VisitStatus = STATUS.includes(a.status) ? a.status : 'idle';
-  const provider = a.provider === 'codex' ? 'codex' : 'claude';
   return {
     id: worldId(a.id),
     name: typeof a.name === 'string' && a.name ? a.name : tr('Agent'),
     role: a.kind === 'sub' ? tr('Subagent') : tr('Main agent'),
-    tool: WORLD_TOOL_ACCOUNTS[provider].name,
+    tool: WORLD_TOOL_ACCOUNTS.claude.name,
     status,
     statusText: statusText(status),
   };

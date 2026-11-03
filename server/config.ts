@@ -38,8 +38,6 @@ export interface ServerConfig {
   /** Project root (where package.json lives); serves dist/client from here. */
   rootDir: string;
   version: string;
-  /** Observes Codex sessions (sources/codex/); HABBLAUD_CODEX=0 disables it. */
-  codex: boolean;
   /**
    * Antigravity CLI workers (sources/agy/): profiles in ~/.agy_profiles; HABBLAUD_AGY=0 disables it. `room` = their
    * room directory (HABBLAUD_AGY_ROOM; default ~/Workspace/agy-hub if present, else HOME); `usageMs` = interval for
@@ -239,7 +237,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     timeline: !env.HABBLAUD_TIMELINE?.trim() || isTruthy(env.HABBLAUD_TIMELINE),
     rootDir,
     version: pkg.version,
-    codex: !env.HABBLAUD_CODEX?.trim() || isTruthy(env.HABBLAUD_CODEX),
     agy: parseAgyConfig(env, home),
     remote: remote.config,
     remoteWarning: remote.warning,

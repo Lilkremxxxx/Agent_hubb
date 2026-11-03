@@ -1,43 +1,37 @@
-// Visual pieces reused by panels: account chip (and "Codex" tag), status dot, role badge,
+// Visual pieces reused by panels: account chip (and provider tag), status dot, role badge,
 // progress bar.
 import type { AccountInfo, Activity, AgentInfo, AgentStatus, Provider } from '../../../shared/types';
 import { h, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { WORDMARK } from './icons';
 import { shellDoneKind, shellLine, shellStage, statusLabel, type ShellWait } from './model';
-import { accountChipLabel, accountProvider, fallbackShort, PROVIDER_NAME, showsProviderTag } from './provider';
+import { accountChipLabel, fallbackShort, PROVIDER_NAME, showsProviderTag } from './provider';
 import { tr } from '../../../shared/i18n';
 import { modelSpec } from '../../../shared/model-spec';
 
-/**
- * Square chip with account short letter ("C", "D") in account color. Codex account: chip is outlined (dark
- * background, border and letter in account color, stepped corners): `data-provider="codex"`.
- */
+/** Square chip with account short letter ("C", "D") in account color. */
 export function createAccountChip(size: 'sm' | 'md' | 'lg' = 'sm'): HTMLElement {
   return h('span', { class: `ui-acc-chip ui-acc-chip--${size}` });
 }
 
-/** `provider` = hint for when the account is not in the snapshot (e.g.: history session indicates tool). */
-export function updateAccountChip(chip: HTMLElement, account: AccountInfo | undefined, fallbackId = '', provider?: Provider): void {
-  const p = accountProvider(account, fallbackId, provider);
-  setText(chip, account?.short ?? fallbackShort(fallbackId, p));
+export function updateAccountChip(chip: HTMLElement, account: AccountInfo | undefined, fallbackId = ''): void {
+  setText(chip, account?.short ?? fallbackShort(fallbackId));
   setStyleVar(chip, '--acc', account?.color ?? '#8b98b3');
-  setAttr(chip, 'data-provider', p === 'codex' ? 'codex' : null);
-  const label = accountChipLabel(account, fallbackId, p);
+  const label = accountChipLabel(account, fallbackId);
   setTitle(chip, label);
   setAttr(chip, 'aria-label', label);
 }
 
-/** Text badge "Codex" beside account name (where space permits: drawer, terminal, usage card, tooltip). */
+/** Text badge with the tool name beside account name (where space permits: drawer, terminal, usage card, tooltip). */
 export function createProviderTag(extra = ''): HTMLElement {
-  return h('span', { class: `ui-prov${extra ? ` ${extra}` : ''}`, text: 'Codex', hidden: true, title: tr('Codex agent (OpenAI)') });
+  return h('span', { class: `ui-prov${extra ? ` ${extra}` : ''}`, text: PROVIDER_NAME.agy, hidden: true, title: tr('Antigravity CLI worker (Google)') });
 }
 
-/** Shows tag only for Codex (does not repeat if account name already contains "Codex"). */
+/** Shows tag only for non-Claude tools (does not repeat if the account name already mentions the tool). */
 export function updateProviderTag(tag: HTMLElement, provider: Provider, accountName = ''): void {
   setHidden(tag, !showsProviderTag(provider, accountName));
   if (provider === 'claude') return;
   setText(tag, PROVIDER_NAME[provider]);
-  setTitle(tag, provider === 'agy' ? tr('Antigravity CLI worker (Google)') : tr('Codex agent (OpenAI)'));
+  setTitle(tag, tr('Antigravity CLI worker (Google)'));
 }
 
 /** Status square (pixel), pulsing when awaiting user input. */

@@ -3,9 +3,6 @@
 // Answer), plus the shortcuts leading to it (notice, top bar counter, and the P key). The request arrives
 // via the PermissionRequest hook (mod/habblaud-permissoes/hooks/permission-hook.mjs); the dialog continues in
 // the terminal and whichever is answered first wins.
-// Codex request (`provider: 'codex'`): its hook only waits a few seconds and the terminal only shows the approval
-// after you answer here or the timeout expires; there is no "always allow" or "interrupt", and denying requires a
-// reason. Codex never asks questions through the office (no question card).
 import { access, isLoopbackHostname } from '../net/access';
 import { ANSWER_OTHER_MAX, ASK_TOOL, checkAnswers } from '../../../shared/answers';
 import type { AgentInfo, AskQuestion, PermissionAnswer, PermissionDecision, PermissionRequestInfo, PermissionSuggestionInfo } from '../../../shared/types';
@@ -34,18 +31,14 @@ export function destinationLabel(destination: string): string {
 }
 
 /**
- * "returns to the terminal in 4 min" (when the hook gives up waiting). `seconds` counts seconds in the last minute
- * (Codex timeout is in seconds).
+ * "returns to the terminal in 4 min" (when the hook gives up waiting).
  */
-export function expiryText(expiresAt: number, now: number, seconds = false): string {
+export function expiryText(expiresAt: number, now: number): string {
   const left = expiresAt - now;
   if (left <= 0) return tr('returning to the terminal…');
-  if (left < 60_000) return seconds ? tr('returns to the terminal in {0} s', [Math.ceil(left / 1_000)]) : tr('returns to the terminal in under 1 min');
+  if (left < 60_000) return tr('returns to the terminal in under 1 min');
   return tr('returns to the terminal in {0}', [formatDuration(left)]);
 }
-
-/** Warning on the card for a Codex request. */
-export const CODEX_PERMISSION_NOTE = tr('In Codex, the approval only shows up in the terminal after you answer here or the time runs out.');
 
 /** What the card offers for a request (varies by tool). */
 export interface PermissionOptions {
@@ -53,23 +46,16 @@ export interface PermissionOptions {
   always: boolean;
   /** "Interrupt the agent" alongside denying. */
   interrupt: boolean;
-  /** Deny only with a reason. */
-  reasonRequired: boolean;
-  /** Timeout counted in seconds during the last minute. */
-  seconds: boolean;
   /** Short note below preview ('' = none). */
   note: string;
 }
 
-export function permissionOptions(p: Pick<PermissionRequestInfo, 'provider' | 'suggestions'>, agent: Pick<AgentInfo, 'kind' | 'background'>): PermissionOptions {
-  if (p.provider === 'codex') return { always: false, interrupt: false, reasonRequired: true, seconds: true, note: CODEX_PERMISSION_NOTE };
+export function permissionOptions(p: Pick<PermissionRequestInfo, 'suggestions'>, agent: Pick<AgentInfo, 'kind' | 'background'>): PermissionOptions {
   // Background subagent: Claude Code only displays the dialog after the hook responds.
   const blocking = agent.kind === 'sub' && !!agent.background;
   return {
     always: !!p.suggestions?.length,
     interrupt: true,
-    reasonRequired: false,
-    seconds: false,
     note: blocking ? tr('This subagent runs in the background: the terminal only shows the request after you answer here or choose “Answer in terminal”.') : '',
   };
 }
@@ -96,9 +82,9 @@ export function focusPermission(ctx: UiContext, agentId: string): void {
 /** Was the page opened on the local machine? (legacy rule; decided by server now, see net/access.ts) */
 export const isLocalHostname = isLoopbackHostname;
 
-/** Request answered by choosing (AskUserQuestion questions), not approving. Codex never asks questions. */
-export function isQuestionRequest(p: Pick<PermissionRequestInfo, 'tool' | 'questions' | 'provider'> | undefined): boolean {
-  return !!p && p.provider !== 'codex' && p.tool === ASK_TOOL && !!p.questions?.length;
+/** Request answered by choosing (AskUserQuestion questions), not approving. */
+export function isQuestionRequest(p: Pick<PermissionRequestInfo, 'tool' | 'questions'> | undefined): boolean {
+  return !!p && p.tool === ASK_TOOL && !!p.questions?.length;
 }
 
 /** Selected state for a question card: options (indices in original) and "Other" (checked and text). */
@@ -213,8 +199,8 @@ export class PermissionCard {
   private interrupt: HTMLInputElement;
   private interruptRow: HTMLElement;
   private denySubmit: HTMLButtonElement;
-  /** What the card offers for current request (Claude Code or Codex). */
-  private opts: PermissionOptions = { always: false, interrupt: true, reasonRequired: false, seconds: false, note: '' };
+  /** What the card offers for current request (Claude Code). */
+  private opts: PermissionOptions = { always: false, interrupt: true, note: '' };
   private status: HTMLElement;
   private remote: HTMLElement;
   /** AskUserQuestion questions, built once per request (selection survives snapshots). */
@@ -273,12 +259,9 @@ export class PermissionCard {
       this.interruptRow,
       h('div', { class: 'ui-perm__actions' }, this.denySubmit, h('button', { class: 'ui-btn ui-perm__btn', type: 'button', on: { click: () => this.toggleDeny(false) } }, tr('Cancel'))),
     );
-    // Codex: deny only with a reason (button enables when text is present).
-    this.reason.addEventListener('input', () => this.syncDeny());
     this.denyForm.addEventListener('submit', (e) => {
       e.preventDefault();
       const message = this.reason.value.trim().slice(0, MESSAGE_MAX);
-      if (this.opts.reasonRequired && !message) return this.reason.focus();
       this.send({ behavior: 'deny', ...(message ? { message } : {}), ...(this.opts.interrupt && this.interrupt.checked ? { interrupt: true } : {}) });
     });
     // Escape inside the form closes only the form (not the drawer).
@@ -326,8 +309,6 @@ export class PermissionCard {
     setHidden(this.el, false);
     const now = this.ctx.now();
     const opts = (this.opts = permissionOptions(p, agent));
-    const codex = p.provider === 'codex';
-    this.el.classList.toggle('is-codex', codex);
     const ask = isQuestionRequest(p);
     const kind = ask ? 'ask' : 'perm';
     if (this.el.dataset.kind !== kind) {
@@ -338,12 +319,10 @@ export class PermissionCard {
     setText(this.title, ask ? (p.questions!.length > 1 ? tr('Questions for you') : tr('Question for you')) : tr('Asks for permission'));
     const by = p.subagent ? tr(' · subagent {0}', [p.subagent]) : '';
     setText(this.what, ask ? tr('Here or in the terminal: the first answer wins{0}', [by]) : `${p.icon} ${p.text}${by}`);
-    setText(this.timer, expiryText(p.expiresAt, now, opts.seconds));
+    setText(this.timer, expiryText(p.expiresAt, now));
     setTitle(
       this.timer,
-      codex
-        ? tr("Requested at {0}. With no answer here by {1}, Codex moves on without the office's decision and asks for approval in the terminal.", [formatClock(p.createdAt), formatClock(p.expiresAt)])
-        : tr('Requested at {0}. With no answer here by {1}, Habblaud hands the request back to the terminal.', [formatClock(p.createdAt), formatClock(p.expiresAt)]),
+      tr('Requested at {0}. With no answer here by {1}, Habblaud hands the request back to the terminal.', [formatClock(p.createdAt), formatClock(p.expiresAt)]),
     );
 
     // Question: form with options instead of tool title and arguments preview.
@@ -366,7 +345,7 @@ export class PermissionCard {
       }
     }
 
-    // Warning: background subagent (Claude Code) or Codex terminal, which only prompts after office.
+    // Warning: background subagent, whose terminal only prompts after the office.
     setHidden(this.note, !opts.note);
     setText(this.note, opts.note);
     setHidden(this.queue, !p.queued);
@@ -379,11 +358,8 @@ export class PermissionCard {
     for (const b of [this.approveBtn, this.denyBtn, this.terminalBtn]) b.disabled = busy;
     for (const el of this.askForm.querySelectorAll('input')) el.disabled = busy;
     if (ask) this.syncAnswer();
-    setTitle(this.denyBtn, ask ? tr("Don't answer: the agent continues without the answer (with the reason, if you write one)") : codex ? tr('Deny with a reason (Codex requires one)') : '');
-    setTitle(
-      this.terminalBtn,
-      codex ? tr('Habblaud releases the request now: Codex shows the approval in the terminal') : tr('Habblaud sets this request aside: your answer in the terminal is what counts'),
-    );
+    setTitle(this.denyBtn, ask ? tr("Don't answer: the agent continues without the answer (with the reason, if you write one)") : '');
+    setTitle(this.terminalBtn, tr('Habblaud sets this request aside: your answer in the terminal is what counts'));
     this.suggestions.sync(opts.always ? (p.suggestions ?? []) : []);
     for (const b of this.suggestions.container.querySelectorAll('button')) b.disabled = busy;
     setHidden(this.always, ask || !opts.always || this.phase === 'deny');
@@ -392,13 +368,10 @@ export class PermissionCard {
     setAttr(
       this.reason,
       'placeholder',
-      opts.reasonRequired
-        ? tr('Reason (required in Codex, goes to the agent). E.g.: use pnpm instead of npm')
-        : tr('Reason (optional, goes to the agent). E.g.: {0}', [ask ? tr('you decide, going with the safest option') : tr('use pnpm instead of npm')]),
+      tr('Reason (optional, goes to the agent). E.g.: {0}', [ask ? tr('you decide, going with the safest option') : tr('use pnpm instead of npm')]),
     );
-    setAttr(this.reason, 'aria-label', opts.reasonRequired ? tr('Reason for denying (required)') : tr('Reason for denying (optional)'));
+    setAttr(this.reason, 'aria-label', tr('Reason for denying (optional)'));
     for (const el of this.denyForm.querySelectorAll<HTMLButtonElement | HTMLTextAreaElement | HTMLInputElement>('button, textarea, input')) el.disabled = busy;
-    this.syncDeny();
     setAttr(this.denyBtn, 'aria-expanded', String(this.phase === 'deny'));
     this.denyBtn.classList.toggle('is-on', this.phase === 'deny');
 
@@ -437,13 +410,6 @@ export class PermissionCard {
       .catch(() => {
         // Without details (non-local access or already answered request): keep the title.
       });
-  }
-
-  /** Codex: "Deny" only enables with a written reason. */
-  private syncDeny(): void {
-    const missing = this.opts.reasonRequired && !this.reason.value.trim();
-    this.denySubmit.disabled = this.isBusy() || missing;
-    setTitle(this.denySubmit, missing ? tr('Write the reason: Codex only denies with a reason') : '');
   }
 
   private toggleDeny(open = this.phase !== 'deny'): void {

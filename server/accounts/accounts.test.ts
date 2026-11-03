@@ -3,7 +3,7 @@ import { basename, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setQuiet } from '../log';
 import { tempDir } from '../test/fixtures';
-import { accountIds, codexDirsRefused, discoverClaudeDirs, detectAccounts, isClaudeDir, isCodexHome, parseClaudeAliases, shortcutsByDir } from './detect';
+import { accountIds, discoverClaudeDirs, detectAccounts, isClaudeDir, parseClaudeAliases, shortcutsByDir } from './detect';
 import { AccountsService } from './service';
 import { rollover, STALE_AFTER_MS, usageFromCache, usageFromWindows, UsageStore } from './usage';
 
@@ -72,46 +72,6 @@ describe('account detection', () => {
     mkdirSync(extra);
     expect(discoverClaudeDirs({ CLAUDE_CONFIG_DIR: extra }, home)).toContain(extra);
     expect(discoverClaudeDirs({ HABBLAUD_CLAUDE_DIRS: ' /x/a , ~/b ' }, home)).toEqual([resolve('/x/a'), join(home, 'b')]);
-  });
-
-  it('Codex folder (CODEX_HOME) does not become a Claude Code account via any path', () => {
-    // Synthetic CODEX_HOME: sessions/YYYY/MM/DD (rollouts), locks, config.toml and auth.json (never opened).
-    const codex = join(home, '.codex');
-    mkdirSync(join(codex, 'sessions', '2026', '10', '09'), { recursive: true });
-    mkdirSync(join(codex, 'thread-writer-locks'), { recursive: true });
-    writeFileSync(join(codex, 'config.toml'), 'model = "x"\n');
-    writeFileSync(join(codex, 'auth.json'), '{}');
-    // CODEX_HOME with a name picked up by $HOME scan (.claude*): only with sessions/YYYY/.
-    const disfarcado = join(home, '.claude-codex');
-    mkdirSync(join(disfarcado, 'sessions', '2026'), { recursive: true });
-    for (const marca of ['thread-writer-locks', 'archived_sessions', 'config.toml', 'auth.json', 'sessions/2026']) {
-      const p = join(home, `codex-${marca.replace('/', '-')}`);
-      if (marca.includes('.')) {
-        mkdirSync(join(p, 'sessions'), { recursive: true });
-        writeFileSync(join(p, marca), '');
-      } else mkdirSync(join(p, marca), { recursive: true });
-      expect(isCodexHome(p), marca).toBe(true);
-      expect(isClaudeDir(p), marca).toBe(false);
-    }
-    // Claude Code accounts remain valid: empty sessions/ or with <pid>.json, and projects/ always takes precedence.
-    writeFileSync(join(home, '.claude-conta2', 'sessions', '123.json'), '{}');
-    for (const p of [join(home, '.claude'), join(home, '.claude-conta2')]) expect(isClaudeDir(p)).toBe(true);
-    const misto = join(home, '.claude-misto');
-    mkdirSync(join(misto, 'projects'), { recursive: true });
-    writeFileSync(join(misto, 'config.toml'), '');
-    expect(isCodexHome(misto)).toBe(false);
-    expect(isCodexHome(join(home, 'nao-existe'))).toBe(false);
-    expect(isCodexHome(join(home, '.claude-vazio'))).toBe(false);
-
-    expect(discoverClaudeDirs({}, home)).toEqual([join(home, '.claude'), join(home, '.claude-conta2'), misto]);
-    expect(codexDirsRefused({}, home)).toEqual([disfarcado]);
-    // CLAUDE_CONFIG_DIR and HABBLAUD_CLAUDE_DIRS pointing to Codex: excluded (rest of list unchanged).
-    expect(discoverClaudeDirs({ CLAUDE_CONFIG_DIR: codex }, home)).not.toContain(codex);
-    expect(codexDirsRefused({ CLAUDE_CONFIG_DIR: codex }, home)).toEqual([disfarcado, codex]);
-    expect(discoverClaudeDirs({ HABBLAUD_CLAUDE_DIRS: `~/.claude,~/.codex,/x/a` }, home)).toEqual([join(home, '.claude'), resolve('/x/a')]);
-    expect(codexDirsRefused({ HABBLAUD_CLAUDE_DIRS: `~/.claude,~/.codex,/x/a` }, home)).toEqual([codex]);
-    const env = { HABBLAUD_ACCOUNTS: JSON.stringify([{ id: '.codex', mountDir: codex }]) };
-    expect(discoverClaudeDirs(env, home)).not.toContain(codex);
   });
 
   it('reads only allowed fields from .claude.json, shortcuts and colors', () => {
@@ -221,59 +181,59 @@ describe('usage (5h and weekly)', () => {
       let changes = 0;
       let now = NOW;
       const svc = new AccountsService({ dirs: [dir], home: tmp.dir, env: {}, onChange: () => changes++, now: () => now });
-      const det = (id: string) => ({ id, configDir: `/Users/x/${id}`, short: 'X', name: 'Codex', color: '#10a37f' });
+      const det = (id: string) => ({ id, configDir: `/Users/x/${id}`, short: 'X', name: 'Agy', color: '#10a37f' });
       changes = 0;
-      const set = svc.setProviderAccounts('codex', [
-        { dir: join(tmp.dir, '.codex'), detected: det('.codex') },
-        { dir: join(tmp.dir, 'b', '.codex'), detected: det('.codex') },
+      const set = svc.setProviderAccounts('agy', [
+        { dir: join(tmp.dir, '.agy'), detected: det('.agy') },
+        { dir: join(tmp.dir, 'b', '.agy'), detected: det('.agy') },
         // Same ID as Claude Code account: disambiguated.
         { dir: join(tmp.dir, 'c', '.claude'), detected: det('.claude') },
       ]);
       expect(set.map((e) => [e.id, e.provider, e.detected.id, e.detected.provider])).toEqual([
-        ['.codex', 'codex', '.codex', 'codex'],
-        ['.codex~2', 'codex', '.codex~2', 'codex'],
-        ['.claude~2', 'codex', '.claude~2', 'codex'],
+        ['.agy', 'agy', '.agy', 'agy'],
+        ['.agy~2', 'agy', '.agy~2', 'agy'],
+        ['.claude~2', 'agy', '.claude~2', 'agy'],
       ]);
       expect(changes).toBe(1);
       // Same list again: same IDs, no change notification.
-      expect(svc.setProviderAccounts('codex', set.map((e) => ({ dir: e.dir, detected: det(basename(e.dir)) }))).map((e) => e.id)).toEqual([
-        '.codex',
-        '.codex~2',
+      expect(svc.setProviderAccounts('agy', set.map((e) => ({ dir: e.dir, detected: det(basename(e.dir)) }))).map((e) => e.id)).toEqual([
+        '.agy',
+        '.agy~2',
         '.claude~2',
       ]);
       expect(changes).toBe(1);
       // entries() = Claude Code only (watcher, history, and statusline); others see all.
       expect(svc.entries().map((e) => [e.id, e.provider])).toEqual([['.claude', 'claude']]);
-      expect(svc.entriesOf('codex').map((e) => e.id)).toEqual(['.codex', '.codex~2', '.claude~2']);
-      expect(svc.allEntries().map((e) => e.id)).toEqual(['.claude', '.codex', '.codex~2', '.claude~2']);
-      expect(svc.find('.codex~2')?.dir).toBe(join(tmp.dir, 'b', '.codex'));
-      expect(svc.idForDir(join(tmp.dir, '.codex'))).toBe('.codex');
-      const infos = svc.list(new Map([['.codex', 2]]));
+      expect(svc.entriesOf('agy').map((e) => e.id)).toEqual(['.agy', '.agy~2', '.claude~2']);
+      expect(svc.allEntries().map((e) => e.id)).toEqual(['.claude', '.agy', '.agy~2', '.claude~2']);
+      expect(svc.find('.agy~2')?.dir).toBe(join(tmp.dir, 'b', '.agy'));
+      expect(svc.idForDir(join(tmp.dir, '.agy'))).toBe('.agy');
+      const infos = svc.list(new Map([['.agy', 2]]));
       expect(infos[0]).not.toHaveProperty('provider');
-      expect(infos[1]).toMatchObject({ id: '.codex', provider: 'codex', sessions: 2, usageStatus: 'disabled', configDir: '/Users/x/.codex' });
+      expect(infos[1]).toMatchObject({ id: '.agy', provider: 'agy', sessions: 2, usageStatus: 'disabled', configDir: '/Users/x/.agy' });
 
-      // Usage pushed by source (origin 'codex'), with noQuota account.
+      // Usage pushed by source (origin 'agy'), with noQuota account.
       changes = 0;
-      expect(svc.setUsage('.codex', { source: 'codex', fetchedAt: NOW - 60_000, fiveHour: { utilization: 12.5, resetsAt: NOW + 3_600_000 } })).toBe(true);
+      expect(svc.setUsage('.agy', { source: 'agy', fetchedAt: NOW - 60_000, fiveHour: { utilization: 12.5, resetsAt: NOW + 3_600_000 } })).toBe(true);
       expect(changes).toBe(1);
-      expect(svc.setUsage('.codex', { source: 'codex', fetchedAt: NOW - 60_000, fiveHour: { utilization: 12.5, resetsAt: NOW + 3_600_000 } })).toBe(false);
+      expect(svc.setUsage('.agy', { source: 'agy', fetchedAt: NOW - 60_000, fiveHour: { utilization: 12.5, resetsAt: NOW + 3_600_000 } })).toBe(false);
       expect(changes).toBe(1);
-      svc.setUsage('.codex~2', { source: 'codex', fetchedAt: NOW, noQuota: true });
-      expect(svc.list(new Map()).find((a) => a.id === '.codex')).toMatchObject({ usageStatus: 'ok', usage: { source: 'codex', fiveHour: { utilization: 12.5 } } });
-      expect(svc.list(new Map()).find((a) => a.id === '.codex~2')?.usage).toEqual({ source: 'codex', fetchedAt: NOW, noQuota: true });
+      svc.setUsage('.agy~2', { source: 'agy', fetchedAt: NOW, noQuota: true });
+      expect(svc.list(new Map()).find((a) => a.id === '.agy')).toMatchObject({ usageStatus: 'ok', usage: { source: 'agy', fiveHour: { utilization: 12.5 } } });
+      expect(svc.list(new Map()).find((a) => a.id === '.agy~2')?.usage).toEqual({ source: 'agy', fetchedAt: NOW, noQuota: true });
       // Ages like other origins (periodic refresh detects and notifies).
       now = NOW + STALE_AFTER_MS;
       changes = 0;
       svc.refresh();
       expect(changes).toBe(1);
-      expect(svc.usageView('.codex').status).toBe('stale');
-      expect(svc.clearUsage('.codex', 'codex')).toBe(true);
-      expect(svc.usageView('.codex').status).toBe('disabled');
+      expect(svc.usageView('.agy').status).toBe('stale');
+      expect(svc.clearUsage('.agy', 'agy')).toBe(true);
+      expect(svc.usageView('.agy').status).toBe('disabled');
 
       // Removed account loses saved usage; empty list removes tool.
-      svc.setProviderAccounts('codex', [{ dir: join(tmp.dir, '.codex'), detected: det('.codex') }]);
-      expect(svc.usageView('.codex~2').status).toBe('disabled');
-      svc.setProviderAccounts('codex', []);
+      svc.setProviderAccounts('agy', [{ dir: join(tmp.dir, '.agy'), detected: det('.agy') }]);
+      expect(svc.usageView('.agy~2').status).toBe('disabled');
+      svc.setProviderAccounts('agy', []);
       expect(svc.allEntries().map((e) => e.id)).toEqual(['.claude']);
       expect(svc.list(new Map()).map((a) => a.id)).toEqual(['.claude']);
     } finally {

@@ -122,11 +122,8 @@ interface Label {
 type Item = Bubble | Label;
 
 /** Relative luminance of a hex color (0..1). */
-/** Background of hollow chip for Codex accounts (same as panels). */
-const CODEX_CHIP_BG = '#161b26';
-/** "CODEX" badge for labels: subtle (clear glass), neutral color. */
 /** Tool text badge on label (Claude Code does not have one: it is the default). */
-const TOOL_BADGE: Partial<Record<Provider, string>> = { codex: 'CODEX', agy: 'AGY' };
+const TOOL_BADGE: Partial<Record<Provider, string>> = { agy: 'AGY' };
 
 /** Label badge: "BOSS" for workers' boss, otherwise tool badge. */
 function badgeOf(info: { provider?: Provider; boss?: boolean }): string | undefined {
@@ -146,37 +143,10 @@ function bounceOut(k: number): number {
   return n * (k -= 2.625 / d) * k + 0.984375;
 }
 
-/** Stepped octagon (square with cut corners, like a rounded pixel). */
-function steppedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, s: number): void {
-  ctx.beginPath();
-  ctx.moveTo(x + s, y);
-  ctx.lineTo(x + w - s, y);
-  ctx.lineTo(x + w, y + s);
-  ctx.lineTo(x + w, y + h - s);
-  ctx.lineTo(x + w - s, y + h);
-  ctx.lineTo(x + s, y + h);
-  ctx.lineTo(x, y + h - s);
-  ctx.lineTo(x, y + s);
-  ctx.closePath();
-}
-
-/**
- * Account dot (room signs and pills): solid for Claude Code; hollow (ring in account color) for Codex,
- * like the panel chip.
- */
-function accountDot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, acc: { color: string; provider?: string }): void {
+/** Account dot (room signs and pills): solid, in the account color. */
+function accountDot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, acc: { color: string }): void {
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
-  if (acc.provider === 'codex') {
-    ctx.fillStyle = CODEX_CHIP_BG;
-    ctx.fill();
-    ctx.lineWidth = Math.max(1.2, r * 0.55);
-    ctx.strokeStyle = acc.color;
-    ctx.beginPath();
-    ctx.arc(x, y, r - ctx.lineWidth / 2, 0, Math.PI * 2);
-    ctx.stroke();
-    return;
-  }
   ctx.fillStyle = acc.color;
   ctx.fill();
 }
@@ -1075,7 +1045,7 @@ export class Overlay {
 
   // =================================================================== labels
 
-  /** Label part widths. Tool badge ("CODEX", "AGY"; like "SUB") only appears outside compact mode. */
+  /** Label part widths. Tool badge ("AGY"; like "SUB") only appears outside compact mode. */
   private labelWidth(l: Label): { nameW: number; chipW: number; badgeW: number; toolW: number; specW: number } {
     const ch = l.ch;
     const acc = this.sim.accounts.get(ch.info.account);
@@ -1117,7 +1087,6 @@ export class Overlay {
     const ch = l.ch;
     const acc = this.sim.accounts.get(ch.info.account);
     const sub = ch.info.kind === 'sub';
-    const codex = ch.info.provider === 'codex' || acc?.provider === 'codex';
     const { nameW, chipW, badgeW, toolW, specW } = this.labelWidth(l);
     const { x, y, w, h } = l;
     const selected = sel.agent === ch.id;
@@ -1126,22 +1095,7 @@ export class Overlay {
     ctx.roundRect(x, y, w, h, 7.5);
     ctx.fill();
     let cx = x + 4;
-    if (acc && codex) {
-      // Codex: hollow chip with stepped corners (dark background, border and letter in account color), as in panels.
-      steppedRect(ctx, cx, y + h / 2 - 5, 10, 10, 2);
-      ctx.fillStyle = CODEX_CHIP_BG;
-      ctx.fill();
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = acc.color;
-      steppedRect(ctx, cx + 0.75, y + h / 2 - 4.25, 8.5, 8.5, 1.6);
-      ctx.stroke();
-      ctx.font = CHIP_FONT;
-      ctx.textAlign = 'center';
-      ctx.fillStyle = acc.color;
-      ctx.fillText(acc.short.slice(0, 1), cx + 5, y + h / 2 + 0.5);
-      ctx.textAlign = 'left';
-      cx += chipW;
-    } else if (acc) {
+    if (acc) {
       ctx.beginPath();
       ctx.arc(cx + 5, y + h / 2, 5, 0, Math.PI * 2);
       ctx.fillStyle = acc.color;

@@ -115,8 +115,7 @@ describe('world building visit in Sim', () => {
     const sub = charByName(sim, 'Rafael');
     expect(sim.chars.get(sub.info.parentId!)).toBe(charByName(sim, 'Marina'));
     expect(charByName(sim, 'Thiago').info.parentId).toBeUndefined();
-    // fictitious accounts on badges: Codex with tool badge
-    expect(sim.accounts.get('world:codex')).toEqual({ short: 'X', color: snap.accounts[1].color, name: 'Codex', provider: 'codex' });
+    // fictitious account on badges
     expect(sim.accounts.get('world:claude')).toMatchObject({ short: 'C', name: 'Claude Code' });
     // after some time, nobody left or switched rooms
     run(sim, clock, 20);

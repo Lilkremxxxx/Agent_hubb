@@ -446,19 +446,19 @@ describe('terminal: transport', () => {
   });
 
   it('per-agent parser (parserFor, matching their tool); default when none; new one on each init', async () => {
-    const OTHER = '.codex:019a0000-0000-7000-8000-000000000001';
-    let codexParsers = 0;
+    const OTHER = '.agy:019a0000-0000-7000-8000-000000000001';
+    let agyParsers = 0;
     /** Parser "from another tool": same lines become entries prefixed with "cx-". */
-    const codexParser = (): TerminalParser => {
-      codexParsers++;
+    const agyParser = (): TerminalParser => {
+      agyParsers++;
       const base = fakeParser();
       return { push: (raw) => base.push(raw).map((e) => ({ ...e, id: `cx-${e.id}` })) };
     };
     const asked: string[] = [];
-    const parserFor = (id: string) => (asked.push(id), id === OTHER ? codexParser() : undefined);
+    const parserFor = (id: string) => (asked.push(id), id === OTHER ? agyParser() : undefined);
     const env = await serve({ streams: { parserFor } });
     try {
-      env.office.addMain({ id: OTHER, provider: 'codex', account: '.codex', sessionId: 'thr', cwd: '/p/loja', role: 'Main agent', startedAt: Date.now(), status: 'working' });
+      env.office.addMain({ id: OTHER, provider: 'agy', account: '.agy', sessionId: 'thr', cwd: '/p/loja', role: 'Main agent', startedAt: Date.now(), status: 'working' });
       const a = join(env.dir, 'a.jsonl');
       const b = join(env.dir, 'b.jsonl');
       writeLines(a, [line('a1')]);
@@ -471,14 +471,14 @@ describe('terminal: transport', () => {
       await waitFor(() => expect(view(sb)).toEqual(['cx-b1']));
       appendLines(b, [line('b2')]);
       await waitFor(() => expect(view(sb)).toEqual(['cx-b1', 'cx-b2']));
-      expect(codexParsers).toBe(1);
+      expect(agyParsers).toBe(1);
       // Truncated: new parser, again tool-specific.
       truncateSync(b, 0);
       appendLines(b, [line('b3')]);
       await waitFor(() => expect(view(sb)).toEqual(['cx-b3']));
-      expect(codexParsers).toBe(inits(sb).length);
+      expect(agyParsers).toBe(inits(sb).length);
       expect(asked).toContain(MAIN);
-      expect(env.office.get(OTHER)?.provider).toBe('codex');
+      expect(env.office.get(OTHER)?.provider).toBe('agy');
       expect(env.office.get(MAIN)?.provider).toBeUndefined();
       sa.close();
       sb.close();

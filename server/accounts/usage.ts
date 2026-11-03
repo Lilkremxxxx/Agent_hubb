@@ -1,6 +1,6 @@
 // Plan usage (5h and weekly session) per account, from local sources:
 // - 'cache': cachedUsageUtilization written by Claude Code itself (when running /usage);
-// - 'codex': rate_limits from Codex session files, pushed by Codex source (AccountsService.setUsage).
+// - 'agy': pushed by the Antigravity source (AccountsService.setUsage).
 // The source with the newest numbers always wins (highest fetchedAt). None of them reads credentials
 // or makes network calls: only files Claude Code already writes to disk.
 import type { AccountInfo, AccountUsage, UsageWindow } from '../../shared/types';
@@ -41,8 +41,8 @@ function parseWindow(raw: unknown): UsageWindow | undefined {
 }
 
 /**
- * Normalizes usage windows to the format Claude Code writes (/usage cache) and sends to
- * statusline: {five_hour, seven_day, seven_day_opus, seven_day_sonnet, ...}. No windows -> undefined.
+ * Normalizes usage windows to the format Claude Code writes (/usage cache):
+ * {five_hour, seven_day, seven_day_opus, seven_day_sonnet, ...}. No windows -> undefined.
  */
 export function usageFromWindows(raw: unknown, source: UsageSource, fetchedAt: number): AccountUsage | undefined {
   if (!raw || typeof raw !== 'object') return undefined;

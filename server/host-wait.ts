@@ -1,4 +1,4 @@
-// Long polling for host helper rounds (scripts/codex-bridge.ts): instead of polling every half-second, it
+// Long polling for host helper rounds: instead of polling every half-second, it
 // requests with `?wait=1` and response hangs here until work arrives (or up to HOST_WAIT_MS). While waiting,
 // the helper counts as present.
 

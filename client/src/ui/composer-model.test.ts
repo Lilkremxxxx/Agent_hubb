@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { AgentInfo } from '../../../shared/types';
 import {
   canSend,
-  CODEX_BRIDGE_HINT,
-  CODEX_TIMEOUT_ERROR,
   composerMode,
   composerTip,
   DELIVERED_SHOW_MS,
@@ -101,25 +99,8 @@ describe('composer box (pure functions)', () => {
     expect(['sending', 'queued', 'sent'].some((p) => isSettled(p as never))).toBe(false);
   });
 
-  it('Codex: with bridge, same as Claude Code; without it, codex:bridge hint; disabled feature directs to Codex', () => {
-    const codex = (over: Partial<AgentInfo> = {}) => agent({ provider: 'codex', ...over });
-    expect(composerMode(codex(), ON)).toEqual({ kind: 'ready' });
-    expect(composerMode(codex({ canMessage: undefined }), ON)).toEqual({ kind: 'hint', text: CODEX_BRIDGE_HINT });
-    expect(CODEX_BRIDGE_HINT).toBe('To send messages to Codex: with Habblaud in Docker, keep npm run codex:bridge running; in Node mode it works on its own');
-    expect(composerMode(codex(), { ...ON, enabled: false })).toEqual({ kind: 'off', text: 'To reply, use Codex' });
-    expect(composerMode(codex({ kind: 'sub', parentId: 'acc:1' }), ON).kind).toBe('off');
-    expect(composerMode(codex({ status: 'offline' }), ON)).toEqual({ kind: 'off', text: 'Session ended' });
-  });
-
-  it('Codex: "Delivered" refers to session queue; tip and timeout mention Codex', () => {
-    expect(sendStatusText({ phase: 'delivered', at: 0 }, 1_000, 'codex')).toBe("Delivered ✓ to the session queue: goes in when Codex finishes what it's doing (up to ~10 s)");
-    expect(sendStatusText({ phase: 'delivered', at: 0 }, DELIVERED_SHOW_MS, 'codex')).toBe('');
-    expect(sendStatusText({ phase: 'queued', at: 0 }, 0, 'codex')).toBe('Queued: delivering to Codex…');
-    // Claude Code remains as before.
-    expect(sendStatusText({ phase: 'delivered', at: 0 }, 1_000, 'claude')).toBe(sendStatusText({ phase: 'delivered', at: 0 }, 1_000));
-    expect(composerTip('codex')).toMatch(/^Joins the session queue and becomes the next prompt when Codex finishes/);
+  it('tip and timeout error point to Claude Code', () => {
     expect(composerTip()).toBe('Goes into the session as if you had typed it. Enter sends; Shift+Enter adds a new line.');
-    expect(timeoutError('codex')).toBe(CODEX_TIMEOUT_ERROR);
     expect(timeoutError()).toBe(TIMEOUT_ERROR);
   });
 

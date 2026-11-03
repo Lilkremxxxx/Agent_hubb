@@ -7,8 +7,7 @@
 // Search (Ctrl/⌘+F or magnifying glass), filter, and copy button for each entry come from ui/termtools.ts.
 // The model (deduplication, tool -> result join, entry limit, collapsed previews, and footer) is pure and
 // tested in ui/terminal.test.ts; DOM building uses textContent only (reply markdown comes from ui/markdown.ts).
-// Codex session: "Codex" badge in header and a neutral spinner in footer (✻ is Claude Code's).
-import type { AgentInfo, Provider, RecentSession, TerminalEntry, TerminalInit } from '../../../shared/types';
+import type { AgentInfo, RecentSession, TerminalEntry, TerminalInit } from '../../../shared/types';
 import { MessageComposer } from './composer';
 import type { UiComponent, UiContext } from './context';
 import { copyText, h, iconButton, prefersReducedMotion, setAttr, setHidden, setText, setTitle, setVariant } from './dom';
@@ -62,8 +61,6 @@ const STICK_PX = 32;
 const ES_CLOSED = 2;
 /** Claude Code spinner frames (back and forth). */
 const SPINNER = ['·', '✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳', '✢'];
-/** Codex: neutral spinner (rotating dots), with the same number of frames. */
-const CODEX_SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const SPINNER_MS = 120;
 /** "⏺" with text presentation selector: never turns into a colored emoji (color comes from CSS). */
 const DOT = '⏺︎';
@@ -335,14 +332,9 @@ export function entryTimeTitle(at: number, now: number): string {
   return calendarDayDiff(at, now) === 0 ? formatClock(at) : formatDateTime(at);
 }
 
-/** Tool footer spinner frames. */
-export function spinnerFrames(provider: Provider): readonly string[] {
-  return provider === 'codex' ? CODEX_SPINNER : SPINNER;
-}
-
 /** Idle footer symbol (without animation, or outside "working"). */
-export function footerGlyph(kind: TerminalFooterKind, provider: Provider): string {
-  if (kind === 'working') return provider === 'codex' ? '•' : '✻';
+export function footerGlyph(kind: TerminalFooterKind): string {
+  if (kind === 'working') return '✻';
   return { waiting: '✋', shell: '⏳', idle: '○', ended: '■' }[kind];
 }
 
@@ -375,10 +367,7 @@ export function terminalFooter(agent: AgentInfo | undefined, agents: readonly Ag
       if (agent.permission) return { kind: 'waiting', text, since: agent.statusSince };
       // Without request in Habblaud (hook already replied to session, session opened without plugin, or no page open
       // when it arrived): buttons aren't shown, so state where to reply.
-      const hint =
-        agent.provider === 'codex'
-          ? tr("{0} · answer in Codex: this request didn't reach Habblaud or timed out", [text])
-          : tr("{0} · answer in Claude Code: this request didn't reach Habblaud or timed out", [text]);
+      const hint = tr("{0} · answer in Claude Code: this request didn't reach Habblaud or timed out", [text]);
       return { kind: 'waiting', text: hint, since: agent.statusSince };
     }
     default:
@@ -628,10 +617,8 @@ export class TerminalPanel implements UiComponent, TerminalControl {
   private kindEl: HTMLElement;
   private accEl: HTMLElement;
   private nameEl: HTMLElement;
-  /** "Codex" badge (Codex session). */
+  /** Tool badge (non-Claude sessions). */
   private provEl: HTMLElement;
-  /** Spinner frames of open session (Claude Code or Codex). */
-  private frames: readonly string[] = SPINNER;
   private roleEl: HTMLElement;
   private roomEl: HTMLElement;
   private reconnEl: HTMLElement;
@@ -878,7 +865,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
   private renderSessionHead(s: RecentSession): void {
     const title = s.title?.trim() || tr('Untitled session');
     setText(this.kindEl, tr('history'));
-    updateAccountChip(this.accEl, this.ctx.account(s.account), s.account, s.provider);
+    updateAccountChip(this.accEl, this.ctx.account(s.account), s.account);
     setHidden(this.accEl, false);
     setText(this.nameEl, title);
     setTitle(this.nameEl, title);
@@ -1368,8 +1355,6 @@ export class TerminalPanel implements UiComponent, TerminalControl {
       return;
     }
     const agent = this.ctx.agent(this.id);
-    const provider = providerOf(agent ?? this.last);
-    this.frames = spinnerFrames(provider);
     const f = terminalFooter(agent, this.ctx.store.snapshot?.agents ?? [], now);
     setVariant(this.status, 'is-', f.kind);
     setText(this.statusText, f.text);
@@ -1386,16 +1371,16 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     if (f.kind === 'working' && !prefersReducedMotion()) this.startSpinner();
     else {
       this.stopSpinner();
-      setText(this.glyph, footerGlyph(f.kind, provider));
+      setText(this.glyph, footerGlyph(f.kind));
     }
   }
 
   private startSpinner(): void {
     if (this.spinTimer) return;
-    setText(this.glyph, this.frames[this.spinFrame % this.frames.length]);
+    setText(this.glyph, SPINNER[this.spinFrame % SPINNER.length]);
     this.spinTimer = setInterval(() => {
-      this.spinFrame = (this.spinFrame + 1) % (this.frames.length * 8);
-      setText(this.glyph, this.frames[this.spinFrame % this.frames.length]);
+      this.spinFrame = (this.spinFrame + 1) % (SPINNER.length * 8);
+      setText(this.glyph, SPINNER[this.spinFrame % SPINNER.length]);
       // Time beside text advances every ~1 s, even without new snapshot.
       if (this.spinFrame % 8 === 0) this.renderFooter();
     }, SPINNER_MS);

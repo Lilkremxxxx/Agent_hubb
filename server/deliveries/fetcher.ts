@@ -62,7 +62,7 @@ export class FileFetcher {
       if ('data' in r || this.opts.direct) return r;
     }
     if (this.opts.direct) return { error: tr('file not found'), status: 404 };
-    if (!this.hostAvailable()) return { error: tr("the computer's helper (npm run codex:bridge) isn't running"), status: 503 };
+    if (!this.hostAvailable()) return { error: tr("the computer's helper isn't running"), status: 503 };
     if (this.pending.size >= MAX_PENDING) return { error: tr('too many files being fetched: try again'), status: 429 };
     const r = await new Promise<FetchResult>((done) => {
       const p: Pending = { id: randomUUID(), path, sent: false, at: this.now(), done };

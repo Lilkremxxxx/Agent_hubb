@@ -4,7 +4,6 @@ import { projectFolder, recentFolders } from './folders';
 describe('pastas sugeridas no Novo agente', () => {
   it('worktree de agente vira o projeto; temporária e relativa ficam de fora', () => {
     expect(projectFolder('/Users/a/Coding/morgana/.claude/worktrees/read-outcome-4c9d08')).toBe('/Users/a/Coding/morgana');
-    expect(projectFolder('/Users/a/proj/.codex/worktrees/x/sub')).toBe('/Users/a/proj');
     expect(projectFolder('/Users/a/proj/')).toBe('/Users/a/proj');
     expect(projectFolder('/private/tmp/claude-501/scratch')).toBeUndefined();
     expect(projectFolder('/var/folders/xy/T/abc')).toBeUndefined();

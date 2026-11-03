@@ -40,7 +40,6 @@ import {
 } from './daystats-model';
 import { formatClock } from './format';
 import { ICONS } from './icons';
-import { accountProvider } from './provider';
 import { tr } from '../../../shared/i18n';
 
 const REFRESH_MS = 30_000;
@@ -282,7 +281,7 @@ export class DayPanel implements UiComponent {
   private sections(res: DayStatsResponse): HTMLElement[] {
     const stats = res.stats;
     const clock = (t: number) => formatClock(t, false);
-    const hl = highlights(stats, clock, stats.accounts.some((a) => this.isCodexAccount(a.id) && a.counts.tokensIn + a.counts.tokensOut > 0));
+    const hl = highlights(stats, clock);
     const out: HTMLElement[] = [this.kpis(hl)];
     if (isEmptyDay(stats)) {
       const today = stats.day === res.today;
@@ -528,7 +527,6 @@ export class DayPanel implements UiComponent {
       const acc = accounts.get(w.account);
       const chip = h('span', { class: 'ui-acc-chip', text: acc?.short ?? '?', title: acc?.name ?? w.account });
       setStyleVar(chip, '--acc', acc?.color ?? '#8b98b3');
-      if (this.isCodexAccount(w.account)) chip.dataset.provider = 'codex';
       list.append(
         h(
           'li',
@@ -562,7 +560,7 @@ export class DayPanel implements UiComponent {
   // ---------------------------------------------------------------- by account
 
   private accountsCard(res: DayStatsResponse): HTMLElement {
-    const cards = accountCards(res.stats.accounts, (id) => this.isCodexAccount(id));
+    const cards = accountCards(res.stats.accounts);
     const c = this.card('accounts', tr('By account'), tr("Each account in its own color, with its share of the day's work time"));
     if (!cards.length) {
       c.body.append(h('p', { class: 'ui-day__muted', text: tr('No accounts with time on this day.') }));
@@ -570,7 +568,7 @@ export class DayPanel implements UiComponent {
     }
     const grid = h('div', { class: 'ui-day__accounts' });
     for (const a of cards) {
-      const chip = h('span', { class: 'ui-acc-chip ui-acc-chip--md', text: a.short, attrs: { 'aria-hidden': 'true', ...(a.codex ? { 'data-provider': 'codex' } : {}) } });
+      const chip = h('span', { class: 'ui-acc-chip ui-acc-chip--md', text: a.short, attrs: { 'aria-hidden': 'true' } });
       setStyleVar(chip, '--acc', a.color);
       const meter = h(
         'span',
@@ -590,8 +588,7 @@ export class DayPanel implements UiComponent {
           ...stat(tr('Working'), a.working),
           ...stat(tr('Waiting on you'), a.waiting),
           ...stat('Tokens', a.tokens),
-          // Codex: does not record cost, tokens only.
-          ...(a.cost !== null ? stat(tr('Cost'), a.cost) : [h('dt', { text: tr('Cost') }), h('dd', { text: tr('tokens only'), title: tr("Codex doesn't record cost, only tokens") })]),
+          ...stat(tr('Cost'), a.cost),
         ),
       );
       setStyleVar(card, '--acc', a.color);
@@ -599,11 +596,6 @@ export class DayPanel implements UiComponent {
     }
     c.body.append(grid);
     return c.el;
-  }
-
-  /** Codex account: indicated by snapshot, or by id format for departed accounts (".codex"). */
-  private isCodexAccount(id: string): boolean {
-    return accountProvider(this.ctx.account(id), id) === 'codex';
   }
 
   // ---------------------------------------------------------------- tooltip (hover and focus)

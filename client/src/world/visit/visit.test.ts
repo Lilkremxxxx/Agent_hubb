@@ -45,8 +45,8 @@ describe('visit model', () => {
     ]);
     expect(p.rooms[0]!.agents[1]).toEqual({ id: 'world:a_2a3b4c5d', name: 'Rafael', role: 'Subagent', tool: 'Claude Code', status: 'working', statusText: 'working' });
     expect(p.rooms[1]!.agents.map((a) => [a.tool, a.statusText])).toEqual([
-      ['Codex', 'waiting for the owner'],
-      ['Codex', 'watching the terminal'],
+      ['Claude Code', 'waiting for the owner'],
+      ['Claude Code', 'watching the terminal'],
     ]);
     for (const a of p.rooms.flatMap((r) => r.agents)) expect(Object.keys(a).sort()).toEqual(['id', 'name', 'role', 'status', 'statusText', 'tool']);
     expect(visitPanel(sampleBuildingDetail('discreet'))).toMatchObject({ empty: expect.stringContaining('Discreet mode') });
@@ -57,7 +57,7 @@ describe('visit model', () => {
   });
 
   it('card: agent by visit office id with room; discreet, none', () => {
-    expect(findAgent(sampleBuildingDetail(), 'world:a_3c4d5e6f')).toMatchObject({ name: 'Beatriz', room: 'Project Jade', tool: 'Codex' });
+    expect(findAgent(sampleBuildingDetail(), 'world:a_3c4d5e6f')).toMatchObject({ name: 'Beatriz', room: 'Project Jade', tool: 'Claude Code' });
     expect(findAgent(sampleBuildingDetail(), 'world:does_not_exist')).toBeNull();
     expect(findAgent(sampleBuildingDetail('discreet'), 'world:a_3c4d5e6f')).toBeNull();
   });

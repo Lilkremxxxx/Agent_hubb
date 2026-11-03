@@ -22,7 +22,7 @@
 //   never collide with local office ids (social wallet stores `world:` separately).
 //   No activity, tasks, shells, title or model; zeroed stats; timestamps are "now", since no timestamps
 //   come down from world. Seed = `hash32(world id)`, matching flattened appearance sent by owner.
-// - Fictional accounts, one per tool ("Claude Code", "Codex"), without email, plan or usage.
+// - Fictional accounts, one per tool ("Claude Code"), without email, plan or usage.
 // - Discreet mode (`building.discreet`) or powered-down building (`state: 'away'`): rooms remain, empty, even if
 //   agents arrive in the packet by mistake.
 // - Only known fields are copied, one by one (no spreading server object): extra fields from world
@@ -51,11 +51,9 @@ export function isWorldId(id: string): boolean {
 /** Fictional visit accounts, one per tool: tool name, letter and color only (no email or usage). */
 export const WORLD_TOOL_ACCOUNTS: Readonly<Record<Provider, { short: string; name: string; color: string }>> = {
   claude: { short: 'C', name: 'Claude Code', color: '#f08a3c' },
-  codex: { short: 'X', name: 'Codex', color: '#a77bf3' },
   // Never comes from world (packet omits Antigravity workers: projection.ts); only completes the Record.
   agy: { short: 'A', name: 'Antigravity', color: '#5cc97b' },
 };
-const PROVIDERS: readonly Provider[] = ['claude', 'codex'];
 /** Statuses that exist in the world; any unknown to this version becomes 'idle' (wanders, promises nothing). */
 const STATUSES: readonly AgentStatus[] = ['working', 'waiting', 'idle', 'shell'];
 
@@ -176,7 +174,7 @@ function build(floors: WorldBuildingDetail['floors'], hidden: boolean, now: numb
 function agentInfo(a: WorldAgent, roomId: string, now: number, present: ReadonlySet<string>): AgentInfo {
   const id = worldId(a.id);
   const kind = a.kind === 'sub' ? 'sub' : 'main';
-  const provider: Provider = PROVIDERS.includes(a.provider) ? a.provider : 'claude';
+  const provider: Provider = 'claude'; // the world's other tool values (from a newer server) fall back to Claude Code
   const status: AgentStatus = STATUSES.includes(a.status) ? a.status : 'idle';
   const info: AgentInfo = {
     id,
@@ -217,9 +215,9 @@ function partsOf(raw: unknown): AppearanceParts | undefined {
   return Object.keys(out).length ? out : undefined;
 }
 
-/** One fictional account per tool (always both, in same order), with main session counts for each. */
+/** One fictional account per tool, with its main session count. */
 function toolAccounts(agents: readonly AgentInfo[]): AccountInfo[] {
-  return PROVIDERS.map((p) => ({
+  return (['claude'] as const).map((p) => ({
     id: worldId(p),
     provider: p,
     short: WORLD_TOOL_ACCOUNTS[p].short,

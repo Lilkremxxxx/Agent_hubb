@@ -279,14 +279,14 @@ describe('Office', () => {
     const { office, advance, now } = makeOffice();
     expect(office.isBooting()).toBe(false);
     office.beginBoot(); // source A (e.g. Claude Code)
-    office.beginBoot(); // source B (e.g. Codex, async)
+    office.beginBoot(); // source B (e.g. Antigravity, async)
     office.addMain({ id: 'acc:1', account: 'acc', sessionId: 's1', cwd: '/p/a', role: 'x', startedAt: now(), status: 'working' });
     office.addActivity('acc:1', act('a-late', now() - 1_000), true);
     office.endBoot(); // A finished, B has not yet
     expect(office.isBooting()).toBe(true);
     // Still booting: no notices or live feed; arrivals enter boot feed.
-    office.addMain({ id: '.codex:t1', provider: 'codex', account: '.codex', sessionId: 't1', cwd: '/p/a', role: 'x', startedAt: now(), status: 'waiting', waitingFor: 'approve a command' });
-    office.addActivity('.codex:t1', act('b-early', now() - 5_000), true);
+    office.addMain({ id: '.agy:t1', provider: 'agy', account: '.agy', sessionId: 't1', cwd: '/p/a', role: 'x', startedAt: now(), status: 'waiting', waitingFor: 'approve a command' });
+    office.addActivity('.agy:t1', act('b-early', now() - 5_000), true);
     let r = office.commit();
     expect(r.notices).toEqual([]);
     expect(r.feed).toEqual([]);
@@ -297,8 +297,8 @@ describe('Office', () => {
     expect(office.recentFeed(10).map((f) => f.id)).toEqual(['b-early', 'a-late']);
     r = office.commit();
     expect(r.notices).toEqual([]);
-    expect(r.snapshot.agents.find((a) => a.id === '.codex:t1')?.activity).toMatchObject({ kind: 'wait' });
-    expect(r.snapshot.agents.find((a) => a.id === '.codex:t1')?.provider).toBe('codex');
+    expect(r.snapshot.agents.find((a) => a.id === '.agy:t1')?.activity).toMatchObject({ kind: 'wait' });
+    expect(r.snapshot.agents.find((a) => a.id === '.agy:t1')?.provider).toBe('agy');
     expect(r.snapshot.agents.find((a) => a.id === 'acc:1')).not.toHaveProperty('provider');
     // Extra endBoot is ignored (does not make counter negative).
     office.endBoot();
@@ -314,9 +314,9 @@ describe('Office', () => {
 
   it('subagent inherits main agent provider', () => {
     const { office, now } = makeOffice();
-    office.addMain({ id: '.codex:t1', provider: 'codex', account: '.codex', sessionId: 't1', cwd: '/p/a', role: 'x', startedAt: now(), status: 'working' });
-    expect(office.addSub({ id: '.codex:t2', parentId: '.codex:t1', sessionId: 't2', role: 'worker', background: false, startedAt: now() })).toBe(true);
-    expect(office.get('.codex:t2')).toMatchObject({ provider: 'codex', account: '.codex', parentId: '.codex:t1' });
+    office.addMain({ id: '.agy:t1', provider: 'agy', account: '.agy', sessionId: 't1', cwd: '/p/a', role: 'x', startedAt: now(), status: 'working' });
+    expect(office.addSub({ id: '.agy:t2', parentId: '.agy:t1', sessionId: 't2', role: 'worker', background: false, startedAt: now() })).toBe(true);
+    expect(office.get('.agy:t2')).toMatchObject({ provider: 'agy', account: '.agy', parentId: '.agy:t1' });
     // Explicit 'claude' remains omitted (omitted = 'claude').
     office.addMain({ id: 'acc:9', provider: 'claude', account: 'acc', sessionId: 's9', cwd: '/p/a', role: 'x', startedAt: now(), status: 'working' });
     expect(office.get('acc:9')).not.toHaveProperty('provider');

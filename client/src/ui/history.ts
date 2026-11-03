@@ -2,15 +2,13 @@
 // accounts (GET /api/sessions/recent), grouped by day, searchable by title, project, or account. Clicking opens
 // the conversation in the terminal ("ended session" mode); an active session opens the agent's live
 // terminal. Available only when terminal is enabled (local access). Grouping, search, and response validation
-// are pure and tested in ui/history.test.ts; rendering uses only textContent. Codex sessions show the "Codex" badge
-// and search matches "codex".
+// are pure and tested in ui/history.test.ts; rendering uses only textContent.
 import { access } from '../net/access';
 import type { RecentSession } from '../../../shared/types';
 import type { UiComponent, UiContext } from './context';
 import { h, iconButton, setAttr, setHidden, setText, setTitle } from './dom';
 import { calendarDayDiff, formatClock, formatDateTime, normalizeSearch, plural, shortPath } from './format';
 import { ICONS } from './icons';
-import { isCodex } from './provider';
 import { sessionProjectName, TERMINAL_UNAVAILABLE_HINT, type TerminalControl } from './terminal';
 import { createAccountChip, updateAccountChip } from './widgets';
 import { intlLocale, tr } from '../../../shared/i18n';
@@ -48,8 +46,6 @@ export function parseRecentSessions(raw: unknown): RecentSession[] {
     const title = str(o.title);
     const firstAt = num(o.firstAt);
     const agentId = str(o.agentId);
-    // Absent = Claude Code (never records 'claude').
-    if (o.provider === 'codex') s.provider = 'codex';
     if (project) s.project = project;
     if (title) s.title = title;
     if (firstAt !== undefined) s.firstAt = firstAt;
@@ -60,14 +56,14 @@ export function parseRecentSessions(raw: unknown): RecentSession[] {
 }
 
 /**
- * Search history: title, project (name or path), account name/letter, and tool ("codex"), case-
- * and accent-insensitive.
+ * Search history: title, project (name or path), account name/letter, case- and
+ * accent-insensitive.
  */
 export function filterSessions(list: readonly RecentSession[], query: string, accountLabel: (id: string) => string = (id) => id): RecentSession[] {
   const terms = normalizeSearch(query).split(/\s+/).filter(Boolean);
   if (!terms.length) return list.slice();
   return list.filter((s) => {
-    const hay = normalizeSearch([s.title ?? '', s.project ?? '', s.projectDir, accountLabel(s.account), isCodex(s) ? 'Codex' : ''].join(' '));
+    const hay = normalizeSearch([s.title ?? '', s.project ?? '', s.projectDir, accountLabel(s.account)].join(' '));
     return terms.every((t) => hay.includes(t));
   });
 }
@@ -313,15 +309,13 @@ export class HistoryPopover implements UiComponent {
   private item(s: RecentSession, now: number): HTMLButtonElement {
     const account = this.ctx.account(s.account);
     const chip = createAccountChip('sm');
-    updateAccountChip(chip, account, s.account, s.provider);
+    updateAccountChip(chip, account, s.account);
     const title = s.title?.trim() || tr('Untitled session');
     const project = sessionProjectName(s);
     const live = s.open && !!s.agentId && !!this.ctx.agent(s.agentId);
-    const codex = isCodex(s);
     const meta = h(
       'span',
       { class: 'ui-hist__meta' },
-      codex ? h('span', { class: 'ui-prov ui-prov--xs', text: 'Codex' }) : null,
       h('span', { class: 'ui-hist__project', text: project }),
       h('span', { class: 'ui-hist__time', text: formatClock(s.lastAt, false) }),
     );
@@ -331,9 +325,9 @@ export class HistoryPopover implements UiComponent {
     const when = s.firstAt !== undefined && calendarDayDiff(s.firstAt, s.lastAt) !== 0 ? `${formatDateTime(s.firstAt)} → ${formatDateTime(s.lastAt)}` : s.firstAt !== undefined ? `${formatDateTime(s.firstAt)} → ${formatClock(s.lastAt, false)}` : formatDateTime(s.lastAt);
     setTitle(
       btn,
-      [title, shortPath(s.project ?? s.projectDir), `${account?.name ?? s.account}${codex ? ' (Codex)' : ''} · ${when} · ${formatSize(s.size)}`, live ? tr("Still open: opens the agent's live terminal") : tr('Ended: opens the conversation in the terminal')].join('\n'),
+      [title, shortPath(s.project ?? s.projectDir), `${account?.name ?? s.account} · ${when} · ${formatSize(s.size)}`, live ? tr("Still open: opens the agent's live terminal") : tr('Ended: opens the conversation in the terminal')].join('\n'),
     );
-    setAttr(btn, 'aria-label', `${title}, ${project}, ${account?.name ?? s.account}${codex ? ', Codex' : ''}, ${live ? tr('open') : tr('last activity {0} at {1}', [dayLabel(s.lastAt, now).toLowerCase(), formatClock(s.lastAt, false)])}`);
+    setAttr(btn, 'aria-label', `${title}, ${project}, ${account?.name ?? s.account}, ${live ? tr('open') : tr('last activity {0} at {1}', [dayLabel(s.lastAt, now).toLowerCase(), formatClock(s.lastAt, false)])}`);
     btn.addEventListener('click', () => {
       this.hide();
       this.terminal.openSession(s, this.button);

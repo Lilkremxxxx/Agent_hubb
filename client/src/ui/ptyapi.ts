@@ -6,7 +6,7 @@ import { tr } from '../../../shared/i18n';
 
 /**
  * Can this agent be stopped or taken over from the office? Only the main agent of a Claude Code session:
- * Codex has no session tracking or `--resume` here, and demo agents do not actually exist.
+ * other tools have no session tracking or `--resume` here.
  */
 export function ptyControllable(a: Pick<AgentInfo, 'id' | 'kind' | 'provider'> | null | undefined): boolean {
   return !!a && a.kind === 'main' && providerOf(a) === 'claude' && !isDemoId(a.id);

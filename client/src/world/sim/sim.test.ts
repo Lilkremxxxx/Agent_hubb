@@ -265,7 +265,7 @@ describe('office simulation', () => {
     sim.applySnapshot(snap([room('/a', 0)], [agent('ana', '/a', 'working')]), clock.now);
     expect(sim.chars.get('ana')!.queue.some((st) => st.t === 'fall')).toBe(false);
     run(sim, clock, 0.5);
-    sim.applySnapshot(snap([room('/a', 0)], [agent('ana', '/a', 'working'), agent('bia', '/a', 'working'), agent('cao', '/a', 'working', { provider: 'codex' })], 2), clock.now);
+    sim.applySnapshot(snap([room('/a', 0)], [agent('ana', '/a', 'working'), agent('bia', '/a', 'working'), agent('cao', '/a', 'working', { provider: 'agy' })], 2), clock.now);
     const bia = sim.chars.get('bia')!;
     expect(bia.queue.some((st) => st.t === 'fall')).toBe(true);
     expect(sim.chars.get('cao')!.queue.some((st) => st.t === 'fall')).toBe(false);

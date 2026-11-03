@@ -40,31 +40,31 @@ function fakeSource(provider: Provider, opts: Partial<AgentSource> & { paths?: R
 describe('SourceSet', () => {
   it('sources, transcript, and parser per agent (from owner source; fallback to Claude Code)', () => {
     const claude = fakeSource('claude', { paths: { 'c:1': '/t/c1.jsonl' } });
-    const codex = fakeSource('codex', {
-      paths: { '.codex:t1': '/t/rollout.jsonl', '.codex:t2': '/t/rollout2.jsonl' },
-      terminalParser: (id) => (id === '.codex:t1' ? tagged('cx') : undefined),
-      sources: (): SourceInfo[] => [{ label: '.codex', provider: 'codex', path: '/x/.codex', sessions: 2, ok: true }],
+    const agy = fakeSource('agy', {
+      paths: { '.agy:t1': '/t/rollout.jsonl', '.agy:t2': '/t/rollout2.jsonl' },
+      terminalParser: (id) => (id === '.agy:t1' ? tagged('cx') : undefined),
+      sources: (): SourceInfo[] => [{ label: '.agy', provider: 'agy', path: '/x/.agy', sessions: 2, ok: true }],
     });
     const set = new SourceSet([claude]);
-    set.add(codex);
-    expect(set.all().map((s) => s.provider)).toEqual(['claude', 'codex']);
-    expect(set.of('codex')).toBe(codex);
+    set.add(agy);
+    expect(set.all().map((s) => s.provider)).toEqual(['claude', 'agy']);
+    expect(set.of('agy')).toBe(agy);
     expect(set.sources().map((s) => [s.label, s.provider, s.sessions])).toEqual([
       ['.claude', undefined, 1],
-      ['.codex', 'codex', 2],
+      ['.agy', 'agy', 2],
     ]);
     expect(set.transcriptPathOf('c:1')).toBe('/t/c1.jsonl');
-    expect(set.transcriptPathOf('.codex:t1')).toBe('/t/rollout.jsonl');
+    expect(set.transcriptPathOf('.agy:t1')).toBe('/t/rollout.jsonl');
     expect(set.transcriptPathOf('ninguem')).toBeUndefined();
 
-    // Codex agent: its own source parser, fresh on each call.
-    const p1 = set.parserFor('.codex:t1');
-    const p2 = set.parserFor('.codex:t1');
+    // Antigravity agent: its own source parser, fresh on each call.
+    const p1 = set.parserFor('.agy:t1');
+    const p2 = set.parserFor('.agy:t1');
     expect(p1).not.toBe(p2);
     expect(p1.push('x').map((e) => e.id)).toEqual(['cx-1']);
     expect(p2.push('x').map((e) => e.id)).toEqual(['cx-1']);
     // Source without its own parser (or returning undefined), unknown agent: fallback to Claude Code.
-    for (const id of ['c:1', '.codex:t2', 'ninguem']) {
+    for (const id of ['c:1', '.agy:t2', 'ninguem']) {
       const entries = set.parserFor(id).push(CLAUDE_LINE);
       expect(entries).toMatchObject([{ kind: 'user', text: 'hi' }]);
     }
@@ -76,14 +76,14 @@ describe('SourceSet', () => {
     const slow = new Promise<void>((ok) => (release = ok));
     const set = new SourceSet([
       fakeSource('claude', { log, start: () => void log.push('start:claude') }),
-      fakeSource('codex', {
+      fakeSource('agy', {
         log,
         start: () => {
-          log.push('start:codex');
-          return slow.then(() => void log.push('ready:codex'));
+          log.push('start:agy');
+          return slow.then(() => void log.push('ready:agy'));
         },
       }),
-      fakeSource('codex', {
+      fakeSource('agy', {
         start: () => {
           throw new Error('failed');
         },
@@ -91,20 +91,20 @@ describe('SourceSet', () => {
           throw new Error('failed again');
         },
       }),
-      fakeSource('codex', { start: () => Promise.reject(new Error('async failed')) }),
+      fakeSource('agy', { start: () => Promise.reject(new Error('async failed')) }),
     ]);
     const done = set.start();
     // Synchronous sources already ran; asynchronous continues.
-    expect(log).toEqual(['start:claude', 'start:codex']);
+    expect(log).toEqual(['start:claude', 'start:agy']);
     let finished = false;
     void done.then(() => (finished = true));
     await Promise.resolve();
     expect(finished).toBe(false);
     release();
     await done;
-    expect(log).toEqual(['start:claude', 'start:codex', 'ready:codex']);
+    expect(log).toEqual(['start:claude', 'start:agy', 'ready:agy']);
     expect(() => set.stop()).not.toThrow();
-    expect(log.slice(-2)).toEqual(['stop:claude', 'stop:codex']);
+    expect(log.slice(-2)).toEqual(['stop:claude', 'stop:agy']);
   });
 
   it('boot counted in Office: ready only when async source finishes', async () => {
@@ -124,7 +124,7 @@ describe('SourceSet', () => {
         office.endBoot();
       },
     });
-    const async = fakeSource('codex', {
+    const async = fakeSource('agy', {
       start: async () => {
         office.beginBoot();
         try {
@@ -162,9 +162,9 @@ function fakeHistory(provider: Provider, accounts: string[], list: () => Promise
 describe('HistorySet', () => {
   it('combines lists across all tools: newest to oldest, up to limit', async () => {
     const claude = fakeHistory('claude', ['.claude'], async () => [session(undefined, '.claude', 'c2', 50), session(undefined, '.claude', 'c1', 10)]);
-    const codex = fakeHistory('codex', ['.codex'], async () => [session('codex', '.codex', 'x1', 30), session('codex', '.codex', 'x0', 5)]);
-    expect((await new HistorySet([claude, codex]).list()).map((s) => s.sessionId)).toEqual(['c2', 'x1', 'c1', 'x0']);
-    expect((await new HistorySet([claude, codex], 3).list()).map((s) => s.sessionId)).toEqual(['c2', 'x1', 'c1']);
+    const agy = fakeHistory('agy', ['.agy'], async () => [session('agy', '.agy', 'x1', 30), session('agy', '.agy', 'x0', 5)]);
+    expect((await new HistorySet([claude, agy]).list()).map((s) => s.sessionId)).toEqual(['c2', 'x1', 'c1', 'x0']);
+    expect((await new HistorySet([claude, agy], 3).list()).map((s) => s.sessionId)).toEqual(['c2', 'x1', 'c1']);
     // Single provider: its list, unchanged.
     expect(await new HistorySet([claude]).list()).toEqual(await claude.list());
     expect(await new HistorySet().list()).toEqual([]);
@@ -172,7 +172,7 @@ describe('HistorySet', () => {
 
   it('failing provider is skipped; if all fail, error bubbles up', async () => {
     const ok = fakeHistory('claude', ['.claude'], async () => [session(undefined, '.claude', 'c1', 10)]);
-    const bad = fakeHistory('codex', ['.codex'], () => Promise.reject(new Error('unreadable')));
+    const bad = fakeHistory('agy', ['.agy'], () => Promise.reject(new Error('unreadable')));
     expect((await new HistorySet([ok, bad]).list()).map((s) => s.sessionId)).toEqual(['c1']);
     await expect(new HistorySet([bad]).list()).rejects.toThrow('unreadable');
   });
@@ -180,9 +180,9 @@ describe('HistorySet', () => {
   it('resolve: by account provider; unknown account goes to first (Claude Code)', () => {
     const parser = () => tagged('cx');
     const claude = fakeHistory('claude', ['.claude'], async () => []);
-    const codex = fakeHistory('codex', ['.codex'], async () => [], { path: '/r/rollout.jsonl', createParser: parser });
-    const set = new HistorySet([claude, codex]);
-    expect(set.resolve('.codex', 'abc')).toEqual({ path: '/r/rollout.jsonl', createParser: parser });
+    const agy = fakeHistory('agy', ['.agy'], async () => [], { path: '/r/rollout.jsonl', createParser: parser });
+    const set = new HistorySet([claude, agy]);
+    expect(set.resolve('.agy', 'abc')).toEqual({ path: '/r/rollout.jsonl', createParser: parser });
     expect(set.resolve('.claude', 'abc')).toEqual({ status: 404, error: 'claude:.claude:abc' });
     expect(set.resolve('.outra', 'abc')).toEqual({ status: 404, error: 'claude:.outra:abc' });
     expect(new HistorySet().resolve('.claude', 'abc')).toEqual({ status: 404, error: 'unknown account' });

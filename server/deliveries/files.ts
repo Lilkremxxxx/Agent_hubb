@@ -1,7 +1,7 @@
 // Delivery files: what can be displayed in the office. Only files the agent actually delivered (the server
 // only requests paths in a delivery) and only viewable types (image, PDF, video, page, text), never
 // anything resembling secrets (.ssh, .env, keys, credentials...). Read by server (Node mode, or mounted
-// directory in Docker) or host helper (scripts/codex-bridge.ts), which re-checks everything before reading.
+// directory in Docker) or host helper, which re-checks everything before reading.
 // Pure Node with no dependencies: also imported by host helper (via tsx).
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';

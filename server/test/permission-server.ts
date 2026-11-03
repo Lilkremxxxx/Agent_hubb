@@ -1,8 +1,6 @@
 // Test server for "answering from the office": Office + Hub + real routes (guard, app, and
 // /api/permissions) on a free port on 127.0.0.1, with a main agent in session "sess-1".
 // Used by tests for routes and hook (mod/habblaud-permissoes/hooks/permission-hook.mjs run as process).
-// With `codex`, also a main agent for Codex (account ".codex", thread CODEX_THREAD) and live Codex source
-// (`codexLive`, a fake) for the Codex hook (mod/habblaud-codex/hook.mjs).
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { AccountsService } from '../accounts/service';
@@ -13,14 +11,10 @@ import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import { createPermissionRoutes } from '../permissions/http';
 import { PermissionRegistry, type RegistryOptions } from '../permissions/registry';
-import type { CodexLive } from '../sources/codex/live';
 import { tempDir } from './fixtures';
 
 export const MAIN = 'acc:1';
 export const SESSION = 'sess-1';
-/** Thread (synthetic) of test server's Codex agent. */
-export const CODEX_THREAD = '0199b0c0-1234-7abc-8def-0123456789ab';
-export const CODEX_MAIN = `.codex:${CODEX_THREAD}`;
 
 export interface PermissionServer {
   base: string;
@@ -33,7 +27,7 @@ export interface PermissionServer {
 }
 
 export async function servePermissions(
-  opts: { enabled?: boolean; viewers?: number; registry?: Partial<RegistryOptions>; codex?: boolean; codexLive?: CodexLive } = {},
+  opts: { enabled?: boolean; viewers?: number; registry?: Partial<RegistryOptions> } = {},
 ): Promise<PermissionServer> {
   const tmp = tempDir();
   const enabled = opts.enabled ?? true;
@@ -70,7 +64,6 @@ export async function servePermissions(
     inDocker: false,
     terminal: enabled,
     permissions: registry ? createPermissionRoutes(registry) : undefined,
-    codexLive: opts.codexLive,
   });
   const guard = createRequestGuard({ allowedHosts: new Set(['habblaud.lan']) });
   const server = http.createServer((req, res) => {
@@ -80,9 +73,6 @@ export async function servePermissions(
   await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
   const port = (server.address() as AddressInfo).port;
   office.addMain({ id: MAIN, account: 'acc', sessionId: SESSION, cwd: '/p/loja', role: 'Main agent', startedAt: Date.now(), status: 'working' });
-  if (opts.codex) {
-    office.addMain({ id: CODEX_MAIN, provider: 'codex', account: '.codex', sessionId: CODEX_THREAD, cwd: '/p/loja', role: 'Main agent', startedAt: Date.now(), status: 'working' });
-  }
   return {
     base: `http://127.0.0.1:${port}`,
     port,

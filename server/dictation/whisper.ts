@@ -2,7 +2,7 @@
 // sending voice to any service. Language is auto-detected (`-l auto`); since dictation is in English or Vietnamese,
 // a result in another language is retried in the primary language. Needs whisper-cli, ffmpeg (mobile audio comes in
 // mp4/webm), and a multilingual ggml-*.bin model (".en" models only understand English and are excluded). Runs where
-// Whisper is: server in Node mode, host helper (scripts/codex-bridge.ts) in Docker. No shell (execFile), with timeout,
+// Whisper is: server in Node mode, host helper in Docker. No shell (execFile), with timeout,
 // in a temporary directory cleaned up at the end. Pure Node with no dependencies: also imported by host helper
 // (via tsx).
 import { execFile } from 'node:child_process';

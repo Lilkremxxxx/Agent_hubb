@@ -93,7 +93,7 @@ const CANARY_ROOM = '/Users/canario-usuario/projetos/CANARIO-PROJETO-SECRETO';
 const CANARY_ROOM_2 = '/home/canario2/CANARIO-CLIENTE-X';
 const MAIN_ID = '.claude-CANARIO-CONTA:91827';
 const SUB_ID = 'CANARIO-SESSAO-123:agent-CANARIO-456';
-const CODEX_ID = '.codex-CANARIO:thread-CANARIO-789';
+const OTHER_ID = '.claude-CANARIO-OTRA:thread-CANARIO-789';
 const SECRET_NUMBERS = { seed: 3141592653, cost: 1234.5678, lines: 98765, removed: 45678, tools: 7777, tokensIn: 5_550_001, tokensOut: 4_440_001 };
 
 function canaryOffice(): { rooms: RoomInfo[]; agents: AgentInfo[] } {
@@ -142,7 +142,7 @@ function canaryOffice(): { rooms: RoomInfo[]; agents: AgentInfo[] } {
       status: 'waiting',
     }),
     agent(SUB_ID, CANARY_ROOM, { ...common, kind: 'sub', parentId: MAIN_ID, name: 'Caio', look: 'm', account: '.claude-CANARIO-CONTA', background: true, sessionId: 'CANARIO-SESSAO-123' }),
-    agent(CODEX_ID, CANARY_ROOM_2, { ...common, provider: 'codex', name: 'Rafael', look: 'm', account: '.codex-CANARIO', status: 'shell' }),
+    agent(OTHER_ID, CANARY_ROOM_2, { ...common, name: 'Rafael', look: 'm', account: '.claude-CANARIO-OTRA', status: 'shell' }),
   ];
   return { rooms, agents };
 }
@@ -174,7 +174,7 @@ describe('projection: allowlist', () => {
 
   it('canary test: no office text appears in JSON', () => {
     expect(json.toLowerCase()).not.toContain('canario');
-    for (const s of [CANARY_ROOM, CANARY_ROOM_2, MAIN_ID, SUB_ID, CODEX_ID, '@exemplo.com', 'Silva', 'Bash', 'opus', 'feat/', '/Users', '/home', '.claude', '.codex', 'sess-', 'Main agent']) {
+    for (const s of [CANARY_ROOM, CANARY_ROOM_2, MAIN_ID, SUB_ID, OTHER_ID, '@exemplo.com', 'Silva', 'Bash', 'opus', 'feat/', '/Users', '/home', '.claude', 'sess-', 'Main agent']) {
       expect(json, s).not.toContain(s);
     }
   });
@@ -317,9 +317,9 @@ describe('projection: rules', () => {
     expect(validate(u)).toEqual([]);
   });
 
-  it('absent provider is claude; codex remains codex', () => {
-    const u = project(input([room('/p/a')], [agent('m1', '/p/a'), agent('m2', '/p/a', { provider: 'codex' })]), new FakeIds(), NOW);
-    expect(agentsOf(u).map((a) => a.provider).sort()).toEqual(['claude', 'codex']);
+  it('absent provider is claude', () => {
+    const u = project(input([room('/p/a')], [agent('m1', '/p/a'), agent('m2', '/p/a', { provider: 'claude' })]), new FakeIds(), NOW);
+    expect(agentsOf(u).map((a) => a.provider)).toEqual(['claude', 'claude']);
   });
 
   it('tokens only with tokensVisible, rounded to 2 significant digits', () => {

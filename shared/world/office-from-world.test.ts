@@ -69,7 +69,7 @@ describe('officeFromBuilding', () => {
     // subagent with parent in building: prefixed parentId; orphan goes without
     expect(byName(s, 'Rafael')).toMatchObject({ kind: 'sub', role: 'Subagent', parentId: 'world:a_1f2e3d4c', roomId: 'f_0a1b2c3d4e' });
     const orphan = byName(s, 'Thiago');
-    expect(orphan).toMatchObject({ kind: 'sub', provider: 'codex', status: 'shell', account: 'world:codex' });
+    expect(orphan).toMatchObject({ kind: 'sub', provider: 'claude', status: 'shell', account: 'world:claude' });
     expect(orphan.parentId).toBeUndefined();
     for (const a of s.agents) {
       expect(isWorldId(a.id)).toBe(true);
@@ -84,8 +84,7 @@ describe('officeFromBuilding', () => {
   it('dummy accounts, one per tool, without email, plan, or usage; minimal meta, no terminal or messages', () => {
     const s = officeFromBuilding(sampleBuildingDetail(), T0, OPTS);
     expect(s.accounts).toEqual([
-      { id: 'world:claude', provider: 'claude', short: 'C', name: 'Claude Code', color: WORLD_TOOL_ACCOUNTS.claude.color, configDir: '', sessions: 2, usageStatus: 'disabled' },
-      { id: 'world:codex', provider: 'codex', short: 'X', name: 'Codex', color: WORLD_TOOL_ACCOUNTS.codex.color, configDir: '', sessions: 2, usageStatus: 'disabled' },
+      { id: 'world:claude', provider: 'claude', short: 'C', name: 'Claude Code', color: WORLD_TOOL_ACCOUNTS.claude.color, configDir: '', sessions: 4, usageStatus: 'disabled' },
     ]);
     expect(s.meta).toEqual({
       sources: [],
@@ -190,7 +189,7 @@ describe('applyBuildingPatch', () => {
     expect(snapshot.rooms[0].name).toBe('Project Orion');
     expect(snapshot.agents.map((a) => a.name).sort()).toEqual(['Camila', 'Gustavo', 'Larissa', 'Marina', 'Rafael']);
     expect(byName(snapshot, 'Camila')).toMatchObject({ id: 'world:a_0badf00d', roomId: 'f_3d4e5f6071', statusSince: T1, startedAt: T1 });
-    expect(snapshot.accounts.map((a) => a.sessions)).toEqual([3, 1]); // Marina, Larissa, and Camila; Gustavo
+    expect(snapshot.accounts.map((a) => a.sessions)).toEqual([4]); // Marina, Larissa, Gustavo, and Camila
   });
 
   it('visitors only (or no office changes): returns the same snapshot', () => {
@@ -246,7 +245,6 @@ describe('reverse canaries: visit office only contains what came from the world'
       tr('Subagent'),
       ...Object.values(WORLD_TOOL_ACCOUNTS).flatMap((t) => [t.name, t.short, t.color]),
       'world:claude',
-      'world:codex',
       'disabled',
       'approved',
       '',

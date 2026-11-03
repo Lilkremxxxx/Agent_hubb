@@ -343,33 +343,7 @@
     inset 0 2px 0 rgba(255, 255, 255, 0.35);
 }
 
-/* Codex account: "hollow" chip (dark background, border and letter in account color) with stepped
-   corners, like a rounded pixel. Reads from afar as "another tool" without needing a logo. */
-.ui-acc-chip[data-provider='codex'] {
-  --step: 2px;
-  border-radius: 0;
-  background: #161b26;
-  color: var(--acc);
-  box-shadow:
-    inset 0 0 0 var(--step) var(--acc),
-    inset 0 calc(var(--step) * -2) 0 rgba(0, 0, 0, 0.3);
-  clip-path: polygon(
-    var(--step) 0,
-    calc(100% - var(--step)) 0,
-    100% var(--step),
-    100% calc(100% - var(--step)),
-    calc(100% - var(--step)) 100%,
-    var(--step) 100%,
-    0 calc(100% - var(--step)),
-    0 var(--step)
-  );
-}
-
-.ui-acc-chip--lg[data-provider='codex'] {
-  --step: 3px;
-}
-
-/* "Codex" text badge next to the account name (system font: in Pixelify "C" looks like "O"). */
+/* Text badge next to the account name (system font: in Pixelify "C" looks like "O"). */
 .ui-prov {
   display: inline-flex;
   align-items: center;
@@ -6490,26 +6464,6 @@ html.is-replay #world {
   margin-top: 8px;
   font-size: 11px;
   opacity: 0.75;
-}
-
-/* Codex hooks tip at end of Codex agent drawer. */
-.ui-codex-hint {
-  margin: 4px 0 2px;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--ui-bg-soft);
-  border: 1px dashed var(--ui-line-strong);
-  font-size: 11.5px;
-  line-height: 1.45;
-  color: var(--ui-muted);
-}
-
-.ui-codex-hint[hidden] {
-  display: none;
-}
-
-.ui-codex-hint .ui-usage-setup__inline {
-  white-space: normal;
 }
 
 /* "Respond" in toast for agents with requests to answer from office. */

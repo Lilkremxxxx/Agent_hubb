@@ -372,7 +372,6 @@ describe('groupRoles', () => {
         agent('sub1', 'a', { kind: 'sub', parentId: 'caio' }),
         agent('agy:acc1', 'hub', { provider: 'agy' }),
         agent('agy:acc3', 'hub', { provider: 'agy' }),
-        agent('cx', 'hub', { provider: 'codex' }),
         agent('bia', 'hub'),
       ]),
       team: { workers: ['acc1'], agy: [] },
@@ -381,7 +380,7 @@ describe('groupRoles', () => {
     expect(g.map((x) => [x.key, x.nodes.map((n) => n.agent.id)])).toEqual([
       ['boss', ['thiago']],
       ['workers', ['agy:acc1']],
-      ['others', ['caio', 'agy:acc3', 'bia', 'cx']],
+      ['others', ['caio', 'agy:acc3', 'bia']],
     ]);
     expect(g[2].nodes[0].subs.map((s) => s.id)).toEqual(['sub1']);
   });

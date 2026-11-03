@@ -4,19 +4,15 @@
 //   old numbers are dimmed with age ("6d ago") in the header or, on mobile, a badge on the chip;
 // - reset comes with implicit verb in the ↻ icon and countdown when less than a day remains;
 // - account without numbers says "no usage data" and offers "How to enable" (Habblaud mod, recommended).
-// Codex account: numbers come from its session files, which only refresh while a session is running; therefore
-// age ("12m ago") is always shown. Without quota or credits ("no quota") never becomes 0%. Nothing
-// to install for usage: "How it works" opens help at the Codex section. No Opus/Sonnet or email (plan only).
+// Without quota or credits ("no quota") never becomes 0%.
 import type { AccountInfo } from '../../../shared/types';
 import { h } from './dom';
-import { relativeTime } from './format';
-import { isCodex, providerOf } from './provider';
+import { providerOf } from './provider';
 import { tr } from '../../../shared/i18n';
 
 export const SOURCE_LABEL: Record<NonNullable<AccountInfo['usage']>['source'], string> = {
   cache: tr('Claude Code /usage cache'),
   statusline: tr('live (Claude Code statusline)'),
-  codex: tr('Codex files'),
   agy: tr('Antigravity /usage'),
 };
 
@@ -56,7 +52,7 @@ export function createUsageSetup(): HTMLElement {
   );
 }
 
-/** ok/stale: recent/old numbers; empty: no numbers; noquota: Codex without quota or credits (never 0%). */
+/** ok/stale: recent/old numbers; empty: no numbers; noquota: account without quota or credits (never 0%). */
 export type CardState = 'ok' | 'stale' | 'empty' | 'noquota';
 
 function hasWindows(a: Pick<AccountInfo, 'usage'>): boolean {
@@ -72,37 +68,21 @@ export function cardState(a: Pick<AccountInfo, 'usage' | 'usageStatus'>): CardSt
   return a.usageStatus === 'ok' ? 'ok' : 'stale';
 }
 
-/** Is the age of numbers always shown? (Codex: only refreshes while a session runs.) */
-export function showsUsageAge(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'provider'>): boolean {
-  if (!a.usage) return false;
-  const state = cardState(a);
-  return state === 'stale' || (isCodex(a) && state !== 'empty');
+/** Is the age of numbers always shown? Only when they are stale. */
+export function showsUsageAge(a: Pick<AccountInfo, 'usage' | 'usageStatus'>): boolean {
+  return !!a.usage && cardState(a) === 'stale';
 }
 
-/** Line below name: email; on Codex (no email), plan; on others, directory. */
-export function usageSubtitle(a: Pick<AccountInfo, 'email' | 'plan' | 'configDir' | 'provider'>): string {
-  if (a.email) return a.email;
-  if (isCodex(a)) return a.plan ? tr('{0} plan', [a.plan]) : 'Codex';
-  return a.configDir;
+/** Line below name: email, or the config directory. */
+export function usageSubtitle(a: Pick<AccountInfo, 'email' | 'configDir'>): string {
+  return a.email ?? a.configDir;
 }
 
 /** Message in place of bars (states without numbers): [long, short]. */
 export function usageMessage(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'provider'>): [string, string] {
   const state = cardState(a);
   if (state === 'noquota') return [tr('no quota'), tr('no quota')];
-  // Codex records usage only while a session runs; Antigravity's comes from its /usage, read every few minutes.
-  if (isCodex(a) || providerOf(a) === 'agy') return [tr('no data yet'), tr('no data')];
+  // Antigravity's usage comes from its /usage, read every few minutes.
+  if (providerOf(a) === 'agy') return [tr('no data yet'), tr('no data')];
   return [tr('no usage data'), tr('no data')];
-}
-
-/** Explanation for Codex account card (tooltip); '' on others. */
-export function codexUsageNote(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'provider'>, now: number): string {
-  if (!isCodex(a)) return '';
-  const u = a.usage;
-  const state = cardState(a);
-  if (state === 'empty') return tr('Nothing to install: the numbers arrive with the next Codex session.');
-  const age = u ? relativeTime(u.fetchedAt, now) : '';
-  if (state === 'noquota')
-    return tr("At the last reading ({0}), the account had no quota or credits left to use (e.g. the workspace credits ran out). It's not 0%: Codex didn't report the windows. The numbers come back with the next session.", [age]);
-  return tr('Codex only records usage while a session is running: these numbers are from the last reading ({0}).', [age]);
 }

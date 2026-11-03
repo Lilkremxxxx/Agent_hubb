@@ -6,7 +6,7 @@
 // (same as Finder's "New Claude Code Session Here"), opening pre-filled new session screen in app: session then
 // begins when the user hits Enter there. The runner must run on the app's machine:
 // - Node mode: the server itself;
-// - Docker: host helper (scripts/codex-bridge.ts, npm run codex:bridge) polls requests via
+// - Docker: host helper polls requests via
 //   POST /api/host/spawn/poll, checks folder, runs, and confirms via POST /api/host/spawn/ack.
 // Attachments (spawn/attachments.ts): runner saves files in ~/.habblaud/attachments/ and appends paths to
 // end of prompt. Shell-free (execFile), with timeout, and prompt follows `--` (never treated as option/subcommand).
@@ -210,7 +210,7 @@ export class SpawnService {
     const req = parseSpawn(raw);
     if ('error' in req) return { error: 'invalid', reason: req.error };
     if (!this.available()) {
-      return { error: 'unavailable', reason: tr("the computer's helper isn't running: keep npm run codex:bridge running (Habblaud is in Docker)") };
+      return { error: 'unavailable', reason: tr("the computer's helper isn't running (Habblaud is in Docker)") };
     }
     let open = 0;
     for (const e of this.entries.values()) if (e.info.status === 'queued' || e.info.status === 'sent') open++;

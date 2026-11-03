@@ -32,7 +32,7 @@ export interface TerminalRouter {
   showPty?(info: PtyInfo): void;
 }
 
-export type HelpSection = 'usage' | 'codex';
+export type HelpSection = 'usage';
 
 export interface UiContext {
   readonly store: OfficeStore;

@@ -256,15 +256,15 @@ describe('session history: validation (path traversal)', () => {
 
 describe('session history: another tool', () => {
   const XID = '019a0000-0000-7000-8000-0000000000d4';
-  /** Mock provider for account ".codex": one session, read with custom parser (each line becomes "cx-<n>"). */
-  const codexHistory = (root: string): HistoryProvider => {
+  /** Mock provider for account ".agy": one session, read with custom parser (each line becomes "cx-<n>"). */
+  const agyHistory = (root: string): HistoryProvider => {
     const path = join(root, 'rollout.jsonl');
     writeFileSync(path, 'a\nb\n');
     let n = 0;
     return {
-      provider: 'codex',
-      hasAccount: (a) => a === '.codex',
-      list: async () => [{ account: '.codex', provider: 'codex', sessionId: XID, projectDir: '2026/10/09', lastAt: Date.now() + 60_000, size: 4, open: false }],
+      provider: 'agy',
+      hasAccount: (a) => a === '.agy',
+      list: async () => [{ account: '.agy', provider: 'agy', sessionId: XID, projectDir: '2026/10/09', lastAt: Date.now() + 60_000, size: 4, open: false }],
       resolve: (_account, sessionId) =>
         sessionId === XID
           ? { path, createParser: () => ({ push: (): TerminalEntry[] => [{ kind: 'user', id: `cx-${++n}`, at: 0, text: 'cx' }] }) }
@@ -273,19 +273,19 @@ describe('session history: another tool', () => {
   };
 
   it('listing combines tools; session terminal uses tool-specific parser', async () => {
-    const env = await serve({ extra: codexHistory });
+    const env = await serve({ extra: agyHistory });
     try {
       const body = JSON.parse((await request(env.base, '/api/sessions/recent')).body) as RecentSessionsResponse;
       expect(body.sessions.map((s) => [s.account, s.sessionId, s.provider])).toEqual([
-        ['.codex', XID, 'codex'],
+        ['.agy', XID, 'agy'],
         ['.claude', OPEN_SID, undefined],
         ['.claude', SID, undefined],
       ]);
-      const s = await request(env.base, terminalRoute('.codex', XID));
+      const s = await request(env.base, terminalRoute('.agy', XID));
       expect(s.status).toBe(200);
       await waitFor(() => expect(s.events.filter((e) => e.event === 'init')).toHaveLength(1));
       const init = s.events[0].data as TerminalInit;
-      expect(init.agentId).toBe(`session:.codex:${XID}`);
+      expect(init.agentId).toBe(`session:.agy:${XID}`);
       expect(init.entries.map((e) => e.id)).toEqual(['cx-1', 'cx-2']);
       s.close();
       // Claude Code account retains its parser; unknown account with usual errors.
@@ -293,7 +293,7 @@ describe('session history: another tool', () => {
       await waitFor(() => expect(c.events.filter((e) => e.event === 'init')).toHaveLength(1));
       expect((c.events[0].data as TerminalInit).entries.map((e) => e.kind)).toEqual(['user', 'assistant']);
       c.close();
-      expect((await request(env.base, terminalRoute('.codex', '00000000-0000-4000-8000-000000000999'))).status).toBe(404);
+      expect((await request(env.base, terminalRoute('.agy', '00000000-0000-4000-8000-000000000999'))).status).toBe(404);
       expect(JSON.parse((await request(env.base, terminalRoute('.other', SID))).body)).toEqual({ error: 'unknown account' });
       expect((await request(env.base, terminalRoute('.other', 'x'))).status).toBe(400);
     } finally {

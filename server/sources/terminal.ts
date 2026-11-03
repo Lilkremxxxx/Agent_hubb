@@ -129,7 +129,7 @@ export interface Prepared {
 
 /**
  * Multiline text ready to display: cleaned, masked, trimmed, and clipped. Also used by the
- * Codex terminal (sources/codex/terminal.ts), like `marked` and `oneLine`.
+ * other terminal parsers, like `marked` and `oneLine`.
  */
 export function prepare(raw: string, max: number, maxLines = Infinity, reminders = true): Prepared {
   const safe = safeText(raw, max * 2 + 1_024, reminders);

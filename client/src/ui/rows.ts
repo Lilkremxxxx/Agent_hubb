@@ -85,7 +85,7 @@ export function updateAgentRow(
   updateAvatar(r.avatar, agent, r.size);
   setStyleVar(row, '--acc', account?.color ?? '#8b98b3');
   setText(r.name, agent.name);
-  updateAccountChip(r.chip, account, agent.account, agent.provider);
+  updateAccountChip(r.chip, account, agent.account);
   updateRoleBadge(r.role, agent);
   const title = agent.title?.trim() ?? '';
   setText(r.task, title);
@@ -112,6 +112,6 @@ export function updateAgentRow(
   setAttr(
     row,
     'aria-label',
-    `${agent.name}, ${agent.kind === 'main' ? tr('main agent') : tr('subagent {0}', [agent.role])}, ${account?.name ?? agent.account}${agent.provider === 'codex' ? ' (Codex)' : ''}, ${statusLabel(status)}${doing ? `: ${doing}` : ''}`,
+    `${agent.name}, ${agent.kind === 'main' ? tr('main agent') : tr('subagent {0}', [agent.role])}, ${account?.name ?? agent.account}, ${statusLabel(status)}${doing ? `: ${doing}` : ''}`,
   );
 }

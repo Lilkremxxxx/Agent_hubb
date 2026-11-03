@@ -92,7 +92,7 @@ export class HoverTip implements UiComponent {
       return;
     }
     setText(this.name, a.name);
-    updateAccountChip(this.chip, this.ctx.account(a.account), a.account, a.provider);
+    updateAccountChip(this.chip, this.ctx.account(a.account), a.account);
     updateProviderTag(this.prov, providerOf(a));
     // Waiting on a shell: what it waits on (with elapsed time) and what it's doing meanwhile.
     const now = this.ctx.now();

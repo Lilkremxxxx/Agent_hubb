@@ -22,7 +22,6 @@ import { HistoryPopover } from './history';
 import { Deliveries } from './deliveries';
 import { HoverTip } from './hovertip';
 import { hasRunningShells } from './model';
-import { hasCodexPermission } from './provider';
 import { Notifier } from './notify';
 import { ConnectionBanner, EmptyState, Splash } from './overlays';
 import { focusPermission, nextPermissionAgent } from './permission';
@@ -56,7 +55,7 @@ import { tr } from '../../../shared/i18n';
 
 /** Relative time clock ("5s ago"). */
 const CLOCK_MS = 5_000;
-/** Shell stopwatch clock ("12:31") and Codex request expiry clock, active only when either is present. */
+/** Shell stopwatch clock ("12:31"), active only when a shell is running. */
 const SHELL_CLOCK_MS = 1_000;
 const NARROW_QUERY = '(max-width: 900px)';
 
@@ -447,8 +446,8 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
     if (!document.hidden) invalidate();
   }, CLOCK_MS);
   setInterval(() => {
-    // Running shells (stopwatch) or pending Codex request (seconds countdown).
-    if (!document.hidden && (hasRunningShells(store.snapshot) || hasCodexPermission(store.snapshot))) invalidate();
+    // Running shells (stopwatch).
+    if (!document.hidden && hasRunningShells(store.snapshot)) invalidate();
   }, SHELL_CLOCK_MS);
 
   addEventListener('keydown', (e) => onKey(e));

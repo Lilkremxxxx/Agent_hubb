@@ -552,7 +552,7 @@ export const FAKE_UPLINK: Readonly<WorldUplink> = {
       id: 'f_02aa91c4de',
       agents: [
         {
-          id: 'a_b2e74d10', kind: 'main', provider: 'codex', status: 'idle', look: 'm', name: 'Rafael',
+          id: 'a_b2e74d10', kind: 'main', provider: 'claude', status: 'idle', look: 'm', name: 'Rafael',
           parts: {
             skin: '#8d5524', hair: '#0f0f0f', hairStyle: 'buzz', eyes: '#2b1d14', top: '#a5463d', topStyle: 'polo',
             bottom: '#4b5563', bottomStyle: 'shorts', shoes: '#f2f2f2', accessory: 'none', accessoryColor: '#222222', facialHair: 'beard',

@@ -216,7 +216,6 @@ export class TeamDialogs implements UiComponent {
         }),
         this.agyAcc,
         (id) => (this.agyAcc = id),
-        'agy',
       );
       if ((office?.workers ?? team?.workers)?.includes(this.agyAcc)) leaves = tr('{0} is a worker now: it leaves Workers (an account is never both).', [this.ctx.account(team?.agy.find((p) => p.acc === this.agyAcc)?.account ?? '')?.name ?? this.agyAcc]);
     } else {
@@ -280,7 +279,6 @@ export class TeamDialogs implements UiComponent {
     items: Array<{ id: string; account: AccountInfo | undefined; fallback: string; sub: string; disabled?: boolean }>,
     selected: string,
     onPick: (id: string) => void,
-    provider?: 'agy',
   ): HTMLElement {
     return h(
       'div',
@@ -288,7 +286,7 @@ export class TeamDialogs implements UiComponent {
       ...items.map((it) => {
         const on = it.id === selected;
         const chip = createAccountChip('sm');
-        updateAccountChip(chip, it.account, it.fallback, provider);
+        updateAccountChip(chip, it.account, it.fallback);
         const pick = () => {
           onPick(it.id);
           this.sig = '';
@@ -377,7 +375,7 @@ export class TeamDialogs implements UiComponent {
         ...free.map((c) => {
           const account = this.ctx.account(c.account);
           const chip = createAccountChip('sm');
-          updateAccountChip(chip, account, c.account, c.kind);
+          updateAccountChip(chip, account, c.account);
           const add = h('button', { class: 'ui-btn', type: 'button', text: tr('＋ Add'), on: { click: () => void this.addWorker(c.worker, account?.name ?? c.worker, add) } });
           // (workers are shared: one already working for another office can join this one too)
           const also = otherOfficesOf(offices, c.worker, office?.id);

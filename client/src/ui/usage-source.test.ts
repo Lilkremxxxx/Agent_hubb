@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { AccountInfo } from '../../../shared/types';
-import { cardState, codexUsageNote, showsUsageAge, sourceLabel, usageMessage, usageSubtitle } from './usage';
+import { cardState, showsUsageAge, sourceLabel, usageMessage, usageSubtitle } from './usage';
 
 const MIN = 60_000;
-type Acc = Pick<AccountInfo, 'usage' | 'usageStatus' | 'provider' | 'email' | 'plan' | 'configDir'>;
-const codex = (over: Partial<Acc> = {}): Acc => ({ provider: 'codex', usageStatus: 'ok', configDir: '~/.codex', plan: 'Team', ...over });
+type Acc = Pick<AccountInfo, 'usage' | 'usageStatus' | 'provider' | 'email' | 'configDir'>;
+const agy = (over: Partial<Acc> = {}): Acc => ({ provider: 'agy', usageStatus: 'ok', configDir: '~/.agy', ...over });
 const win = { utilization: 42, resetsAt: 10 * 60 * MIN };
 
 describe('sourceLabel', () => {
@@ -13,40 +13,31 @@ describe('sourceLabel', () => {
     expect(sourceLabel({ source: 'statusline', via: 'tap', fetchedAt: 0 })).toBe('live (Claude Code statusline)');
     expect(sourceLabel({ source: 'statusline', fetchedAt: 0 })).toBe('live (Claude Code statusline)');
     expect(sourceLabel({ source: 'cache', fetchedAt: 0 })).toBe('Claude Code /usage cache');
-    expect(sourceLabel({ source: 'codex', fetchedAt: 0 })).toBe('Codex files');
+    expect(sourceLabel({ source: 'agy', fetchedAt: 0 })).toBe('Antigravity /usage');
   });
 });
 
-describe('usage card for a Codex account', () => {
+describe('usage card', () => {
   it('"no quota" is its own state (never 0% or "no data")', () => {
-    const noQuota = codex({ usage: { source: 'codex', noQuota: true, fetchedAt: 0 } });
+    const noQuota = agy({ usage: { source: 'agy', noQuota: true, fetchedAt: 0 } });
     expect(cardState(noQuota)).toBe('noquota');
     expect(usageMessage(noQuota)).toEqual(['no quota', 'no quota']);
-    expect(codexUsageNote(noQuota, 3 * MIN)).toMatch(/^At the last reading \(3 min ago\), the account had no quota or credits .*It's not 0%/);
-    expect(cardState(codex({ usage: { source: 'codex', fiveHour: win, fetchedAt: 0 } }))).toBe('ok');
-    expect(cardState(codex({ usage: { source: 'codex', fiveHour: win, fetchedAt: 0 }, usageStatus: 'stale' }))).toBe('stale');
-    expect(cardState(codex())).toBe('empty');
+    expect(cardState(agy({ usage: { source: 'agy', fiveHour: win, fetchedAt: 0 } }))).toBe('ok');
+    expect(cardState(agy({ usage: { source: 'agy', fiveHour: win, fetchedAt: 0 }, usageStatus: 'stale' }))).toBe('stale');
+    expect(cardState(agy())).toBe('empty');
   });
 
-  it('age is always shown for Codex (only refreshes while session is running); for Claude Code, only when stale', () => {
-    const fresh = { source: 'codex' as const, fiveHour: win, fetchedAt: 0 };
-    expect(showsUsageAge(codex({ usage: fresh }))).toBe(true);
-    expect(showsUsageAge(codex({ usage: { source: 'codex', noQuota: true, fetchedAt: 0 } }))).toBe(true);
-    expect(showsUsageAge(codex())).toBe(false);
+  it('age is shown only when the numbers are stale', () => {
+    const fresh = { source: 'cache' as const, fiveHour: win, fetchedAt: 0 };
     expect(showsUsageAge({ usage: { ...fresh, source: 'statusline' }, usageStatus: 'ok' })).toBe(false);
-    expect(showsUsageAge({ usage: { ...fresh, source: 'cache' }, usageStatus: 'stale' })).toBe(true);
-    expect(codexUsageNote(codex({ usage: fresh }), 12 * MIN)).toBe('Codex only records usage while a session is running: these numbers are from the last reading (12 min ago).');
+    expect(showsUsageAge({ usage: fresh, usageStatus: 'stale' })).toBe(true);
+    expect(showsUsageAge({ usageStatus: 'stale' })).toBe(false);
   });
 
-  it('no numbers: nothing to install; under name, the plan (no email)', () => {
-    expect(usageMessage(codex())).toEqual(['no data yet', 'no data']);
-    expect(codexUsageNote(codex(), 0)).toBe('Nothing to install: the numbers arrive with the next Codex session.');
-    expect(usageSubtitle(codex())).toBe('Team plan');
-    expect(usageSubtitle(codex({ plan: undefined }))).toBe('Codex');
-    // Claude Code: as before.
+  it('no numbers: message by tool; under the name, the email or the directory', () => {
+    expect(usageMessage(agy())).toEqual(['no data yet', 'no data']);
     expect(usageMessage({ usageStatus: 'disabled' })).toEqual(['no usage data', 'no data']);
     expect(usageSubtitle({ email: 'a@b.c', configDir: '~/.claude' })).toBe('a@b.c');
     expect(usageSubtitle({ configDir: '~/.claude' })).toBe('~/.claude');
-    expect(codexUsageNote({ usageStatus: 'ok' }, 0)).toBe('');
   });
 });

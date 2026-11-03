@@ -299,46 +299,6 @@ Rules:
   `404`.
 - Unused character after 60 days expires, like names.
 
-## Codex
-
-Agent sources (`sources/source.ts`): `SourceSet` combines Claude Code (`ClaudeWatcher`) and, when Codex directories
-exist, Codex (`sources/codex/`); same for history (`HistorySet`). Codex agents, accounts, sources, and history sessions
-carry `provider: 'codex'` (absent = Claude Code). IDs: `<conta>:<threadId>`, `sessionId` = threadId.
-
-- **Accounts** (`sources/codex/accounts.ts`): `HABBLAUD_CODEX_DIRS` (replaces) or `CODEX_HOME` and `~/.codex*` looking
-  like Codex (`isCodexHome`: `thread-writer-locks/`, `archived_sessions/`, `config.toml`, `auth.json`, or
-  `sessions/AAAA/`, without `projects/`, which only Claude Code creates). A Codex directory never becomes a Claude Code
-  account. `auth.json` and `config.toml` are never read; plan comes from `rate_limits.plan_type`.
-- **Open sessions** (`sources/codex/files.ts`, `source.ts`): `thread-writer-locks/<threadId>.lock` existing for 3 s
-  (quick maintenance locks excluded; the lock is never opened). Lock without rollout = open empty session: lock does not
-  specify folder, so primary agent only joins when rollout (created on 1st prompt) or a hook reports the cwd. Lock and
-  rollout idle for 12 h, without hook event = crash lock. Without locks folder: rollout modified in last 30 min. Hook
-  event retains presence for 60 s.
-- **Rollout** (`sources/codex/rollout.ts`): `sessions/AAAA/MM/DD/rollout-*-<threadId>.jsonl` (directory is creation
-  date; resumed session continues in old file) and `archived_sessions/`, read with `FileTail`. "paginated" (default) and
-  "legacy" formats; `.zst` is ignored with a warning. Status by `task_started`/`task_complete`/`turn_aborted`;
-  activities by `item_completed` (`CommandExecution` like Bash, `FileChange`, `McpToolCall`, messages, and reasoning);
-  tokens without recounting cache (in Codex it is already inside input); no cost; plan usage from
-  `token_count.rate_limits` (window of 300 min = 5 h, 10080 = week; null `primary` with `rate_limit_reached_type` =
-  `noQuota`), pushed with `accounts.setUsage`. Subagents = threads with `source.subagent.thread_spawn.parent_thread_id`;
-  internal threads (guardian, review, compact, memory) are excluded.
-- **Terminal and history** (`sources/codex/terminal.ts`, `history.ts`): terminal parser is chosen per agent
-  (`SourceSet.parserFor`).
-- **Hook events** (`POST /api/codex/events`, `codex/http.ts`; hook is `mod/habblaud-codex/hook.mjs`): local `Host` and
-  loopback connection only (outside Docker). Forwarded to source's `CodexLive.applyHookEvent`: matched by account (via
-  `codexHome` directory) and `agent_id ?? session_id` (in Codex, `session_id` is the ROOT thread). SessionStart makes
-  agent appear, UserPromptSubmit/PreToolUse = working (with current activity), PermissionRequest = waiting ("approving a
-  command"), Stop = idle, SessionEnd closes.
-- **Approving from office** (`permissions/*`, `permissions/codex.ts`): same `POST /api/permissions` with `provider:
-  'codex'`, `account`, and `codexHome`; no suggestions, no questions, no transcript search; `interrupt` or `suggestion`
-  on a Codex request = 400. Hook waits up to `permissionTimeoutS` from `~/.habblaud/codex-hook.json` (default 25 s) and
-  prints only `allow` or `deny` (+`message`). Codex only shows approval in terminal after hook finishes.
-- **Messages** (`messages/*`, `messages/codex.ts`): for Codex agents, `codex queue --thread=<id> --message=<texto>` with
-  `CODEX_HOME` = account folder (on host). Outside Docker the server runs the command (`HABBLAUD_CODEX_BIN` or `codex`
-  in PATH); in Docker, the host bridge helper (`npm run codex:bridge`) polls `POST /api/codex/bridge/poll` and
-  acknowledges at `/ack` (same messages lock). `canMessage` = deliverer present (binary found, or helper seen within 10
-  s). Exit code 0 = queued in session (`delivered`); Codex consumes the queue every ~10 s when session becomes idle.
-
 ## Habblaud World
 
 Enabled by default, pointing to `server.habblaud.com` (`DEFAULT_WORLD_URL` in `config.ts`); nothing leaves the computer
@@ -465,9 +425,6 @@ geometry in `shared/world/city.ts` (source of truth; world server keeps exact co
 | `HABBLAUD_HOST` | `127.0.0.1` | Interface (Docker uses `0.0.0.0`); outside loopback, terminal (and permissions/messages) is disabled |
 | `HABBLAUD_BIND` | — (Compose: `127.0.0.1`) | Docker only: host interface where port is published, passed to container; loopback only enables terminal |
 | `HABBLAUD_TERMINAL` | — | `0` disables terminal, permissions, and office messages (will not enable on exposed port) |
-| `HABBLAUD_CODEX` | enabled | `0` disables Codex source |
-| `HABBLAUD_CODEX_DIRS` | — | Comma-separated Codex directories; overrides detection (`CODEX_HOME` and `~/.codex*`) |
-| `HABBLAUD_CODEX_BIN` | `codex` in PATH | Codex binary for `codex queue` (Node mode and `npm run codex:bridge`) |
 | `HABBLAUD_MENSAGENS` | enabled (with terminal) | `0`, `false`, `off`, or `no` disables office messages only |
 | `HABBLAUD_CLAUDE_DIRS` | — | Comma-separated config dirs; overrides detection (`~/.claude*` with `projects/` or `sessions/` + `CLAUDE_CONFIG_DIR`) |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` (Docker: `/data`) | Habblaud state (project names and characters persisted in `names.json`, timeline in `timeline/`, My day stats in `stats/`, last version check in `updates.json`) |

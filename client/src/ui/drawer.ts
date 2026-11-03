@@ -1,5 +1,4 @@
-// Details drawer (right): selected agent or room. Codex agent: "Codex" badge, Codex copy (where
-// to reply, the terminal, approval instead of permission mode, no cost) and Codex hooks hint.
+// Details drawer (right): selected agent or room.
 import type { Activity, AgentInfo, FeedItem, RoomInfo, ShellJob, TaskItem } from '../../../shared/types';
 import { roomTheme } from '../art';
 import { createAvatarPlaceholder, updateAvatar } from './avatar';
@@ -46,7 +45,7 @@ import { PermissionCard } from './permission';
 import { canRenameRoom } from './roomrename';
 import { sessionOfAgent, setWorker, workerOfAgent } from './workers-api';
 import { bossOfficeOf, officeForWorker, teamOffices } from './offices';
-import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, providerOf } from './provider';
+import { accountChipLabel, providerOf } from './provider';
 import { postPty, ptyControllable } from './ptyapi';
 import { createAgentRow, updateAgentRow } from './rows';
 import { SocialSection } from './social';
@@ -223,8 +222,6 @@ class AgentView {
   private accName: HTMLElement;
   private accProv: HTMLElement;
   private accEmail: HTMLElement;
-  /** Codex hooks hint (live mode and approve from office), in the drawer of a Codex agent. */
-  private codexHint: HTMLElement;
   private roomBtn: HTMLButtonElement;
   private roomName: HTMLElement;
   private gone: HTMLElement;
@@ -482,7 +479,6 @@ class AgentView {
       ['bg', tr('Execution')],
     ]);
     const statsSec = section(tr('Stats'), this.stats.el);
-    this.codexHint = h('p', { class: 'ui-codex-hint', hidden: true }, ...richText(CODEX_LIVE_HINT));
 
     this.el = h(
       'div',
@@ -510,7 +506,6 @@ class AgentView {
       this.teamSec.el,
       this.timelineSec.el,
       statsSec.el,
-      this.codexHint,
     );
   }
 
@@ -652,7 +647,6 @@ class AgentView {
     const account = this.ctx.account(a.account);
     const room = this.ctx.store.room(a.roomId);
     const provider = providerOf(a);
-    const codex = provider === 'codex';
 
     updateAvatar(this.avatar, a, 'lg');
     setStyleVar(this.avatar, '--acc', account?.color ?? '#8b98b3');
@@ -677,11 +671,10 @@ class AgentView {
     // (removes it from the office shown; a worker of another office only is removed from there)
     setHidden(this.workerBtn, !live || !worker || (many && !officeForWorker(office, worker)) || access().remote);
     setTitle(this.title, a.title ?? '');
-    updateAccountChip(this.accChip, account, a.account, a.provider);
+    updateAccountChip(this.accChip, account, a.account);
     setText(this.accName, account?.name ?? a.account);
     updateProviderTag(this.accProv, provider, account?.name ?? '');
-    // Email (Claude Code) or, on Codex (no email), the plan.
-    const accSub = account?.email ?? (codex && account?.plan ? tr('{0} plan', [account.plan]) : '');
+    const accSub = account?.email ?? '';
     setText(this.accEmail, accSub);
     setHidden(this.accEmail, !accSub);
     setText(this.roomName, room?.name ?? a.roomId);
@@ -731,17 +724,14 @@ class AgentView {
     setHidden(this.alert, !waiting || this.perm.visible);
     if (waiting) {
       const accName = account?.name ?? a.account;
-      // Codex: "Go to Codex (Account X)"; avoids repeating when account is already named "Codex".
-      const where = codex ? tr('Codex{0}', [/codex/i.test(accName) ? '' : ` (${accName})`]) : tr('the {0} terminal', [accName]);
+      const where = tr('the {0} terminal', [accName]);
       setText(this.alertText, tr('Go to {0} in {1} to reply{2}', [where, room?.name ?? tr('your project'), a.waitingFor ? `: ${a.waitingFor}` : '.']));
     }
-    // AskUserQuestion questions (read-only): Codex does not ask questions from the office.
-    const asking = waiting && !codex && a.activity?.kind === 'ask' ? a.activity : undefined;
+    // AskUserQuestion questions (read-only).
+    const asking = waiting && a.activity?.kind === 'ask' ? a.activity : undefined;
     this.renderQuestions(asking);
-    // Without request in office: can answer from here with plugin (local-only check, like the card). Codex
-    // does not answer questions from the office.
-    const answerable =
-      !codex && !!asking?.questions?.length && !this.perm.visible && !!this.ctx.store.snapshot?.meta.terminal && access().permissions;
+    // Without request in office: can answer from here with plugin (local-only check, like the card).
+    const answerable = !!asking?.questions?.length && !this.perm.visible && !!this.ctx.store.snapshot?.meta.terminal && access().permissions;
     setHidden(this.alertAnswerHint, !answerable);
 
     // Waiting on shell.
@@ -824,9 +814,6 @@ class AgentView {
     setText(this.timelineSec.extra, this.history.length ? String(this.history.length) : '');
 
     this.renderStats(a, now);
-
-    // Codex: how to get live view and approvals here (server doesn't yet say if its hooks are on).
-    setHidden(this.codexHint, !codex || a.kind !== 'main' || !live || this.ctx.store.replaying);
   }
 
   /** Lists pending questions with options, read-only (without office request, answer in Claude Code). */
@@ -856,7 +843,7 @@ class AgentView {
     );
   }
 
-  private renderTerminalButton(live: boolean, provider = providerOf(this.last)): void {
+  private renderTerminalButton(live: boolean): void {
     const router = this.ctx.terminals;
     const available = (router ? router.available : !!this.ctx.store.snapshot?.meta.terminal) && access().terminal;
     const open = (router ? router.openAgentId : this.terminal.agentId) === this.id;
@@ -886,7 +873,7 @@ class AgentView {
             ? tr('The agent has already left the office.')
             : kind === 'ao vivo'
               ? tr("View this session's conversation as in {0}, live{1} (T)", [
-                  provider === 'codex' ? 'Codex' : tr('the Claude Code terminal'),
+                  tr('the Claude Code terminal'),
                   this.pty.enabled && ptyControllable(this.last) ? tr('; "Take over here" continues it here') : '',
                 ])
               : kind === 'interativo'
@@ -902,7 +889,6 @@ class AgentView {
     st.set('tokensIn', formatTokens(s.tokensIn));
     st.set('tokensOut', formatTokens(s.tokensOut));
     st.set('cost', s.costUSD !== undefined ? formatUSD(s.costUSD) : null);
-    const codex = providerOf(a) === 'codex';
     const hasLines = s.linesAdded !== undefined || s.linesRemoved !== undefined;
     st.show('lines', hasLines);
     setText(this.linesPlus, `+${formatInt(s.linesAdded ?? 0)}`);
@@ -911,9 +897,7 @@ class AgentView {
     st.set('model', prettyModel(a.model));
     st.set('effort', a.effort ?? null);
     st.set('branch', a.gitBranch ?? null);
-    // Codex: approval policy (when server sends it) instead of Claude Code permission mode.
-    st.label('perm', codex ? tr('Approvals') : tr('Permissions'));
-    st.set('perm', a.kind !== 'main' ? null : codex ? (a.permissionMode ? codexApprovalLabel(a.permissionMode) : null) : permissionLabel(a.permissionMode));
+    st.set('perm', a.kind !== 'main' ? null : permissionLabel(a.permissionMode));
 
     setText(this.sessionValue, a.sessionId);
     setTitle(this.sessionValue, a.sessionId);
@@ -941,10 +925,6 @@ class KvList<K extends string> {
     }
   }
 
-  /** Changes row label (e.g. "Approvals" in Codex). */
-  label(key: K, text: string): void {
-    setText(this.rows.get(key)!.dt, text);
-  }
 
   /** Sets row text; `null` hides the row. */
   set(key: K, value: string | null): void {
@@ -1015,8 +995,8 @@ class RoomView {
       update: (el, id) => {
         const acc = ctx.account(id);
         updateAccountChip(el.firstElementChild as HTMLElement, acc, id);
-        // "Account C · dev@x.com"; in Codex, "Codex · Team plan".
-        setText(el.lastElementChild!, accountChipLabel(acc, id, accountProvider(acc, id)).replace(/ \((.+)\)$/, ' · $1'));
+        // "Account C · dev@x.com".
+        setText(el.lastElementChild!, accountChipLabel(acc, id).replace(/ \((.+)\)$/, ' · $1'));
       },
     });
 
@@ -1064,7 +1044,7 @@ class RoomView {
   private newSession(): void {
     const r = this.last;
     if (!r) return;
-    // Claude Code accounts only (neither Codex nor demo); if none in room, server uses default.
+    // Claude Code accounts only; if none in room, server uses default.
     const account = (this.ctx.store.snapshot?.agents ?? []).find((a) => a.roomId === r.id && ptyControllable(a))?.account;
     setHidden(this.newMsg, true);
     this.pty.newSession(r.path, account).catch((err: Error) => {

@@ -9,24 +9,6 @@ function session(p: Partial<RecentSession> & Pick<RecentSession, 'sessionId' | '
   return { account: '.claude', projectDir: '-p', size: 1_000, open: false, ...p };
 }
 
-describe('Codex sessions in history', () => {
-  it('parseRecentSessions preserves provider only when it is Codex; search finds "codex"', () => {
-    const list = parseRecentSessions({
-      sessions: [
-        { account: '.codex', provider: 'codex', sessionId: 'x', projectDir: '/p', lastAt: 2, size: 1, open: false },
-        { account: '.claude', provider: 'claude', sessionId: 'c', projectDir: '-p', lastAt: 1, size: 1, open: false },
-        { account: '.claude', provider: 'outro', sessionId: 'd', projectDir: '-p', lastAt: 0, size: 1, open: false },
-      ],
-    });
-    expect(list.map((s) => [s.sessionId, s.provider])).toEqual([
-      ['x', 'codex'],
-      ['c', undefined],
-      ['d', undefined],
-    ]);
-    expect(filterSessions(list, 'codex').map((s) => s.sessionId)).toEqual(['x']);
-  });
-});
-
 describe('groupSessionsByDay', () => {
   it('Today, Yesterday, and dates, from most recent day to oldest (and newest to oldest within each day)', () => {
     const list = [

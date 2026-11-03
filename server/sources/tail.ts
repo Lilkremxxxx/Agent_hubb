@@ -18,7 +18,7 @@ const NL = 0x0a;
 /** How much of the file start to keep to confirm a replacement indicated only by birthtime (see `replaced`). */
 const HEAD_BYTES = 256;
 /**
- * Cap for a JSONL line. In real Claude Code and Codex conversations the largest line was
+ * Cap for a JSONL line. In real Claude Code conversations the largest line was
  * 5.8 MiB (large tool_result, which must be read whole to become activity). 8 MiB
  * covers this comfortably; beyond that, the line is discarded until the next `\n`.
  */

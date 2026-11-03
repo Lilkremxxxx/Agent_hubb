@@ -1,12 +1,11 @@
 // Message composer: sends text to the primary agent through Habblaud (POST /api/messages) and the
-// habblaud-mensagens plugin delivers it to the session as if typed (in Codex, `codex queue` enqueues it in the
-// session, which consumes it when idle). Appears in the agent drawer and the terminal footer (live session only).
+// habblaud-mensagens plugin delivers it to the session as if typed Appears in the agent drawer and the terminal footer (live session only).
 // Enter sends, Shift+Enter adds a newline; the status line tracks delivery (GET /api/messages/:id) until settled.
 // Keystrokes here do not trigger global shortcuts. Draft per agent is preserved in memory when switching agents.
 // Microphone (ui/dictation.ts, local Whisper on Mac) inserts dictated text at the cursor; shown when dictation works.
 // Pure logic lives in ui/composer-model.ts.
 import { MESSAGE_MAX } from '../../../shared/messages';
-import type { AgentInfo, OutboxMessage, Provider } from '../../../shared/types';
+import type { AgentInfo, OutboxMessage } from '../../../shared/types';
 import {
   canSend,
   composerMode,
@@ -45,10 +44,6 @@ export class MessageComposer {
   private drafts = new Map<string, string>();
   /** Last send per agent (status line). */
   private states = new Map<string, SendState>();
-  /** Provider of each agent that received a message (delivery and timeout copy differ for Codex). */
-  private providers = new Map<string, Provider>();
-  /** Provider of composer agent. */
-  private provider: Provider = 'claude';
   /** What composer currently displays ("<agent>|<ready>"): on change, content loads from draft. */
   private shown = '';
 
@@ -132,7 +127,6 @@ export class MessageComposer {
     this.mode = mode;
     const ready = mode.kind === 'ready';
     const term = this.variant === 'terminal';
-    this.provider = agent?.provider === 'codex' ? 'codex' : 'claude';
 
     // Agent switch (or composer enabled/disabled): content comes from saved draft.
     const shown = `${key}|${ready}`;
@@ -165,14 +159,14 @@ export class MessageComposer {
     setHidden(this.row, !term && !ready);
     if (this.tip) {
       setHidden(this.tip, !ready);
-      setText(this.tip, composerTip(this.provider));
+      setText(this.tip, composerTip());
     }
     setHidden(this.hint, term || mode.kind !== 'hint');
     setText(this.hint, mode.kind === 'hint' ? mode.text : '');
     this.syncButton();
 
     const state = this.states.get(key);
-    const text = sendStatusText(state, Date.now(), this.providers.get(key) ?? this.provider);
+    const text = sendStatusText(state, Date.now());
     setText(this.status, text);
     setHidden(this.status, !text);
     this.status.classList.toggle('is-error', state?.phase === 'failed' || state?.phase === 'rejected');
@@ -260,7 +254,6 @@ export class MessageComposer {
     const agentId = this.agentId;
     const raw = this.box.value;
     if (this.mode.kind !== 'ready' || !canSend(raw) || this.states.get(agentId)?.phase === 'sending') return;
-    this.providers.set(agentId, this.provider);
     this.setState(agentId, { phase: 'sending', at: Date.now() });
     let r: { message: OutboxMessage } | { error: string };
     try {
@@ -303,7 +296,7 @@ export class MessageComposer {
       if (m && (m.status !== cur.phase || m.error !== cur.error)) this.setState(agentId, { phase: m.status, id, error: m.error, at: now });
       if (m && isSettled(m.status)) return;
       const elapsed = now - since;
-      if (elapsed >= POLL_LIMIT_MS) return this.setState(agentId, { phase: 'failed', id, error: timeoutError(this.providers.get(agentId)), at: now });
+      if (elapsed >= POLL_LIMIT_MS) return this.setState(agentId, { phase: 'failed', id, error: timeoutError(), at: now });
       setTimeout(() => void step(), pollDelay(elapsed));
     };
     setTimeout(() => void step(), pollDelay(0));

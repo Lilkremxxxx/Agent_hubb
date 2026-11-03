@@ -1,5 +1,5 @@
 // Where Claude Code's `claude` is located on this computer. Used by interactive terminal (pty/manager.ts), by New
-// agent (spawn/spawn.ts), and by host helper (scripts/codex-bridge.ts). Pure Node with no dependencies.
+// agent (spawn/spawn.ts). Pure Node with no dependencies.
 import { accessSync, constants, statSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
 

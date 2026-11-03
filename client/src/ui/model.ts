@@ -325,8 +325,7 @@ export interface RoomGroup {
 
 function accountText(account: AccountInfo | undefined): string {
   if (!account) return '';
-  // Tool included in search: "codex" finds Codex agents.
-  return [account.short, account.name, account.email ?? '', account.id, account.provider === 'codex' ? 'Codex' : ''].join(' ');
+  return [account.short, account.name, account.email ?? '', account.id].join(' ');
 }
 
 /** True if agent matches text search (case- and accent-insensitive). */
@@ -410,7 +409,7 @@ export function groupRooms(snap: Pick<OfficeSnapshot, 'rooms' | 'agents' | 'acco
 
 /**
  * Sidebar groups by role: the one boss (orchestrator), the Antigravity accounts registered as workers (team.json), and
- * "others" (every other session: a boss that stepped down, a Claude session asking something on the side, Codex).
+ * "others" (every other session: a boss that stepped down, a Claude session asking something on the side).
  */
 export type RoleKey = 'boss' | 'workers' | 'others';
 export const ROLE_KEYS: readonly RoleKey[] = ['boss', 'workers', 'others'];

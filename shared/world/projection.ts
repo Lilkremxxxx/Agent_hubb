@@ -140,7 +140,7 @@ export function projectWithReport(input: ProjectionInput, ids: WorldIdSource, no
   for (const a of input.agents) {
     if (isDemoId(a.id) || isDemoId(a.roomId) || !roomIds.has(a.roomId)) continue;
     if ((a.kind !== 'main' && a.kind !== 'sub') || !isWorldStatus(a.status)) continue;
-    // World protocol only knows 'claude' and 'codex': Antigravity workers are excluded from packet instead of
+    // World protocol only knows 'claude' (and a legacy 'codex'): Antigravity workers are excluded from packet instead of
     // uploading as if they were Claude Code (truthful data).
     if (a.provider === 'agy') continue;
     const list = byRoom.get(a.roomId);
@@ -250,7 +250,7 @@ function toWorldAgent(c: Candidate, widOf: ReadonlyMap<string, string>, name: st
     id: c.wid,
     kind: a.kind,
     ...(parent ? { parentId: parent } : {}),
-    provider: a.provider === 'codex' ? 'codex' : 'claude',
+    provider: 'claude',
     status: a.status as WorldAgentStatus,
     look: a.look === 'f' ? 'f' : 'm',
     name,

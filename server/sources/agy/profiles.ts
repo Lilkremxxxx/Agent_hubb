@@ -176,7 +176,7 @@ export function workerLabel(p: Pick<AgyProfile, 'acc' | 'email' | 'name'>): stri
 
 /**
  * Account metadata for AccountsService. Letter: the account number ("acc2" -> "2"), else the first letter; color:
- * from the account palette, after existing ones (Claude Code and Codex), wrapping around if needed.
+ * from the account palette, after existing ones (Claude Code), wrapping around if needed.
  */
 export function agyDetected(p: AgyProfile, index: number, takenColors: readonly string[]): DetectedAccount {
   const free = ACCOUNT_COLORS.filter((c) => !takenColors.includes(c));

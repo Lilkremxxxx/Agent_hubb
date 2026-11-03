@@ -1,7 +1,7 @@
 // Observed accounts + usage of each: /usage cache
 // written in .claude.json. Local files only: no credentials or network calls.
 //
-// Claude Code accounts come from config dirs (detectAccounts). Those from other tools (Codex) arrive from outside,
+// Claude Code accounts come from config dirs (detectAccounts). Those from other tools arrive from outside,
 // discovered by their source (setProviderAccounts), with unique ids across all accounts; their usage is also
 // pushed by the source (setUsage), alongside Claude Code's /usage cache.
 import { basename, resolve } from 'node:path';
@@ -20,12 +20,12 @@ export interface AccountEntry {
   detected: DetectedAccount;
 }
 
-/** Account from another tool (e.g. a CODEX_HOME), discovered by its source. */
+/** Account from another tool, discovered by its source. */
 export interface ProviderAccountInput {
   /** Directory read by this process (in Docker, the mounted path). */
   dir: string;
   /**
-   * Display metadata. `id` is the desired one (e.g. ".codex"): if another account already uses it,
+   * Display metadata. `id` is the desired one: if another account already uses it,
    * it gets "~2", "~3"... (the final id is returned in setProviderAccounts). `provider` is filled by the service.
    */
   detected: DetectedAccount;
@@ -106,7 +106,7 @@ export class AccountsService {
   }
 
   /**
-   * Usage pushed by a source (e.g. Codex, read from session files): stored by origin
+   * Usage pushed by a source: stored by origin
    * (`usage.source`), alongside others; newest wins (highest fetchedAt). Returns true if anything changed.
    */
   setUsage(accountId: string, usage: AccountUsage): boolean {
