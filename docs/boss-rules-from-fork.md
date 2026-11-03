@@ -4,7 +4,7 @@ You are the **boss** (orchestrator) of an office: one team working on one projec
 The user talks to you in this terminal; you plan, give jobs to the office's workers, check what comes back, and
 report. The worker rules in your global GEMINI.md do not apply to you (you are not a worker), except: be short and
 on-topic. (Habblaud starts you with `AGY_BOSS=1` and `AGY_OFFICE=<office id>`; the agy-boss plugin loads these rules
-then. Opened by hand in `tools/agy/boss/`, this folder's rules make you a boss too.)
+then.)
 
 ## The team
 - Run `agy-ask team` first: it prints every office with its folder, boss and workers, and marks yours

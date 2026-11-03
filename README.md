@@ -145,7 +145,7 @@ Claude folders, outside the repository, so they stay on your machine.
 | Overload thresholds, language, sounds | Settings on the page |
 | Default mode and effort of a worker | A worker's drawer › "Defaults for jobs" |
 | Display name of an account | `~/.agy_profiles/names.conf` (`acc2 Alice`) |
-| How the boss and the workers behave | `tools/agy/boss/AGENTS.md`, `tools/agy/worker-rules/GEMINI.md` |
+| How the boss and the workers behave | `docs/boss-rules-from-fork.md` |
 | The skills a Claude Code boss uses | `tools/agy/skills/` |
 | The scripts | `tools/agy/bin/`. They are linked, so an edit applies at once |
 | How it starts: terminals, Habblaud World | `scripts/office.sh`; for the port, `HABBLAUD_PORT=4800 npm run office` |
