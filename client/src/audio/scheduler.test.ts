@@ -19,11 +19,8 @@ describe('sound scheduler', () => {
   });
 
   it('respects disabled categories', () => {
-    const s = on({ keys: false, social: false });
+    const s = on({ keys: false });
     expect(s.decide('keys', 0)).toBeNull();
-    expect(s.decide('pingpong', 0)).toBeNull();
-    expect(s.decide('table', 0)).toBeNull();
-    expect(s.decide('arcade', 0)).toBeNull();
     expect(s.decide('elevator', 0)).not.toBeNull();
     expect(s.decide('chime', 0)).not.toBeNull();
     expect(s.allowed('keys')).toBe(false);
@@ -53,15 +50,12 @@ describe('sound scheduler', () => {
     expect(s.decide('chime', 5_000)).not.toBeNull();
     expect(s.decide('pop', 5_500)).toBeNull();
     expect(s.decide('pop', 5_000 + MIN_GAP_MS.chime)).not.toBeNull();
-    // paddle and table share the ping-pong channel
-    expect(s.decide('pingpong', 9_000)).not.toBeNull();
-    expect(s.decide('table', 9_050)).toBeNull();
     expect(s.decide('elevator', 9_050)).not.toBeNull();
   });
 
   it('global cap of sounds per second (alert chime always passes)', () => {
     const s = on();
-    const kinds: SoundKind[] = ['keys', 'elevator', 'pingpong', 'arcade'];
+    const kinds: SoundKind[] = ['keys', 'elevator'];
     let played = 0;
     for (let t = 0; t < 1_000; t += 10) for (const k of kinds) if (s.decide(k, t) !== null) played++;
     expect(played).toBeLessThanOrEqual(MAX_PER_SECOND);

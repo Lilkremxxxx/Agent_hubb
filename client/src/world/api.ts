@@ -45,7 +45,7 @@ export function seasonalThemeFor(theme: OfficeTheme | undefined, date: Date): Se
 export type DaylightMode = 'auto' | 'day' | 'night';
 
 /** Ambient sounds suggested by the world (UI decides whether and how to play them). */
-export type SoundCueKind = 'keys' | 'elevator' | 'pingpong' | 'table' | 'arcade';
+export type SoundCueKind = 'keys' | 'elevator';
 
 export interface SoundCue {
   kind: SoundCueKind;

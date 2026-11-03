@@ -91,7 +91,9 @@ describe('preferences', () => {
     expect(DEFAULT_PREFS.sound).toBe(false);
     const p = sanitizePrefs({ sound: true, sounds: { volume: 3, keys: false, elevator: 'sim' } });
     expect(p.sound).toBe(true);
-    expect(p.sounds).toEqual({ volume: 1, alerts: true, keys: false, elevator: true, social: true });
+    expect(p.sounds).toEqual({ volume: 1, alerts: true, keys: false, elevator: true });
+    // a stored setting for the removed 'social' category is ignored
+    expect(sanitizePrefs({ sounds: { social: false } }).sounds).toEqual(DEFAULT_PREFS.sounds);
     expect(sanitizePrefs({ sounds: { volume: -1 } }).sounds.volume).toBe(0);
     expect(sanitizePrefs({ sounds: 'alto' }).sounds).toEqual(DEFAULT_PREFS.sounds);
   });

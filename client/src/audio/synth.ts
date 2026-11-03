@@ -75,27 +75,6 @@ export function playVoice(ac: AudioContext, dest: AudioNode, kind: SoundKind, t:
     case 'keys':
       keys(ac, out, t, o);
       return;
-    case 'pingpong':
-      // paddle hit: high-pitched "tok" with falling pitch
-      tone(ac, out, 'sine', 1250, t, 0.09 * g, 0.002, 0.06, 880);
-      return;
-    case 'table':
-      // table bounce: lower pitch and shorter
-      tone(ac, out, 'sine', 760, t, 0.06 * g, 0.002, 0.045, 520);
-      return;
-    case 'arcade': {
-      // arcade: three-note square wave arpeggio, filtered to soften
-      const lp = ac.createBiquadFilter();
-      lp.type = 'lowpass';
-      lp.frequency.value = 2600;
-      lp.connect(out);
-      const scale = [1046.5, 1318.5, 1568, 1760, 2093];
-      for (let i = 0; i < 3; i++) {
-        const f = scale[Math.floor(o.rng() * scale.length)];
-        tone(ac, lp, 'square', f, t + i * 0.055, 0.03 * g, 0.003, 0.05);
-      }
-      return;
-    }
   }
 }
 

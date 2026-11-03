@@ -9,7 +9,6 @@ const CATEGORY_UI: Readonly<Record<SoundCategory, { label: string; hint: string;
   alerts: { label: tr('Alerts'), hint: tr('A bell when someone needs you; a click when a task finishes.'), sample: 'chime' },
   keys: { label: tr('Keyboard'), hint: tr('Soft typing from whoever is working in the rooms in view.'), sample: 'keys' },
   elevator: { label: tr('Elevator'), hint: tr('"Ding" when someone arrives or leaves.'), sample: 'elevator' },
-  social: { label: tr('Hangouts'), hint: tr('Ping-pong and arcade games in the lounge.'), sample: 'pingpong' },
 };
 
 export class SoundSettingsGroup {
@@ -58,7 +57,7 @@ export class SoundSettingsGroup {
       'div',
       { class: 'ui-snd__details' },
       h('div', { class: 'ui-set ui-snd__vol' }, h('span', { class: 'ui-set__label', text: tr('Volume') }), this.volume, this.volumeOut),
-      h('div', { class: 'ui-set ui-set--stack' }, h('span', { class: 'ui-set__label', text: tr('Play') }), chipRow, h('span', { class: 'ui-set__hint', text: tr('Alerts: bell and click · Keyboard: typing in the rooms in view · Elevator: arrivals and departures · Groups: ping-pong and arcade.') })),
+      h('div', { class: 'ui-set ui-set--stack' }, h('span', { class: 'ui-set__label', text: tr('Play') }), chipRow, h('span', { class: 'ui-set__hint', text: tr('Alerts: bell and click · Keyboard: typing in the rooms in view · Elevator: arrivals and departures.') })),
     );
 
     this.el = h(
