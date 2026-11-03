@@ -70,7 +70,7 @@ You need:
 git clone https://github.com/zafkielzz/Vi-Habblaud.git
 cd Vi-Habblaud
 npm install && npm run build && npm run office
-tools/agy/install.sh     # agy-ask, claude-ask, agy-as, the agy boss plugin and the skills
+tools/agy/install.sh     # agy-ask, claude-ask, agy-as and the skills
 ```
 
 `npm install` fetches build tools only: the server has no required runtime dependencies. `npm run office` builds and
@@ -269,7 +269,7 @@ certificate), checking the fingerprint the setup showed.
   `terminal` and `spawn`, separated by commas, or `none` (view only). The interactive terminal never works from the
   phone.
 - **New agent** (the **+** button): starts a Claude Code session in the background on the computer (`claude --bg`, in
-  the chosen folder), which shows up in the office. **It comes turned off:** it needs `HABBLAUD_PTY=1` (the same opt-in as
+  the chosen folder), which shows up in the office. **It is on under `npm run office` and off under `npm start`:** it needs `HABBLAUD_PTY=1` (the same opt-in as
   the [interactive terminal](#interactive-terminal-take-over-new-session-and-end)) and, from the phone, `spawn` in
   `HABBLAUD_REMOTE_ALLOW` too.
 - **Session:** 30 days; changing the password (running the setup again) ends all of them, and **Settings › Phone
@@ -383,7 +383,7 @@ open the same window, with tabs for the other agents in the same project.
 
 Taking over and ending ask for a second click; closing the window doesn't end the session. The window (and the agent's
 drawer) can be dragged by its bar and resized from the corner; double-clicking the bar puts it back in place.
-**It comes turned off:** turn it on with `HABBLAUD_PTY=1` (first read the warning in [Privacy and security](#privacy-and-security)).
+**It is on under `npm run office` (which sets `HABBLAUD_PTY=1`) and off under `npm start`:** turn it on there with `HABBLAUD_PTY=1` (first read the warning in [Privacy and security](#privacy-and-security)).
 It uses `node-pty`, `@xterm/headless` (optional dependencies) and the `claude` on your PATH (`HABBLAUD_CLAUDE_BIN` for
 another one); it only accepts requests from the computer it runs on. On startup, Habblaud opens a test terminal: if `node-pty` or
 `claude` don't work, the feature stays off and the log says why. **Restarting Habblaud ends the sessions
@@ -469,7 +469,7 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` | Where Habblaud keeps its own data (character and room names). |
 | `HABBLAUD_ALLOWED_HOSTS` | — | Extra names accepted in the address (e.g. `my-pc.local`), besides `localhost` and IPs. |
 | `HABBLAUD_TERMINAL` | on (local access only) | `0` turns off the terminal and the character editor. With the port exposed they're already off, with no way to turn them on. |
-| `HABBLAUD_PTY` | off | `1` turns on the interactive terminal (open, take over and end Claude Code sessions from the office; local access only) and **New agent**. |
+| `HABBLAUD_PTY` | on under `npm run office`, off otherwise | `1` turns on the interactive terminal (open, take over and end Claude Code sessions from the office; local access only) and **New agent**. |
 | `HABBLAUD_CLAUDE_BIN` | `claude` from PATH | The Claude Code executable that the interactive terminal and New agent run. |
 | `HABBLAUD_REMOTE_ALLOW` | `terminal` | What the [phone with login](#phone-with-login-and-https) can do: `terminal`, `spawn` (comma-separated) or `none`. The other `HABBLAUD_REMOTE_*` are in that section. |
 | `HABBLAUD_LANG` | system language, otherwise `en` | Language of the texts the server builds (activities, notices, logs): `en` or `vi`. The interface follows the browser or the choice in Settings › Language. See [Languages](#languages). |
@@ -511,7 +511,7 @@ shared/   protocol (types.ts), activities, names
 server/   HTTP + SSE server: accounts and usage, reading sessions and transcripts, office model, workers
 client/   Vite: src/art (procedural pixel art), src/world (office canvas), src/ui (interface)
 scripts/  server build, office.sh, i18n check, phone setup (remote:setup, remote:mdns)
-tools/    agy: worker scripts (agy-ask, claude-ask, agy-as), the agy boss plugin and the skills
+tools/    agy: worker scripts (agy-ask, claude-ask, agy-as) and the skills
 ```
 
 ## Privacy and security
