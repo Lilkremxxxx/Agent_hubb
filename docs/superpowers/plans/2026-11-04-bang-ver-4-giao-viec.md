@@ -643,8 +643,36 @@ Bàn giao Kế hoạch 3: lời mở đầu ở một chỗ, Bài học từ fol
 
 ## Để lại cho kế hoạch sau
 
-_(Điền khi xong Task 9.)_ Đã biết trước: thẻ `[ADVISOR …]` và cách boss trả lời advisor trong `giao-viec` (Kế hoạch 5); câu hỏi mở 1–3; `worker-ask` tự xưng `agy-ask:` trong mọi thông báo khi chạy dưới tên `worker-ask` (`CMD`, :47); dọn hội thoại headless dưới `.gemini` (`worker-ask:329–335`) đối chiếu phản mục tiêu §3.
+- Cấu hình ghế agy acc1 (`~/.agy_profiles/acc1/.gemini/antigravity-cli/settings.json`) có `deny` cho `command(*)`, `read_file(*)`, `write_file(*)`: `--mode auto` không ghi được file. Cần người dùng quyết định (gỡ deny cho `/home/nhatbang/bang-test-office`, hoặc dùng tài khoản agy khác) trước khi chạy lại Step 4-6. Quyết định 7 (`auto` mặc định) chưa được chứng minh trên máy này; `worker-ask` nên báo rõ khi agy trả "Blocked ... denied by user-configured deny rules" thay vì exit 0.
+- Chạy lại Step 4, 5, 6 sau khi gỡ chặn: Step 5 chưa thử nhánh ❌ lẫn Bài học, Step 6 chưa thử lời mở đầu headless.
+- Đã biết trước: thẻ `[ADVISOR …]` và cách boss trả lời advisor trong `giao-viec` (Kế hoạch 5); câu hỏi mở 1–3; `worker-ask` tự xưng `agy-ask:` trong mọi thông báo khi chạy dưới tên `worker-ask` (`CMD`, :47); dọn hội thoại headless dưới `.gemini` (`worker-ask:329–335`) đối chiếu phản mục tiêu §3.
+- Step 9 (boss Claude thật): chờ người dùng, gộp vào nghiệm thu Kế hoạch 5.
 
 ## Kết quả
 
-_(Task 9 ghi vào đây.)_
+Nghiệm thu ngày 2026-11-04, HEAD 4b1cfc2, cổng 4749. Cổng 4747 của người dùng luôn còn 1 listener; `team.json` md5 OK.
+
+| Bước | Kết quả |
+| --- | --- |
+| 1 Sao lưu, worktree, build, start | PASS: `200`, 4747 = `1` (symlink node_modules build được) |
+| 2 `bang-init` mới | PASS: `readlink` = `$B/tools/agy/bin/bang-init`; `exit=0`, `already the office folder`; dòng 2 đúng; `0`; `1`; bảng cũ: `1`, `SAME` |
+| 3 Thiếu tiêu đề | PASS: `exit=1`, stderr `the prompt lacks # Việc <ID> — <tên>, ## Bối cảnh, ## Input, ## Skill dùng, ## Cách làm, ## Output, ## Tiêu chí review: write the job in the 6 parts of the giao-viec skill, or pass --raw to send it as is`; số việc 0 = 0 |
+| 4 `--raw`, `auto` | FAIL: `--raw` qua, bảng hiện chữ của boss (`Tạo file out/auto-probe.txt chứa đúng ch`, `0`), nhưng `auto` không ghi được file. agy trả `Result: Blocked. Cannot create out/auto-probe.txt or execute advisor because read_file, write_file, and run_command are all denied by user-configured deny rules.`, `exit=0`, file không tồn tại. Nguyên nhân: `settings.json` của acc1 có deny `command(*)`, `read_file(*)`, `write_file(*)` (chỉ đọc, không sửa). agy không từ chối cờ `--mode auto`; quy tắc dừng chỉ nói đến từ chối cờ nhưng hệ quả giống (Quyết định 7 chưa đúng trên acc1) nên dừng Step 5-6 và hỏi controller |
+| 5 Vòng ❌ → sửa → ✅ | KHÔNG CHẠY (phụ thuộc Step 4: W1 không ghi được file). Nhánh ❌ chưa được thử; chưa có dòng T1/T2/Bài học; chưa có prompt hay review nào được gửi |
+| 6 Headless, plan | KHÔNG CHẠY (W2 cũng acc1, cùng deny; cần Bài học từ Step 5) |
+| 7 Test, số dòng | PASS: typecheck exit 0; vitest 79 files, 958 tests; i18n 1257/1257; pytest tools/agy 71 passed. Code không-test: 10 files, +146 −44 = +102 ròng (≤300). skills+templates: 1 file, +48 −36 |
+| 8 RSS | PASS (xem dưới) |
+| 9 Boss Claude thật | chờ người dùng (gộp vào nghiệm thu Kế hoạch 5) |
+| 10 Dọn | PASS: 4749 `0`, 4747 `1`, hai worktree đã gỡ, `team.json: OK` |
+
+RSS rảnh (KB, 3 lần đọc mỗi lượt, 3 cặp xen kẽ, mốc trước):
+
+| Lượt | aa3cb17 | HEAD |
+| --- | --- | --- |
+| 1 | 112916 113076 113088 | 112872 113132 113368 |
+| 2 | 114896 115020 115028 | 110192 110268 110280 |
+| 3 | 105832 105832 105836 | 113160 113312 113328 |
+
+Trung vị mốc 113076, trung vị HEAD 113132, tỉ lệ 1,0005 (≤ 1,03): PASS. (18 số đọc = 9 mỗi bên.)
+
+Còn chờ người dùng: gỡ chặn `deny` của acc1 (hoặc đổi tài khoản) rồi chạy lại Step 4-6; Step 9.
