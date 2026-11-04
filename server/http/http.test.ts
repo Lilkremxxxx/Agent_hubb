@@ -392,4 +392,21 @@ describe('POST /api/team {openBoss}', () => {
       env.cleanup();
     }
   });
+
+  it('the advisor routes: 405, 503 without the advisor, bad bodies and a bad id are 400', async () => {
+    const ok = { ask: () => ({ ok: false as const, status: 409, error: 'x' }), wait: async () => undefined };
+    const a = await start({ advisor: ok });
+    const b = await start();
+    try {
+      const post = (base: string, body: string) => raw(base, '/api/advisor', { method: 'POST', headers: JSON_HEADERS, body });
+      expect((await raw(a.base, '/api/advisor')).status).toBe(405);
+      expect((await raw(a.base, '/api/advisor/x', { method: 'POST', headers: JSON_HEADERS, body: '{}' })).status).toBe(405);
+      for (const body of ['null', '[]', '{"slot":"W2","question":"q","office":5}']) expect((await post(a.base, body)).status).toBe(400);
+      expect((await raw(a.base, '/api/advisor/%E0%A4%A')).status).toBe(400);
+      expect((await post(b.base, '{"slot":"W2","question":"q"}')).status).toBe(503);
+    } finally {
+      await a.close(); await b.close();
+      a.cleanup(); b.cleanup();
+    }
+  });
 });

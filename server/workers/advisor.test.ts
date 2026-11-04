@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Activity, AgentStatus } from '../../shared/types';
 import { VI } from '../../shared/locales/vi';
-import { Advisor, QUESTION_MAX, advisorPaste, findAnswer, qaRow, sanitizeQuestion, withQaRow, type AdvisorAsk, type AdvisorBoss } from './advisor';
+import { Advisor, QUESTION_MAX, advisorPaste, findAnswer, qaRow, resolveBoss, sanitizeQuestion, withQaRow, type AdvisorAsk, type AdvisorBoss } from './advisor';
 
 const T0 = 1_800_000_000_000;
 const dirs: string[] = [];
@@ -203,7 +203,7 @@ it('a tail that throws ends only its own question as no-boss; the others still g
   (t.boss.v as AdvisorBoss).transcript = t.dir; // a directory: reading it throws EISDIR, not ENOENT
   const bad = t.advisor.ask({ slot: 'W3', question: 'q2' });
   t.reply('[ADVISOR W2 T2] fine');
-  t.at(500);
+  t.at(500); t.at(500); // the second question is queued behind the first, then pasted, then its tail throws
   expect(await t.q(bad)).toMatchObject({ status: 'no-boss' });
   expect(await t.q(good)).toMatchObject({ status: 'answered', answer: 'fine' });
   expect(t.acts.map(([, a]) => a.icon)).toEqual(['❓', '❓', '💬', '⚠️']);
@@ -285,4 +285,48 @@ it('gate wording: an unknown boss status reads as no boss terminal; an empty wai
   expect(t.advisor.ask({ slot: 'W2', question: 'q' })).toMatchObject({ ok: false, code: 'no-boss', error: 'no boss terminal: open the boss from the page (the + beside Boss)' });
   t.boss.v = { agentId: '.claude:9', status: 'waiting', transcript: t.transcript };
   expect(t.advisor.ask({ slot: 'W2', question: 'q' })).toMatchObject({ ok: false, code: 'boss-waiting', error: 'the boss is waiting for you' });
+});
+
+it('two asks in one tick are pasted one after the other, each followed by its own Enter, never two pastes before an Enter', () => {
+  const t = setup();
+  const a = t.advisor.ask({ slot: 'W2', question: 'q1' });
+  const b = t.advisor.ask({ slot: 'W3', question: 'q2' });
+  expect(b).toMatchObject({ ok: true, question: { status: 'queued' } });
+  expect(t.typed).toEqual([advisorPaste('W2', 'T2', 'q1')]);
+  t.at(500);
+  expect(t.typed).toEqual([advisorPaste('W2', 'T2', 'q1'), '\r', advisorPaste('W3', 'T5', 'q2')]);
+  t.at(500);
+  expect(t.typed.slice(-1)).toEqual(['\r']);
+  expect(a.ok && b.ok).toBe(true);
+});
+
+it('a queued question times out on its own and a typeTo that throws is a 409 no-boss that does not use up the ref', async () => {
+  const t = setup();
+  t.advisor.ask({ slot: 'W2', question: 'q1' });
+  const b = t.advisor.ask({ slot: 'W3', question: 'q2' });
+  t.status('waiting'); t.at(10 * 60_000);
+  expect(await t.q(b)).toMatchObject({ status: 'timeout' });
+  const dir = mkdtempSync(join(tmpdir(), 'habblaud-advisor-'));
+  dirs.push(dir);
+  let boom = true;
+  const adv = new Advisor({
+    boss: () => ({ agentId: 'b', status: 'idle', transcript: join(dir, 'x.jsonl') }), typeTo: () => { if (boom) throw new Error('pty gone'); return true; },
+    seat: () => ({ agentId: 's', ref: 'T2' }), note: () => {}, activity: () => {}, folder: () => dir, timing: { pollMs: 0 },
+  });
+  expect(adv.ask({ slot: 'W2', question: 'q' })).toMatchObject({ ok: false, status: 409, code: 'no-boss', error: 'pty gone' });
+  boom = false;
+  expect(adv.ask({ slot: 'W2', question: 'q' })).toMatchObject({ ok: true, question: { ref: 'T2' } });
+});
+
+describe('resolveBoss', () => {
+  const agent = { status: 'idle' as AgentStatus };
+  it('no boss, agy boss, a boss still starting, an exited terminal, a Claude boss', () => {
+    expect(resolveBoss({ agy: false, pty: false })).toMatchObject({ code: 'no-boss' });
+    expect(resolveBoss({ agy: true, id: 'x', agent, pty: true, transcript: 't' })).toMatchObject({ code: 'no-boss', reason: expect.stringContaining('Antigravity') });
+    expect(resolveBoss({ agy: false, id: '.claude:9', pty: true })).toMatchObject({ code: 'boss-starting' });
+    expect(resolveBoss({ agy: false, id: '.claude:9', pty: false })).toMatchObject({ code: 'no-boss' });
+    expect(resolveBoss({ agy: false, id: 'b', agent, pty: false, transcript: 't' })).toMatchObject({ code: 'no-boss' });
+    expect(resolveBoss({ agy: false, id: 'b', agent: { status: 'offline' as AgentStatus }, pty: true, transcript: 't' })).toMatchObject({ code: 'no-boss' });
+    expect(resolveBoss({ agy: false, id: 'b', agent, pty: true, transcript: 't' })).toEqual({ agentId: 'b', status: 'idle', waitingFor: undefined, transcript: 't' });
+  });
 });

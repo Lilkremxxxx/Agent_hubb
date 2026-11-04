@@ -1162,6 +1162,7 @@ export const VI: Readonly<Record<string, string>> = {
   "expected {slot, question}": "cần {slot, question}",
   "question not found": "không thấy câu hỏi",
   "the boss is an Antigravity account: advisor reaches only a Claude Code boss for now": "boss là tài khoản Antigravity: advisor hiện chỉ gọi được boss Claude Code",
+  "the boss is still starting: retry in a few seconds": "boss đang khởi động: thử lại sau vài giây",
   "worker terminals need the interactive terminal (HABBLAUD_PTY=1)": "terminal của worker cần bật terminal tương tác (HABBLAUD_PTY=1)",
   "couldn't open {0}: {1}": "không mở được {0}: {1}",
   "boss": "boss",

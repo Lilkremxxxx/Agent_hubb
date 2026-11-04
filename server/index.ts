@@ -27,7 +27,7 @@ import { HistorySet, SourceSet } from './sources/source';
 import { ClaudeWatcher } from './sources/watcher';
 import { AgySource, type AgySeat } from './sources/agy/source';
 import { agyBossId, claudeConfigDir, staleAgyBosses, TeamService } from './team';
-import { Advisor } from './workers/advisor';
+import { Advisor, resolveBoss } from './workers/advisor';
 import { claudeTranscriptPath } from './workers/turns';
 import { GhostWatch } from './workers/ghosts';
 import { WorkerService, type WorkerTarget } from './workers/service';
@@ -220,14 +220,12 @@ const advisor =
   ptys && workers
     ? new Advisor({
         boss: () => {
-          if (team.boss.kind === 'agy') return tr('the boss is an Antigravity account: advisor reaches only a Claude Code boss for now');
           const id = team.bossAgentId();
           const a = id ? office.get(id) : undefined;
           const dir = a && accounts.find(a.account)?.dir;
           // shortcut: a boss that /clears mid-question keeps the old transcript, the question times out
           const transcript = id && (agents.transcriptPathOf(id) ?? (a && dir ? claudeTranscriptPath(dir, office.roomPath(a.roomId) ?? team.folder, a.sessionId) : undefined));
-          if (!id || !a || !ptys.ofAgent(id) || !transcript || !['idle', 'working', 'shell', 'waiting'].includes(a.status)) return tr('no boss terminal: open the boss from the page (the + beside Boss)');
-          return { agentId: id, status: a.status, waitingFor: a.waitingFor, transcript };
+          return resolveBoss({ agy: team.boss.kind === 'agy', id, agent: a, pty: !!id && !!ptys.ofAgent(id), transcript: transcript || undefined });
         },
         typeTo: (id, d) => ptys.typeTo(id, d),
         seat: (s) => workers.seatRef(s),

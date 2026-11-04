@@ -500,19 +500,23 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         else
           readJson(req)
             .then((body) => {
-              const b = (body ?? {}) as { slot?: unknown; question?: unknown; office?: unknown };
-              if (typeof b.slot !== 'string' || typeof b.question !== 'string') throw new HttpError(400, tr('expected {slot, question}'));
-              const r = deps.advisor!.ask({ slot: b.slot, question: b.question, office: typeof b.office === 'string' ? b.office : undefined });
+              const b = (body && typeof body === 'object' && !Array.isArray(body) ? body : {}) as { slot?: unknown; question?: unknown; office?: unknown };
+              if (typeof b.slot !== 'string' || typeof b.question !== 'string' || (b.office !== undefined && typeof b.office !== 'string')) throw new HttpError(400, tr('expected {slot, question}'));
+              const r = deps.advisor!.ask({ slot: b.slot, question: b.question, office: b.office });
               if (r.ok) sendJson(res, 200, { question: r.question });
               else sendJson(res, r.status, r.code ? { error: r.error, code: r.code } : { error: r.error });
             })
             .catch((err) => fail(res, err));
       } else if (method !== 'GET') methodNotAllowed(res, 'GET');
-      else
-        deps.advisor
-          .wait(decodeURIComponent(path.slice('/api/advisor/'.length)), waitOf(url))
+      else {
+        let id: string | undefined;
+        try { id = decodeURIComponent(path.slice('/api/advisor/'.length)); } catch { /* invalid escape */ }
+        if (id === undefined) sendJson(res, 400, { error: tr('invalid id') });
+        else deps.advisor
+          .wait(id, waitOf(url))
           .then((question) => (question ? sendJson(res, 200, { question }) : sendJson(res, 404, { error: tr('question not found') })))
           .catch((err) => fail(res, err));
+      }
       return true;
     }
     if (path.startsWith('/api/workers/')) {

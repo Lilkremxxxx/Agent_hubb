@@ -72,14 +72,30 @@ export function withQaRow(board: string, row: string): string | undefined {
   return lines.join('\n');
 }
 
+const TYPEABLE = new Set<AgentStatus>(['idle', 'working', 'shell', 'waiting']);
 export const ADVISOR_TIMING = { pollMs: 500, timeoutMs: 10 * 60_000, idleGraceMs: 5_000, unstartedMs: 20_000, retryWaitMs: 60_000 };
 export interface AdvisorBoss { agentId: string; status: AgentStatus; waitingFor?: string; transcript: string }
-export type AdvisorStatus = 'asking' | 'answered' | 'no-boss' | 'timeout' | 'untagged';
+export type AdvisorStatus = 'queued' | 'asking' | 'answered' | 'no-boss' | 'timeout' | 'untagged';
 export interface AdvisorQuestion { id: string; slot: string; ref: string; question: string; status: AdvisorStatus; askedAt: number; endedAt?: number; answer?: string; error?: string }
-export type AdvisorAsk = { ok: true; question: AdvisorQuestion } | { ok: false; status: number; error: string; code?: 'no-boss' | 'boss-waiting' };
+export type AdvisorAsk = { ok: true; question: AdvisorQuestion } | { ok: false; status: number; error: string; code?: 'no-boss' | 'boss-waiting' | 'boss-starting' };
+export interface BossGate { reason: string; code: 'no-boss' | 'boss-starting' }
+export interface BossView { agy: boolean; id?: string; agent?: { status: AgentStatus; waitingFor?: string }; pty: boolean; transcript?: string }
+const gate = (reason: string, code: BossGate['code'] = 'no-boss'): BossGate => ({ reason, code });
+const NO_BOSS = () => tr('no boss terminal: open the boss from the page (the + beside Boss)');
+
+/** What the office knows about the boss, as the gate the advisor needs: a terminal it can type to, or why not. */
+export function resolveBoss(v: BossView): AdvisorBoss | BossGate {
+  if (v.agy) return gate(tr('the boss is an Antigravity account: advisor reaches only a Claude Code boss for now'));
+  if (!v.id) return gate(NO_BOSS());
+  // Opened from the page, not in the office yet: its terminal is there, the session is not.
+  if (!v.agent) return v.pty ? gate(tr('the boss is still starting: retry in a few seconds'), 'boss-starting') : gate(NO_BOSS());
+  if (!v.pty || !v.transcript || !TYPEABLE.has(v.agent.status)) return gate(NO_BOSS());
+  return { agentId: v.id, status: v.agent.status, waitingFor: v.agent.waitingFor, transcript: v.transcript };
+}
+
 export interface AdvisorDeps {
   /** The boss the office can type to, or why there is none (shown to the seat). */
-  boss: () => AdvisorBoss | string;
+  boss: () => AdvisorBoss | BossGate | string;
   typeTo: (agentId: string, data: string) => boolean;
   seat: (slot: string) => { agentId: string; ref: string } | undefined;
   note: (slot: string, question: string) => void;
@@ -107,8 +123,6 @@ interface Open {
   retried: boolean;
 }
 
-const TYPEABLE = new Set<AgentStatus>(['idle', 'working', 'shell', 'waiting']);
-
 export class Advisor {
   private readonly t: typeof ADVISOR_TIMING;
   private readonly now: () => number;
@@ -130,50 +144,72 @@ export class Advisor {
     if (!question) return { ok: false, status: 400, error: tr('empty question') };
     const folder = this.d.folder();
     if (input.office && resolve(input.office) !== resolve(folder)) return { ok: false, status: 400, error: tr('{0} asks for the office {1}, not this one ({2})', [slot, input.office, folder]) };
-    const boss = this.d.boss();
-    if (typeof boss === 'string') return { ok: false, status: 409, error: boss, code: 'no-boss' };
-    if (!TYPEABLE.has(boss.status)) return { ok: false, status: 409, error: tr('no boss terminal: open the boss from the page (the + beside Boss)'), code: 'no-boss' };
+    const found = this.d.boss();
+    const boss = typeof found === 'string' ? gate(found) : found;
+    if ('reason' in boss) return { ok: false, status: 409, error: boss.reason, code: boss.code };
+    if (!TYPEABLE.has(boss.status)) return { ok: false, status: 409, error: NO_BOSS(), code: 'no-boss' };
     if (boss.status === 'waiting') return { ok: false, status: 409, error: boss.waitingFor ? tr('the boss is waiting for you: {0}', [boss.waitingFor]) : tr('the boss is waiting for you'), code: 'boss-waiting' };
     const key = `${slot} ${seat.ref}`;
     const n = (this.counts.get(key) ?? 0) + 1;
-    this.counts.set(key, n);
     const ref = n > 1 ? `${seat.ref}#${n}` : seat.ref;
-    const tail = new FileTail(boss.transcript);
-    tail.seekEnd();
-    if (!this.d.typeTo(boss.agentId, advisorPaste(slot, ref, question))) return { ok: false, status: 409, error: tr('the boss terminal closed'), code: 'no-boss' };
     const at = this.now();
     const id = `a${at.toString(36)}${(this.seq++).toString(36)}`;
+    const q: AdvisorQuestion = { id, slot, ref, question, status: 'queued', askedAt: at };
+    const o: Open = { q, agentId: seat.agentId, baseRef: seat.ref, bossId: boss.agentId, tail: new FileTail(boss.transcript), tag: advisorTag(slot, ref), armed: false, retried: false };
+    if (!this.pendingPaste(o)) {
+      try {
+        if (!this.paste(o)) return { ok: false, status: 409, error: tr('the boss terminal closed'), code: 'no-boss' };
+      } catch (e) {
+        return { ok: false, status: 409, error: e instanceof Error ? e.message : String(e), code: 'no-boss' };
+      }
+    }
+    this.counts.set(key, n);
     this.d.note(slot, question);
     this.d.activity(seat.agentId, { id: `${id}:ask`, at, kind: 'wait', icon: '❓', text: tr('Asks the boss: {0}', [truncate(question, 30)]), detail: truncate(question, 300) });
-    const q: AdvisorQuestion = { id, slot, ref, question, status: 'asking', askedAt: at };
-    this.all.set(q.id, { q, agentId: seat.agentId, baseRef: seat.ref, bossId: boss.agentId, tail, tag: advisorTag(slot, ref), armed: false, retried: false });
+    this.all.set(q.id, o);
+    // shortcut: the 50-question trim may drop a question that is still open (its CLI then gets 404); fine for one office, raise if seats ever exceed it
     for (const id of [...this.all.keys()].slice(0, -50)) this.all.delete(id);
     if (this.t.pollMs > 0 && !this.timer) this.timer = setInterval(() => this.tick(), this.t.pollMs).unref();
     return { ok: true, question: q };
   }
 
+  /** Another question of the same boss is pasted and waits for its Enter: a second paste would glue onto it. */
+  private pendingPaste(o: Open): boolean {
+    for (const p of this.all.values()) if (p !== o && p.bossId === o.bossId && p.q.status === 'asking' && p.enterAt === undefined) return true;
+    return false;
+  }
+
+  /** The tail starts at the end of the boss's transcript just before the paste, so an older tag never counts. */
+  private paste(o: Open): boolean {
+    o.tail.seekEnd();
+    if (!this.d.typeTo(o.bossId, advisorPaste(o.q.slot, o.q.ref, o.q.question))) return false;
+    o.q.status = 'asking';
+    o.enterAt = undefined;
+    return true;
+  }
+
   async wait(id: string, waitS: number): Promise<AdvisorQuestion | undefined> {
     const until = Date.now() + Math.min(Math.max(waitS, 0), 60) * 1000;
-    while (this.all.get(id)?.q.status === 'asking' && Date.now() < until) await new Promise((r) => setTimeout(r, 200));
+    while (['queued', 'asking'].includes(this.all.get(id)?.q.status ?? '') && Date.now() < until) await new Promise((r) => setTimeout(r, 200));
     return this.all.get(id)?.q;
   }
 
   tick(): void {
     const now = this.now();
     for (const o of this.all.values()) {
-      if (o.q.status !== 'asking') continue;
+      if (o.q.status !== 'asking' && o.q.status !== 'queued') continue;
       try {
         this.step(o, now);
       } catch (e) {
         // One bad question must not stop the others or crash the interval.
         const msg = e instanceof Error ? e.message : String(e);
         log.warnOnce(`advisor:${o.q.id}`, `advisor ${o.q.slot}: ${msg}`);
-        if (o.q.status === 'asking') {
+        if (o.q.status === 'asking' || o.q.status === 'queued') {
           try { this.end(o, 'no-boss', msg); } catch { o.q.status = 'no-boss'; o.q.error = msg; }
         }
       }
     }
-    if (this.timer && ![...this.all.values()].some((o) => o.q.status === 'asking')) this.stop();
+    if (this.timer && ![...this.all.values()].some((o) => o.q.status === 'asking' || o.q.status === 'queued')) this.stop();
   }
 
   stop(): void {
@@ -182,8 +218,14 @@ export class Advisor {
   }
 
   private step(o: Open, now: number): void {
-    const boss = this.d.boss();
-    if (typeof boss === 'string' || boss.agentId !== o.bossId) return this.end(o, 'no-boss', typeof boss === 'string' ? boss : tr('the boss terminal closed'));
+    const found = this.d.boss();
+    if (typeof found === 'string' || 'reason' in found || found.agentId !== o.bossId) return this.end(o, 'no-boss', typeof found === 'string' ? found : 'reason' in found ? found.reason : tr('the boss terminal closed'));
+    const boss = found;
+    if (o.q.status === 'queued') {
+      if (now - o.q.askedAt >= this.t.timeoutMs) return this.end(o, 'timeout', tr('no answer after {0} min', [Math.round(this.t.timeoutMs / 60_000)]));
+      if (boss.status !== 'waiting' && !this.pendingPaste(o) && !this.paste(o)) this.end(o, 'no-boss', tr('the boss terminal closed'));
+      return;
+    }
     for (let r = o.tail.read(); ; r = o.tail.read()) {
       const a = findAnswer(r.lines, o.tag);
       if (a !== undefined) return this.end(o, 'answered', a);
@@ -205,9 +247,9 @@ export class Advisor {
       if (now - o.enterAt >= this.t.retryWaitMs && now - o.idleSince >= this.t.idleGraceMs) this.end(o, 'untagged', tr('the boss replied without the tag {0}', [o.tag]));
     } else if ((o.armed && now - o.idleSince >= this.t.idleGraceMs) || (!o.armed && now - o.enterAt >= this.t.unstartedMs)) {
       // The paste was swallowed (tool turn, or never submitted): once more, same two steps.
+      if (this.pendingPaste(o)) return; // another question's paste is waiting for its Enter: retry on a later tick
       o.retried = true;
-      o.enterAt = undefined;
-      this.d.typeTo(o.bossId, advisorPaste(o.q.slot, o.q.ref, o.q.question));
+      this.paste(o);
     }
   }
 
