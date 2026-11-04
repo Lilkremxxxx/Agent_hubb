@@ -825,3 +825,14 @@ Chạy trên worktree `~/bang-ver-accept` (HEAD e83d5ba), server thử cổng 47
 - **Dọn:** server 4749 dừng, server 4747 vẫn chạy (1 listener), worktree đã xoá; giữ `~/bang-test-office` và `~/.bang-test-data`.
 - **Còn chờ người dùng:** Step 1 (tin cậy thư mục cho boss, đăng nhập `~/.claude-worker`), vương miện boss, C1/C2 song song.
 - **Lưu ý:** `echo $!` sau `setsid nohup ... &` lưu pid của `setsid` (đã thoát), không phải server; đã sửa tay file pid bằng pid listener cổng 4749.
+
+Sau review toàn nhánh (`2026-11-04-bang-ver-2-ghe-final-review.md`), commit `4d175d4` sửa: nhân vật và bảng việc đi theo khi sửa `team.json` (đặt `folder`, đổi tên ghế; `Office.relocate`); đổi ghế/tài khoản dưới một việc đang chạy thì việc kết thúc với thông báo nêu `team.json` và terminal cũ đóng; ba dòng CHANGELOG sai; `HABBLAUD_URL` cho mọi tiến trình ghế; `worker-ask` lọc ghế như server; chữ "registered worker"; README chỗ ở `team.json`. vitest 940 (+ test flaky đã biết), pytest 18, i18n 1254/1254.
+
+## Để lại cho kế hoạch sau
+
+- **Chờ người dùng:** tin cậy `~/bang-test-office` cho `~/.claude` và đăng nhập `~/.claude-worker`; sau đó chạy lại Task 10 bước 5 (vương miện boss) và bước 8 (C1/C2 song song).
+- **Spike `/advisor` (trước Kế hoạch 4):** boss Claude có đủ chỗ dựa (`team.bossAgentId()` + `ptys.ofAgent`, `ptys.typeTo`, `agents.transcriptPathOf`); cần thêm `WorkerService.jobOf(seat)`; boss agy chưa đọc được transcript (`AgySource.transcriptPathOf` trả undefined); CLI advisor trên ghế agy cần mẹo `real_home()` vì `agy-as` đổi HOME.
+- **M2 (làm cùng đường boss agy/advisor):** boss agy và worker cùng tài khoản có thể tráo hội thoại (terminal boss agy không lấy cổng khởi động); sau 30 s settle hai việc có thể nhận cùng một hội thoại (`newDirs` không có tập "đã nhận") — chặn bằng cách chỉ nhận hội thoại có USER_INPUT đầu tiên trùng prompt.
+- **Kế hoạch 3:** `bang-init` ghi `folder` qua tmp+rename (là chỗ thứ ba tính đường `team.json` — dùng chung một quy tắc với `server/config.ts` và `worker-ask`); `install.sh` còn link skill vào `~/.claude/skills` (spec §15 bảo gỡ) và phải gỡ 8 link plugin office-rules (người dùng đã duyệt); M4 (code client chết `workerKind`/`sessionOf`, comment `WorkerId`), M7 (đội chỉ có Claude không có bảng việc), M8 (xoá ghế làm việc của nó báo "cancelled by you"), M9 (đổi `boss.kind` để lại terminal boss agy cũ), comment "registered worker" còn ở `service.ts`/`shared/types.ts`, chữ "＋ Worker" không tới được trong `overlay.ts`.
+- **Nghiệm thu các kế hoạch sau:** lấy pid server thử bằng `ss -ltnp | grep :4749` (không phải `echo $!` sau `setsid nohup … &`); đo lại RSS lúc rảnh (Kế hoạch 2: 108.876 kB, trần 112.640 kB, chỉ còn 3,3%).
+- **Test flaky** (trước khi ký v1): tail rotation; hai test thời gian của watcher; `art.test.ts > floor chunks` quá giờ khi cả bộ chạy trên máy 2 nhân.
