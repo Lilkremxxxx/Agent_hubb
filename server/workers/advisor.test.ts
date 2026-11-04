@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Activity, AgentStatus } from '../../shared/types';
 import { VI } from '../../shared/locales/vi';
 import { Advisor, QUESTION_MAX, advisorPaste, findAnswer, qaRow, sanitizeQuestion, withQaRow, type AdvisorAsk, type AdvisorBoss } from './advisor';
@@ -9,6 +9,7 @@ import { Advisor, QUESTION_MAX, advisorPaste, findAnswer, qaRow, sanitizeQuestio
 const T0 = 1_800_000_000_000;
 const dirs: string[] = [];
 afterEach(() => {
+  vi.useRealTimers();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
@@ -88,7 +89,7 @@ describe('Task 1 review follow-ups', () => {
 });
 
 const BOARD = '# Task board\n\n## Hỏi đáp (advisor ghi tự động)\n| Lúc | Ai | Hỏi | Trả lời |\n|---|---|---|---|\n\n## Đã xong\n| ID |\n|---|\n';
-function setup(o: { board?: string | null } = {}) {
+function setup(o: { board?: string | null; poll?: number } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'habblaud-advisor-'));
   dirs.push(dir);
   const transcript = join(dir, 'boss.jsonl');
@@ -100,11 +101,11 @@ function setup(o: { board?: string | null } = {}) {
   const seats: Record<string, { agentId: string; ref: string }> = { W2: { agentId: 'agy:acc1@W2', ref: 'T2' }, W3: { agentId: 'agy:acc1@W3', ref: 'T5' } };
   const advisor = new Advisor({
     boss: () => boss.v, typeTo: (_id, d) => (typed.push(d), true), seat: (s) => seats[s], note: (s, q) => void notes.push(`${s}:${q}`),
-    activity: (id, a) => void acts.push([id, a]), folder: () => dir, now: () => now, timing: { pollMs: 0 },
+    activity: (id, a) => void acts.push([id, a]), folder: () => dir, now: () => now, timing: { pollMs: o.poll ?? 0 },
   });
   const id = (r: AdvisorAsk) => (r.ok ? r.question.id : '');
   return {
-    advisor, boss, typed, notes, acts, dir, transcript, id,
+    advisor, boss, seats, typed, notes, acts, dir, transcript, id,
     reply: (text: string) => appendFileSync(transcript, `${say(text)}\n`),
     at: (ms: number) => ((now += ms), advisor.tick()),
     status: (s: AgentStatus) => void ((boss.v as AdvisorBoss).status = s),
@@ -192,4 +193,96 @@ it('no board file: the answer still comes back and no board is created', async (
   t.at(500); t.reply('[ADVISOR W2 T2] ok'); t.at(500);
   expect(await t.q(r)).toMatchObject({ status: 'answered', answer: 'ok' });
   expect(existsSync(join(t.dir, 'task_board.md'))).toBe(false);
+});
+
+const lastAct = (t: ReturnType<typeof setup>) => t.acts.at(-1)?.[1];
+
+it('a tail that throws ends only its own question as no-boss; the others still get their answer', async () => {
+  const t = setup();
+  const good = t.advisor.ask({ slot: 'W2', question: 'q1' });
+  (t.boss.v as AdvisorBoss).transcript = t.dir; // a directory: reading it throws EISDIR, not ENOENT
+  const bad = t.advisor.ask({ slot: 'W3', question: 'q2' });
+  t.reply('[ADVISOR W2 T2] fine');
+  t.at(500);
+  expect(await t.q(bad)).toMatchObject({ status: 'no-boss' });
+  expect(await t.q(good)).toMatchObject({ status: 'answered', answer: 'fine' });
+  expect(t.acts.map(([, a]) => a.icon)).toEqual(['❓', '❓', '💬', '⚠️']);
+});
+
+it('after the retype the untagged verdict needs the boss idle for 5 s, not only 60 s since the Enter', async () => {
+  const t = setup();
+  const r = t.advisor.ask({ slot: 'W2', question: 'q' });
+  t.at(500); t.status('working'); t.at(500); t.status('idle'); t.at(500); t.at(5_000); // retyped
+  t.at(500); // Enter again
+  t.status('working'); t.at(70_000);
+  expect((await t.q(r)).status).toBe('asking');
+  t.status('idle'); t.at(500); t.at(4_000);
+  expect((await t.q(r)).status).toBe('asking');
+  t.at(1_000);
+  expect((await t.q(r)).status).toBe('untagged');
+});
+
+it('a paste that never got the boss working is typed once more after 20 s', () => {
+  const t = setup();
+  t.advisor.ask({ slot: 'W2', question: 'q' });
+  t.at(500); t.at(19_000);
+  expect(t.typed).toHaveLength(2);
+  t.at(1_000);
+  expect(t.typed).toHaveLength(3);
+  expect(t.typed.at(-1)).toBe(advisorPaste('W2', 'T2', 'q'));
+});
+
+it('no-boss and timeout end with a warning on the character and leave the board alone', async () => {
+  const t = setup();
+  const a = t.advisor.ask({ slot: 'W2', question: 'q' });
+  t.boss.v = 'gone'; t.at(500);
+  expect(await t.q(a)).toMatchObject({ status: 'no-boss' });
+  expect(lastAct(t)).toMatchObject({ icon: '⚠️', error: true });
+  t.boss.v = { agentId: '.claude:9', status: 'working', transcript: t.transcript };
+  const b = t.advisor.ask({ slot: 'W3', question: 'q' });
+  t.at(500); t.at(10 * 60_000);
+  expect(await t.q(b)).toMatchObject({ status: 'timeout' });
+  expect(lastAct(t)).toMatchObject({ icon: '⚠️', error: true });
+  expect(readFileSync(join(t.dir, 'task_board.md'), 'utf8')).toBe(BOARD);
+});
+
+it('the timer runs only while a question is open', async () => {
+  vi.useFakeTimers();
+  const t = setup({ poll: 500 });
+  expect(vi.getTimerCount()).toBe(0);
+  const a = t.advisor.ask({ slot: 'W2', question: 'q1' });
+  const b = t.advisor.ask({ slot: 'W3', question: 'q2' });
+  expect(vi.getTimerCount()).toBe(1);
+  t.reply('[ADVISOR W2 T2] A');
+  vi.advanceTimersByTime(500);
+  expect((await t.q(a)).status).toBe('answered');
+  expect(vi.getTimerCount()).toBe(1);
+  t.reply('[ADVISOR W3 T5] B');
+  vi.advanceTimersByTime(500);
+  expect((await t.q(b)).status).toBe('answered');
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('a finished job or a gone seat keeps its character activity; the answer still comes back', async () => {
+  const t = setup();
+  const r = t.advisor.ask({ slot: 'W2', question: 'q' });
+  const n = t.acts.length;
+  t.seats.W2.ref = '-'; // the job ended
+  t.at(500); t.reply('[ADVISOR W2 T2] late'); t.at(500);
+  expect(await t.q(r)).toMatchObject({ status: 'answered', answer: 'late' });
+  expect(t.acts).toHaveLength(n);
+  const s = t.advisor.ask({ slot: 'W3', question: 'q' });
+  const m = t.acts.length;
+  delete t.seats.W3;
+  t.boss.v = 'gone'; t.at(500);
+  expect((await t.q(s)).status).toBe('no-boss');
+  expect(t.acts).toHaveLength(m);
+});
+
+it('gate wording: an unknown boss status reads as no boss terminal; an empty waitingFor has no dangling colon', () => {
+  const t = setup();
+  t.boss.v = { agentId: '.claude:9', status: 'pending' as AgentStatus, transcript: t.transcript };
+  expect(t.advisor.ask({ slot: 'W2', question: 'q' })).toMatchObject({ ok: false, code: 'no-boss', error: 'no boss terminal: open the boss from the page (the + beside Boss)' });
+  t.boss.v = { agentId: '.claude:9', status: 'waiting', transcript: t.transcript };
+  expect(t.advisor.ask({ slot: 'W2', question: 'q' })).toMatchObject({ ok: false, code: 'boss-waiting', error: 'the boss is waiting for you' });
 });

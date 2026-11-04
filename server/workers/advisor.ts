@@ -95,6 +95,8 @@ export interface AdvisorDeps {
 interface Open {
   q: AdvisorQuestion;
   agentId: string;
+  /** The seat's ref when asked (without #n): a different one later means the job ended or changed. */
+  baseRef: string;
   bossId: string;
   tail: FileTail;
   tag: string;
@@ -130,8 +132,8 @@ export class Advisor {
     if (input.office && resolve(input.office) !== resolve(folder)) return { ok: false, status: 400, error: tr('{0} asks for the office {1}, not this one ({2})', [slot, input.office, folder]) };
     const boss = this.d.boss();
     if (typeof boss === 'string') return { ok: false, status: 409, error: boss, code: 'no-boss' };
-    if (!TYPEABLE.has(boss.status)) return { ok: false, status: 409, error: tr('the boss terminal closed'), code: 'no-boss' };
-    if (boss.status === 'waiting') return { ok: false, status: 409, error: tr('the boss is waiting for you: {0}', [boss.waitingFor ?? '']), code: 'boss-waiting' };
+    if (!TYPEABLE.has(boss.status)) return { ok: false, status: 409, error: tr('no boss terminal: open the boss from the page (the + beside Boss)'), code: 'no-boss' };
+    if (boss.status === 'waiting') return { ok: false, status: 409, error: boss.waitingFor ? tr('the boss is waiting for you: {0}', [boss.waitingFor]) : tr('the boss is waiting for you'), code: 'boss-waiting' };
     const key = `${slot} ${seat.ref}`;
     const n = (this.counts.get(key) ?? 0) + 1;
     this.counts.set(key, n);
@@ -144,7 +146,7 @@ export class Advisor {
     this.d.note(slot, question);
     this.d.activity(seat.agentId, { id: `${id}:ask`, at, kind: 'wait', icon: '❓', text: tr('Asks the boss: {0}', [truncate(question, 30)]), detail: truncate(question, 300) });
     const q: AdvisorQuestion = { id, slot, ref, question, status: 'asking', askedAt: at };
-    this.all.set(q.id, { q, agentId: seat.agentId, bossId: boss.agentId, tail, tag: advisorTag(slot, ref), armed: false, retried: false });
+    this.all.set(q.id, { q, agentId: seat.agentId, baseRef: seat.ref, bossId: boss.agentId, tail, tag: advisorTag(slot, ref), armed: false, retried: false });
     for (const id of [...this.all.keys()].slice(0, -50)) this.all.delete(id);
     if (this.t.pollMs > 0 && !this.timer) this.timer = setInterval(() => this.tick(), this.t.pollMs).unref();
     return { ok: true, question: q };
@@ -158,7 +160,19 @@ export class Advisor {
 
   tick(): void {
     const now = this.now();
-    for (const o of this.all.values()) if (o.q.status === 'asking') this.step(o, now);
+    for (const o of this.all.values()) {
+      if (o.q.status !== 'asking') continue;
+      try {
+        this.step(o, now);
+      } catch (e) {
+        // One bad question must not stop the others or crash the interval.
+        const msg = e instanceof Error ? e.message : String(e);
+        log.warnOnce(`advisor:${o.q.id}`, `advisor ${o.q.slot}: ${msg}`);
+        if (o.q.status === 'asking') {
+          try { this.end(o, 'no-boss', msg); } catch { o.q.status = 'no-boss'; o.q.error = msg; }
+        }
+      }
+    }
     if (this.timer && ![...this.all.values()].some((o) => o.q.status === 'asking')) this.stop();
   }
 
@@ -188,7 +202,7 @@ export class Advisor {
     if (boss.status === 'waiting') return void (o.idleSince = undefined);
     o.idleSince ??= now;
     if (o.retried) {
-      if (now - o.enterAt >= this.t.retryWaitMs) this.end(o, 'untagged', tr('the boss replied without the tag {0}', [o.tag]));
+      if (now - o.enterAt >= this.t.retryWaitMs && now - o.idleSince >= this.t.idleGraceMs) this.end(o, 'untagged', tr('the boss replied without the tag {0}', [o.tag]));
     } else if ((o.armed && now - o.idleSince >= this.t.idleGraceMs) || (!o.armed && now - o.enterAt >= this.t.unstartedMs)) {
       // The paste was swallowed (tool turn, or never submitted): once more, same two steps.
       o.retried = true;
@@ -204,7 +218,9 @@ export class Advisor {
     if (status === 'answered') q.answer = text;
     else q.error = text;
     const ok = status === 'answered';
-    this.d.activity(o.agentId, ok
+    const seat = this.d.seat(q.slot);
+    // The job ended or the seat is gone: the character has moved on, leave its activity alone.
+    if (seat && seat.agentId === o.agentId && seat.ref === o.baseRef) this.d.activity(o.agentId, ok
       ? { id: `${q.id}:end`, at: q.endedAt, kind: 'communicate', icon: '💬', text: tr('The boss answered'), detail: truncate(text, 300) }
       : { id: `${q.id}:end`, at: q.endedAt, kind: 'error', icon: '⚠️', text: tr('No answer from the boss'), detail: text, error: true });
     if (ok) this.record(q);

@@ -1172,6 +1172,8 @@ export const VI: Readonly<Record<string, string>> = {
   "empty question": "câu hỏi trống",
   "{0} asks for the office {1}, not this one ({2})": "{0} hỏi văn phòng {1}, không phải văn phòng này ({2})",
   "the boss is waiting for you: {0}": "boss đang chờ bạn: {0}",
+  "no boss terminal: open the boss from the page (the + beside Boss)": "chưa có terminal boss: mở boss từ trang (dấu + cạnh Boss)",
+  "the boss is waiting for you": "boss đang chờ bạn",
   "the boss terminal closed": "terminal của boss đã đóng",
   "the boss replied without the tag {0}": "boss trả lời nhưng không có thẻ {0}",
   "{0} has no \"## Hỏi đáp\" table: the answer is not recorded": "{0} không có bảng \"## Hỏi đáp\": câu trả lời không được ghi lại",
