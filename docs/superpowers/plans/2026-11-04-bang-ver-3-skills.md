@@ -628,3 +628,17 @@ _(Task 8 và Task 9 ghi vào đây.)_
 ## Để lại cho kế hoạch sau
 
 _(Điền khi xong Task 9.)_
+
+## Kết quả (Task 8)
+
+Chạy trên worktree `~/bang-ver-accept3` (HEAD 38139bb), cổng 4749, data dir `~/.bang-test-data`. Chi tiết: `.superpowers/sdd/2026-11-04-bang-ver-3-skills/task-8-report.md`.
+
+- **Step 1:** build xong, HTTP 200, `start` lần hai in `already running`, log sạch. **RSS rảnh 113 812 kB, vượt trần 112 640 kB khoảng 1,2 MB (Kế hoạch 2: 108 876).** Không đạt.
+- **Step 2:** `stop` từ repo chính: `belongs to another server`, exit 1, server còn sống; `restart` từ worktree đổi pid; 4747 vẫn 1 listener. Đạt.
+- **Step 3:** `bang-init` exit 0, đủ file mẫu, link `.claude/skills`, `GEMINI.md`, `skills.json` đúng 5 plugin + `$B/skills`; chạy lại không ghi đè; `team.json` thử không đổi; đường đặt `folder` đúng. Đạt.
+- **Step 4:** **Không đạt.** W1 liệt kê: `agy-customizations, antigravity-guide, ponytail, ponytail-review, systematic-debugging, test-driven-development, verification-before-completion`; hỏi thẳng: `giao-viec: no; advisor: no; bang-task: no`. Skill của `$B/skills` không tới được agy (chưa tìm nguyên nhân; `systematic-debugging` cũng có sẵn trong profile acc1 nên không chứng minh `skills.json` được nạp). Token đầu vào ≈ 8–9 k.
+- **Step 5:** chờ người dùng (Claude chưa đăng nhập/tin cậy).
+- **Step 6:** headless `H-OK`, exit 0. Đạt.
+- **Step 7:** typecheck xanh; vitest 943 xanh + 1 flaky đã biết (tail rotation); i18n 1254/1254; pytest 46. Dòng thêm ròng không-test +243 −131 = +112 (≤ +300). Đạt.
+- **Step 8:** 4749 dừng (0), 4747 còn 1, worktree xoá, giữ `~/bang-test-office`, `~/.bang-test-data`.
+- **Việc còn lại:** điều tra vì sao agy không thấy skill dự án (§8 đã kiểm 2026-11-03 nhưng giờ không tái hiện); cắt ≥1,2 MB RSS hoặc nới trần; Claude seat chờ người dùng.
