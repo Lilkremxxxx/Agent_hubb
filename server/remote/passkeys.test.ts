@@ -126,7 +126,7 @@ describe('PasskeyService', () => {
     const reg = (await s.registerOptions()) as any;
     expect(reg.rp.id).toBe(DOMAIN);
     expect(reg.authenticatorSelection).toMatchObject({ residentKey: 'required', userVerification: 'required' });
-    const login = (await s.loginOptions()) as any;
+    const login = (await s.loginOptions('203.0.113.1')) as any;
     expect(login).toMatchObject({ rpId: DOMAIN, userVerification: 'required' });
     expect(login.allowCredentials ?? []).toEqual([]);
   });
@@ -139,7 +139,7 @@ describe('PasskeyService', () => {
     expect(await s.verifyRegister({ response: { id: 'cred-1' } })).toMatchObject({ ok: false }); // same challenge
     expect(s.count()).toBe(1);
     expect(((await s.registerOptions()) as any).excludeCredentials.map((c: any) => c.id)).toEqual(['cred-1']);
-    await s.loginOptions();
+    await s.loginOptions('203.0.113.1');
     expect(await s.verifyLogin({ id: 'cred-1' })).toBe(true);
     expect(new PasskeyStore(file()).get('cred-1')).toMatchObject({ counter: 7, lastUsedAt: clock });
     expect(await s.verifyLogin({ id: 'cred-1' })).toBe(false); // replay
@@ -151,16 +151,39 @@ describe('PasskeyService', () => {
     await s.verifyRegister({ response: { id: 'cred-1' } });
     expect(await s.verifyLogin({ id: 'nope' })).toBe(false);
     expect(await s.verifyLogin(null)).toBe(false);
-    await s.loginOptions();
+    await s.loginOptions('203.0.113.1');
     expect(await s.verifyRegister({ response: {} })).toMatchObject({ ok: false }); // login challenge, register kind
-    await s.loginOptions();
+    await s.loginOptions('203.0.113.1');
     clock += CHALLENGE_TTL_MS + 1;
     expect(await s.verifyLogin({ id: 'cred-1' })).toBe(false);
     const bad = mk(fake(false));
-    await bad.loginOptions();
+    await bad.loginOptions('203.0.113.1');
     expect(await bad.verifyLogin({ id: 'cred-1' })).toBe(false);
     const boom = mk({ ...fake(), verifyAuthenticationResponse: (async () => { throw new Error('x'); }) as never });
-    await boom.loginOptions();
+    await boom.loginOptions('203.0.113.1');
     expect(await boom.verifyLogin({ id: 'cred-1' })).toBe(false);
+  });
+
+  it('a challenge flood from one IP cannot flush the owner\'s challenge (per-IP cap on the public map)', async () => {
+    const s = mk(fake());
+    await s.registerOptions();
+    await s.verifyRegister({ response: { id: 'cred-1' } });
+    await s.loginOptions('198.51.100.2');
+    const mine = last;
+    for (let i = 0; i < 100; i++) await s.loginOptions('203.0.113.99');
+    last = mine;
+    expect(await s.verifyLogin({ id: 'cred-1' })).toBe(true);
+  });
+
+  it('transports are whitelisted (max 8) and the user handle is a hash, not the name', async () => {
+    let seen: any;
+    const lib = { ...fake(), verifyRegistrationResponse: (async () => ({ verified: true, registrationInfo: { credential: { id: 'c2', publicKey: new Uint8Array([1]), counter: 0, transports: ['usb', '<script>', 'internal', 'x'.repeat(5000)] } } })) as never,
+      generateRegistrationOptions: (async (o: any) => { seen = o; return webauthn.generateRegistrationOptions(o); }) as never };
+    const s = mk(lib);
+    await s.registerOptions();
+    expect(Buffer.from(seen.userID).toString()).not.toContain('bang');
+    last = ((await s.registerOptions()) as any).challenge;
+    await s.verifyRegister({ response: {} });
+    expect(new PasskeyStore(file()).get('c2')?.transports).toEqual(['usb', 'internal']);
   });
 });

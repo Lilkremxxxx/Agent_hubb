@@ -30,7 +30,7 @@ import type { SessionLookup } from '../sources/source';
 import { Hub } from './sse';
 import { TerminalStreams } from './terminal';
 import * as webauthn from '@simplewebauthn/server';
-import { hashPassword, parsePasswordHash } from '../remote/password';
+import { hashPassword, parsePasswordHash, verifyPassword } from '../remote/password';
 import { PasskeyService, PasskeyStore, type WebAuthnLib } from '../remote/passkeys';
 import { SpawnService } from '../spawn/spawn';
 
@@ -708,6 +708,9 @@ describe('passkey routes', () => {
   const DOMAIN = 'hub.finstar.pp.ua';
   const H = { Connection: 'close', Host: DOMAIN, Origin: `https://${DOMAIN}`, 'CF-Connecting-IP': '203.0.113.7' };
   let verifyCalls = 0;
+  let pwCalls = 0;
+  let clock = Date.now();
+  let lines: string[] = [];
   const lib = (ok = true): WebAuthnLib => ({
     ...webauthn,
     verifyRegistrationResponse: (async () => ({ verified: true, registrationInfo: { credential: { id: 'cred-1', publicKey: new Uint8Array([1]), counter: 0 } } })) as never,
@@ -715,10 +718,10 @@ describe('passkey routes', () => {
   });
   async function mk(o: { passkeys?: boolean; ok?: boolean; passwordLogin?: boolean; limit?: number } = {}) {
     const tmp = tempDir();
-    verifyCalls = 0;
+    verifyCalls = 0; pwCalls = 0; clock = Date.now(); lines = [];
     const passkeys = o.passkeys === false ? undefined : new PasskeyService({ domain: DOMAIN, user: 'ana', store: new PasskeyStore(join(tmp.dir, 'pk.json')), lib: lib(o.ok) });
     const guard = createRequestGuard({ allowedHosts: new Set([DOMAIN]) });
-    const gate = createRemoteGate({ config: CFG, sessions: new RemoteSessions(SECRET, CFG), secure: true, domain: DOMAIN, passkeys, passwordLogin: o.passwordLogin, failures: new FailureWindow(o.limit ?? 5, 600_000) });
+    const gate = createRemoteGate({ config: CFG, sessions: new RemoteSessions(SECRET, CFG, () => clock), secure: true, domain: DOMAIN, passkeys, passwordLogin: o.passwordLogin, log: { info: (m) => lines.push(m), warn: (m) => lines.push(m) }, verify: (pw, h) => { pwCalls++; return verifyPassword(pw, h); }, failures: new FailureWindow(o.limit ?? 5, 600_000) });
     const server = http.createServer((req, res) => {
       if (guard(req, res)) return;
       if (!gate(req, res, new URL(req.url ?? '/', 'http://x'))) res.writeHead(204).end();
@@ -772,8 +775,10 @@ describe('passkey routes', () => {
       expect(cookie).not.toBe('');
       await post(b, '/api/remote/passkeys/register/options', {}, { Cookie: cookie });
       await post(b, '/api/remote/passkeys/register/verify', { response: { id: 'cred-1' } }, { Cookie: cookie });
+      const before = pwCalls;
       const r = await post(b, '/api/remote/login', CREDS);
       expect(r.status).toBe(passwordLogin ? 200 : 403);
+      expect(pwCalls).toBe(passwordLogin ? before + 1 : before); // scrypt not run on the 403
       const page = await request(b, '/login', { headers: H });
       expect(page.body.includes('id="p"')).toBe(passwordLogin);
     }
@@ -791,5 +796,41 @@ describe('passkey routes', () => {
     expect((await post(b, '/api/remote/login', CREDS, { 'CF-Connecting-IP': '198.51.100.1' })).status).toBe(200);
     const none = await mk({ passkeys: false });
     expect((await post(none, '/api/remote/passkeys/login/options')).status).toBe(404);
+  });
+
+  it('register and delete need a RECENT sign-in (10 min), refusals and successes are logged', async () => {
+    const b = await mk();
+    const old = await pwCookie(b);
+    clock += 11 * 60_000;
+    const C = { Cookie: old };
+    for (const [path, body] of [['/api/remote/passkeys/register/options', {}], ['/api/remote/passkeys/register/verify', { response: {} }], ['/api/remote/passkeys/delete', { id: 'x' }]] as const) {
+      const r = await post(b, path, body, C);
+      expect(r.status, path).toBe(403);
+      expect(r.body).toContain('sign in again');
+    }
+    expect((await request(b, '/api/remote/passkeys', { headers: { ...H, ...C } })).status).toBe(200); // reading is fine
+    expect(lines.some((l) => l.includes('refused'))).toBe(true);
+    const fresh = { Cookie: await pwCookie(b) };
+    await post(b, '/api/remote/passkeys/register/options', {}, fresh);
+    expect((await post(b, '/api/remote/passkeys/register/verify', { response: { id: 'cred-1' } }, fresh)).status).toBe(200);
+    expect(lines.some((l) => l.includes('registered'))).toBe(true);
+  });
+
+  it('delete without a session is 401; both options routes accept an empty body; an over-limit body is cut off', async () => {
+    const b = await mk();
+    expect((await post(b, '/api/remote/passkeys/delete', { id: 'x' })).status).toBe(401);
+    const empty = (path: string, cookie?: string) => new Promise<number>((ok, fail) => {
+      const r = http.request(new URL(path, b), { method: 'POST', headers: { ...H, 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) } }, (res) => { res.resume(); ok(res.statusCode ?? 0); });
+      r.on('error', fail);
+      r.end();
+    });
+    expect(await empty('/api/remote/passkeys/login/options')).toBe(200);
+    expect(await empty('/api/remote/passkeys/register/options', await pwCookie(b))).toBe(200);
+    const big = await new Promise<string>((ok) => {
+      const r = http.request(new URL('/api/remote/passkeys/login/verify', b), { method: 'POST', headers: { ...H, 'Content-Type': 'application/json' } }, (res) => { res.resume(); ok(`status ${res.statusCode}`); });
+      r.on('error', () => ok('closed'));
+      r.end('{"a":"' + 'x'.repeat(200_000) + '"}');
+    });
+    expect(big).not.toBe('status 200');
   });
 });

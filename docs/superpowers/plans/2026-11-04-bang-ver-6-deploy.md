@@ -654,3 +654,10 @@ Deploy spec:
 - **Route passkey KHÔNG dùng chung `LoginThrottle`**: chỉ dùng `FailureWindow` theo IP, để kẻ tấn công không khoá chủ nhà qua passkey. Ở chế độ sau proxy `LoginThrottle` bị chặn trần 30 s; khoá cứng do `FailureWindow` (5 lần/10 phút/IP; IPv6 tính theo /64) đảm nhiệm.
 - **`proxyEnv` mặc định `allow=terminal`**: người giữ mật khẩu đọc được transcript qua Internet. Runbook phải nói rõ và đưa lựa chọn `allow=none` (chỉ xem office).
 - **cloudflared phải gửi `CF-Connecting-IP`** (mặc định có); nếu không, mọi khách dùng chung khoá `127.0.0.1` và `FailureWindow` thành khoá toàn cục. `clientIp` chỉ tin header khi kết nối là loopback và giá trị là một IP hợp lệ.
+
+## Notas de revisão (Task 4, bản sửa sau rà soát bảo mật)
+
+- **`PasskeyStore` chỉ đọc file lúc khởi tạo**: `--reset-passkeys` và runbook phải DỪNG service, xoá `passkeys.json` (hoặc đặt `HABBLAUD_REMOTE_PASSWORD_LOGIN=1`), rồi mới khởi động lại; xoá file khi service đang chạy không có tác dụng (RAM vẫn giữ danh sách).
+- **Route passkey dùng CHUNG `FailureWindow` với đăng nhập mật khẩu** (Quyết định 4) theo thiết kế: 5 lần sai/10 phút/IP tính chung cho cả hai đường. Chỉ KHÔNG dùng chung `LoginThrottle` toàn cục.
+- **`__Host-habblaud_remote` chỉ khi `Secure`** (có domain hoặc TLS): trình duyệt bỏ cookie `__Host-` thiếu `Secure`, nên chế độ HTTP thuần ở LAN (`HABBLAUD_REMOTE_INSECURE_HTTP`) giữ tên cũ `habblaud_remote`.
+- Đã sửa: bản đồ challenge đăng nhập (công khai) tách khỏi đăng ký, giới hạn 10 challenge/IP và 5000 tổng; đăng ký/xoá passkey cần phiên được cấp trong 10 phút gần nhất; transports lọc theo danh sách trắng; `userID` là sha256 của tên; body options rỗng được chấp nhận; body quá giới hạn thì huỷ kết nối.

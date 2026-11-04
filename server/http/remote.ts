@@ -71,6 +71,8 @@ export const COOKIE = 'habblaud_remote';
 // `__Host-` (Secure, Path=/, no Domain) stops a sibling subdomain under a public suffix (pp.ua) from overwriting it;
 // browsers drop it without Secure, so the plain-HTTP LAN mode keeps the bare name.
 export const cookieName = (secure: boolean): string => (secure ? `__Host-${COOKIE}` : COOKIE);
+/** Registering or deleting a passkey needs a sign-in at most this old. */
+const RECENT_MS = 10 * 60_000;
 export const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 /** Timeout for first byte of a connection on remote port (before knowing if HTTPS). */
 const FIRST_BYTE_MS = 15_000;
@@ -186,6 +188,12 @@ export class RemoteSessions {
   verify(token: string | undefined): boolean {
     const parsed = this.parse(token);
     return !!parsed && !this.revoked.has(parsed.sig);
+  }
+
+  /** True when this valid token was issued (password or passkey sign-in) within the last `ms`. */
+  recent(token: string | undefined, ms: number): boolean {
+    const parsed = this.parse(token);
+    return !!parsed && !this.revoked.has(parsed.sig) && this.now() - (parsed.exp - SESSION_MS) <= ms;
   }
 
   /** Revokes this token ("Sign out" button); invalid or expired token changes nothing. */
@@ -385,13 +393,14 @@ function sendJson(res: ServerResponse, status: number, body: unknown, headers: R
   res.end(data);
 }
 
-function readBody(req: IncomingMessage, max = 8 * 1024): Promise<string> {
+function readBody(req: IncomingMessage, max = 8 * 1024, cut = false): Promise<string> {
   return new Promise((ok, fail) => {
     const chunks: Buffer[] = [];
     let size = 0;
     req.on('data', (c: Buffer) => {
       size += c.length;
       if (size <= max) chunks.push(c);
+      else if (cut) { req.destroy(); fail(new Error(tr('body too large'))); } // do not read on
     });
     req.on('end', () => (size > max ? fail(new Error(tr('body too large'))) : ok(Buffer.concat(chunks).toString('utf8'))));
     req.on('error', fail);
@@ -544,10 +553,16 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
         return sendJson(res, 429, { error: tr('Too many attempts. Try again in {0} s.', [wait]) }, { 'Retry-After': String(wait) });
       }
     }
-    readBody(req, 32 * 1024)
+    const change = route === '/register/options' || route === '/register/verify' || route === '/delete';
+    if (change && !deps.sessions.recent(readCookie(req.headers.cookie, cname), RECENT_MS)) {
+      req.resume();
+      deps.log?.warn(tr('Remote passkey change refused ({0}) from {1}, {2}', [route.slice(1), ip, ua]));
+      return sendJson(res, 403, { error: tr('sign in again to change passkeys') });
+    }
+    readBody(req, 32 * 1024, true)
       .then(async (raw) => {
-        const body: unknown = JSON.parse(raw);
-        if (route === '/login/options') return sendJson(res, 200, await pk.loginOptions());
+        const body: unknown = raw.trim() === '' && route.endsWith('/options') ? {} : JSON.parse(raw);
+        if (route === '/login/options') return sendJson(res, 200, await pk.loginOptions(ip));
         if (route === '/register/options') return sendJson(res, 200, await pk.registerOptions());
         if (route === '/login/verify') {
           if (!(await pk.verifyLogin(body))) {
@@ -562,10 +577,13 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
         }
         if (route === '/register/verify') {
           const r = await pk.verifyRegister(body);
+          if (r.ok) deps.log?.info(tr('Remote passkey registered from {0}, {1}', [ip, ua]));
           return r.ok ? sendJson(res, 200, { passkey: r.passkey }) : sendJson(res, 400, { error: r.error });
         }
         const id = !!body && typeof body === 'object' && typeof (body as { id?: unknown }).id === 'string' ? (body as { id: string }).id : '';
-        return pk.remove(id) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: tr('not found') });
+        if (!pk.remove(id)) return sendJson(res, 404, { error: tr('not found') });
+        deps.log?.info(tr('Remote passkey removed from {0}, {1}', [ip, ua]));
+        return sendJson(res, 200, { ok: true });
       })
       .catch(() => { if (!res.headersSent) sendJson(res, 400, { error: tr('invalid request') }); });
   };

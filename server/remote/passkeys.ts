@@ -10,6 +10,9 @@ export interface StoredPasskey { id: string; publicKey: string /* base64url */; 
 
 export const CHALLENGE_TTL_MS = 120_000;
 export const MAX_CHALLENGES = 50;
+export const MAX_LOGIN_CHALLENGES = 5000; // public map: keys are sha256, TTL 2 min
+export const MAX_LOGIN_CHALLENGES_PER_IP = 10;
+export const MAX_REGISTER_CHALLENGES = 10; // only an authenticated session can add one
 export const MAX_PASSKEYS = 20;
 export const NAME_MAX = 60;
 
@@ -79,16 +82,19 @@ type Kind = 'login' | 'register';
 
 export class Challenges {
   // Keyed by sha256 of the challenge: the lookup never compares the secret itself byte by byte.
-  private readonly m = new Map<string, { kind: Kind; exp: number }>();
-  constructor(private readonly now: () => number = Date.now) {}
+  private readonly m = new Map<string, { kind: Kind; exp: number; owner: string }>();
+  constructor(private readonly now: () => number = Date.now, private readonly max = MAX_CHALLENGES, private readonly perOwner = Infinity) {}
 
   private static key(c: string): string { return createHash('sha256').update(c).digest('hex'); }
 
-  add(kind: Kind, challenge: string): void {
+  add(kind: Kind, challenge: string, owner = ''): void {
     const t = this.now();
     for (const [k, v] of this.m) if (v.exp <= t) this.m.delete(k);
-    while (this.m.size >= MAX_CHALLENGES) this.m.delete(this.m.keys().next().value as string);
-    this.m.set(Challenges.key(challenge), { kind, exp: t + CHALLENGE_TTL_MS });
+    // One owner (client IP) can only displace its own oldest challenges, never somebody else's.
+    const mine = [...this.m].filter(([, v]) => v.owner === owner).map(([k]) => k);
+    for (const k of mine.slice(0, Math.max(0, mine.length - this.perOwner + 1))) this.m.delete(k);
+    while (this.m.size >= this.max) this.m.delete(this.m.keys().next().value as string);
+    this.m.set(Challenges.key(challenge), { kind, exp: t + CHALLENGE_TTL_MS, owner });
   }
 
   take(kind: Kind, challenge: string): boolean {
@@ -103,12 +109,19 @@ export class Challenges {
 export type WebAuthnLib = Pick<typeof webauthn, 'generateRegistrationOptions' | 'verifyRegistrationResponse' | 'generateAuthenticationOptions' | 'verifyAuthenticationResponse'>;
 export interface PasskeyView { id: string; name: string; createdAt: number; lastUsedAt?: number }
 
+const TRANSPORTS = new Set(['internal', 'hybrid', 'usb', 'nfc', 'ble', 'smart-card', 'cable']);
+export const cleanTransports = (t: unknown): string[] | undefined => {
+  const out = Array.isArray(t) ? [...new Set(t.filter((x): x is string => typeof x === 'string' && TRANSPORTS.has(x)))].slice(0, 8) : [];
+  return out.length ? out : undefined;
+};
+
 const view = (p: StoredPasskey): PasskeyView => ({ id: p.id, name: p.name, createdAt: p.createdAt, ...(p.lastUsedAt ? { lastUsedAt: p.lastUsedAt } : {}) });
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
 /** WebAuthn ceremonies for one owner. rpID and origin come only from the configured domain, never from a request. */
 export class PasskeyService {
-  private readonly challenges: Challenges;
+  private readonly loginCh: Challenges;
+  private readonly registerCh: Challenges;
   private readonly store: PasskeyStore;
   private readonly lib: WebAuthnLib;
   private readonly now: () => number;
@@ -117,16 +130,17 @@ export class PasskeyService {
 
   constructor(o: { domain: string; user: string; store: PasskeyStore; lib?: WebAuthnLib; now?: () => number }) {
     this.domain = o.domain; this.user = o.user; this.store = o.store; this.lib = o.lib ?? webauthn; this.now = o.now ?? Date.now;
-    this.challenges = new Challenges(this.now);
+    this.loginCh = new Challenges(this.now, MAX_LOGIN_CHALLENGES, MAX_LOGIN_CHALLENGES_PER_IP);
+    this.registerCh = new Challenges(this.now, MAX_REGISTER_CHALLENGES);
   }
 
   count(): number { return this.store.count(); }
   list(): PasskeyView[] { return this.store.list().map(view); }
   remove(id: string): boolean { return this.store.remove(id); }
 
-  async loginOptions(): Promise<object> {
+  async loginOptions(ip: string): Promise<object> {
     const o = await this.lib.generateAuthenticationOptions({ rpID: this.domain, allowCredentials: [], userVerification: 'required', timeout: CHALLENGE_TTL_MS });
-    this.challenges.add('login', o.challenge);
+    this.loginCh.add('login', o.challenge, ip);
     return o;
   }
 
@@ -137,11 +151,11 @@ export class PasskeyService {
       if (!p) return false;
       const r = await this.lib.verifyAuthenticationResponse({
         response: body as never,
-        expectedChallenge: (c) => this.challenges.take('login', c),
+        expectedChallenge: (c) => this.loginCh.take('login', c),
         expectedOrigin: `https://${this.domain}`,
         expectedRPID: this.domain,
         requireUserVerification: true,
-        credential: { id: p.id, publicKey: Buffer.from(p.publicKey, 'base64url'), counter: p.counter, transports: p.transports as never },
+        credential: { id: p.id, publicKey: Buffer.from(p.publicKey, 'base64url'), counter: p.counter, transports: cleanTransports(p.transports) as never },
       });
       if (!r.verified) return false;
       this.store.touch(p.id, r.authenticationInfo.newCounter, this.now());
@@ -154,13 +168,13 @@ export class PasskeyService {
       rpName: 'Bang_ver hub',
       rpID: this.domain,
       userName: this.user,
-      userID: new TextEncoder().encode(this.user),
+      userID: createHash('sha256').update(this.user).digest(), // stable handle, no readable name
       attestationType: 'none',
       authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
-      excludeCredentials: this.store.list().map((p) => ({ id: p.id, transports: p.transports })),
+      excludeCredentials: this.store.list().map((p) => ({ id: p.id, transports: cleanTransports(p.transports) })),
       timeout: CHALLENGE_TTL_MS,
     });
-    this.challenges.add('register', o.challenge);
+    this.registerCh.add('register', o.challenge);
     return o;
   }
 
@@ -170,14 +184,14 @@ export class PasskeyService {
       if (!isObj(body) || !isObj(body.response)) return fail;
       const r = await this.lib.verifyRegistrationResponse({
         response: body.response as never,
-        expectedChallenge: (c) => this.challenges.take('register', c),
+        expectedChallenge: (c) => this.registerCh.take('register', c),
         expectedOrigin: `https://${this.domain}`,
         expectedRPID: this.domain,
         requireUserVerification: true,
       });
       if (!r.verified) return fail;
       const c = r.registrationInfo.credential;
-      const p: StoredPasskey = { id: c.id, publicKey: Buffer.from(c.publicKey).toString('base64url'), counter: c.counter, transports: c.transports, name: cleanName(body.name, this.now()), createdAt: this.now() };
+      const p: StoredPasskey = { id: c.id, publicKey: Buffer.from(c.publicKey).toString('base64url'), counter: c.counter, transports: cleanTransports(c.transports), name: cleanName(body.name, this.now()), createdAt: this.now() };
       return this.store.add(p) ? { ok: true, passkey: view(p) } : { ok: false, error: tr("Couldn't save the passkey.") };
     } catch { return fail; }
   }
