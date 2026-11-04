@@ -1341,6 +1341,10 @@ export const VI: Readonly<Record<string, string>> = {
   "same lock as the terminal": "cùng khóa với terminal",
   "Boss overloaded: sessions with a long context, open a new session": "Sếp quá tải: các phiên có context dài, mở phiên mới",
   "expected {boss}": "cần {boss}",
+  "the interactive terminal is off (HABBLAUD_PTY=1)": "terminal tương tác đang tắt (HABBLAUD_PTY=1)",
+  "the office has no folder yet: set \"folder\" in {0}": "văn phòng chưa có thư mục: đặt \"folder\" trong {0}",
+  "Antigravity account not found: {0}": "không tìm thấy tài khoản Antigravity: {0}",
+  "Claude Code account folder not found: {0}": "không tìm thấy thư mục tài khoản Claude Code: {0}",
   "the boss is an Antigravity account set in team.json": "boss là một tài khoản Antigravity đặt trong team.json",
   "team.json ({0}) could not be read: {1}": "Không đọc được team.json ({0}): {1}",
 };

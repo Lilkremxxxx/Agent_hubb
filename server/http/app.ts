@@ -66,6 +66,8 @@ export interface ApiDeps {
   /** POST /api/team: appoints the boss (server/team.ts); this computer only. */
   team?: {
     appoint: (agentId: string | null, pending?: { account: string }) => TeamResult;
+    /** {openBoss: true}: opens the boss's terminal by boss.kind in the office folder; absent = the interactive terminal is off. */
+    openBoss?: () => Promise<{ ok: true; pty: PtyInfo } | { ok: false; status: number; error: string }>;
   };
   /** Worker terminals (/api/workers/*, server/workers): jobs, cancel; this computer only. */
   workers?: {
@@ -471,8 +473,15 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else if (isRemote(req) || !trusted(req)) sendJson(res, 403, { error: denied(req, tr('changing the team only from this computer (http://localhost)')) });
       else
         readJson(req)
-          .then((body) => {
-            const b = (body ?? {}) as { boss?: unknown; pendingAccount?: unknown };
+          .then(async (body) => {
+            const b = (body ?? {}) as { boss?: unknown; pendingAccount?: unknown; openBoss?: unknown };
+            if (b.openBoss === true) {
+              if (!deps.team!.openBoss) throw new HttpError(503, tr('the interactive terminal is off (HABBLAUD_PTY=1)'));
+              const o = await deps.team!.openBoss();
+              if (!o.ok) throw new HttpError(o.status, o.error);
+              sendJson(res, 200, { ok: true, pty: o.pty });
+              return;
+            }
             if (!('boss' in b) || Object.keys(b).some((k) => k !== 'boss' && k !== 'pendingAccount')) throw new HttpError(400, tr('expected {boss}'));
             if (b.boss !== null && typeof b.boss !== 'string') throw new HttpError(400, tr('expected {boss} (null = no boss)'));
             if (b.pendingAccount !== undefined && typeof b.pendingAccount !== 'string') throw new HttpError(400, tr('invalid pendingAccount'));

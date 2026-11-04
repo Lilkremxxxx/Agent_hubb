@@ -346,3 +346,22 @@ describe('Host/Origin guard', () => {
     expect(originAllowed('file://', 'localhost:4747', allowed)).toBe(false);
   });
 });
+
+describe('POST /api/team {openBoss}', () => {
+  it('opens the boss through deps.team.openBoss and returns its terminal; 503 without it; errors pass through', async () => {
+    const pty = { id: 'p1-9', pid: 9, cwd: '/w/p', account: '.claude', agentId: '.claude:9', startedAt: 1 };
+    const env = await start({ team: { appoint: () => ({ ok: true }), openBoss: async () => ({ ok: true, pty }) } });
+    const post = (body: unknown) => fetch(`${env.base}/api/team`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });
+    const r = await post({ openBoss: true });
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ ok: true, pty });
+    await env.close(); env.cleanup();
+    const off = await start({ team: { appoint: () => ({ ok: true }) } });
+    expect((await fetch(`${off.base}/api/team`, { method: 'POST', headers: JSON_HEADERS, body: '{"openBoss":true}' })).status).toBe(503);
+    await off.close(); off.cleanup();
+    const bad = await start({ team: { appoint: () => ({ ok: true }), openBoss: async () => ({ ok: false, status: 400, error: 'no folder' }) } });
+    const b = await fetch(`${bad.base}/api/team`, { method: 'POST', headers: JSON_HEADERS, body: '{"openBoss":true}' });
+    expect([b.status, ((await b.json()) as { error: string }).error]).toEqual([400, 'no folder']);
+    await bad.close(); bad.cleanup();
+  });
+});

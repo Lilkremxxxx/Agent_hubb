@@ -3,7 +3,7 @@
 //   npm run dev    -> tsx server/index.ts --dev (Vite in middleware mode, HMR on the same server)
 //   npm start      -> node dist/server/index.js (serves dist/client)
 import http from 'node:http';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import type { PtyInfo } from '../shared/types';
 import { isDefaultDir } from './accounts/detect';
 import { AccountsService } from './accounts/service';
@@ -20,7 +20,7 @@ import { Office } from './model/office';
 import { RoomAliases } from './model/room-aliases';
 import { createAccountsRoutes } from './http/accounts';
 import { createPtyRoutes } from './http/pty';
-import { claudeBinFrom, isExecutableFile, loadPty, PtyManager, type ScreenFactory, type SpawnPty } from './pty/manager';
+import { claudeBinFrom, isExecutableFile, loadPty, PtyError, PtyManager, type ScreenFactory, type SpawnPty } from './pty/manager';
 import { loadHeadlessScreen } from './pty/screen';
 import { openMainAgent, SessionHistory } from './sources/history';
 import { HistorySet, SourceSet } from './sources/source';
@@ -227,6 +227,29 @@ function openAgyBossTerminal(acc: string): PtyInfo {
   if (open) return open;
   return ptys!.openProgram({ agentId, account: agentId, file: agyBin, args: [acc], cwd: team.folder || config.home, env: { AGY_BOSS: '1' } });
 }
+/** "Mở boss": the boss's terminal by boss.kind, in the office folder (an empty folder is a 400 before anything opens). */
+async function openBoss(): Promise<{ ok: true; pty: PtyInfo } | { ok: false; status: number; error: string }> {
+  const fail = (status: number, error: string) => ({ ok: false as const, status, error });
+  if (!ptys) return fail(503, tr('the interactive terminal is off (HABBLAUD_PTY=1)'));
+  if (!team.folder) return fail(400, tr('the office has no folder yet: set "folder" in {0}', [join(config.dataDir, 'team.json')]));
+  try {
+    const { kind, account: acc } = team.boss;
+    const open = ptys.ofAgent(team.bossAgentId() ?? '');
+    if (open) return { ok: true, pty: open };
+    if (kind === 'agy') {
+      if (!agy?.profileOf(acc)) return fail(404, tr('Antigravity account not found: {0}', [acc]));
+      return { ok: true, pty: openAgyBossTerminal(acc) };
+    }
+    const dir = claudeConfigDir(acc, config.home);
+    const account = accounts.entries().find((e) => resolve(e.dir) === dir)?.id ?? accounts.addDir(dir);
+    if (!account) return fail(404, tr('Claude Code account folder not found: {0}', [dir]));
+    const pty = ptys.create({ cwd: team.folder, account });
+    team.appoint(pty.agentId, { account: pty.account });
+    return { ok: true, pty };
+  } catch (err) {
+    return fail(err instanceof PtyError ? err.status : 500, errMsg(err));
+  }
+}
 if (ptys && team.boss.kind === 'agy') {
   try {
     openAgyBossTerminal(team.boss.account);
@@ -254,7 +277,7 @@ const ticker = setInterval(() => {
 }, 250);
 
 const api = createApiHandler({
-  team: { appoint: (id, pending) => team.appoint(id, pending) },
+  team: { appoint: (id, pending) => team.appoint(id, pending), openBoss: ptys ? openBoss : undefined },
   workers: workers
     ? {
         ask: (input) => workers.ask(input),

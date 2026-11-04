@@ -26,6 +26,7 @@ middle one (0.**3**.0).
 
 ### Added
 
+- **Open the boss:** `POST /api/team {openBoss: true}` opens the boss's terminal by its kind (Claude Code or Antigravity) in the office folder; an office without a folder answers 400 and points at `team.json`.
 - **Office folders never overlap:** an office's folder may not be inside another office's folder or hold one; an
   office from an older team file that overlaps shows ⚠ on its tab and in its menu.
 - **Office tab menu:** right-click an office tab (or long-press it, or press the ContextMenu key / Shift+F10 on it)
