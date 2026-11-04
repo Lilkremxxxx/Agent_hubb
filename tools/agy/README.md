@@ -37,6 +37,7 @@ any repository.
 | `bin/bang-init` | Prepares a project folder: board templates, `.agents/skills.json`, skill links, `folder` in `team.json` |
 | `bin/skill-dirs` | Lists the skill folders under a home (own skills, each plugin's newest version that has `skills/`): used by `bang-init` and `install.sh --worker` |
 | `bin/worker-ask` | `agy-ask` and `claude-ask`: give a job, print its answer |
+| `bin/advisor` | Run by a seat inside a job: asks the office's boss, prints its answer (exit 2-5: no boss, boss waiting, timeout, untagged) |
 | `agy-plugin/` | `agy-boss`. Nothing installs it now; `docs/boss-rules-from-fork.md` is the reference kept for a later plan |
 
 ## Using it

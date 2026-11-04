@@ -25,7 +25,8 @@ def test_giao_viec_carries_the_spec_template_and_the_review_loop():
     g = read("giao-viec")
     assert template in g
     for s in ("worker-ask team", "| 3 | BUSY", "--raw", "--mode plan", "--mode auto", "run_in_background", "## Kết quả review lần trước",
-              "- Khi <tình huống> → <làm gì> (vì …) [", "agy-as <acc>", "retrying cannot help", "ask the user", "100 kB"):
+              "- Khi <tình huống> → <làm gì> (vì …) [", "agy-as <acc>", "retrying cannot help", "ask the user", "100 kB",
+              "## 5. Answer a seat's question", "[ADVISOR W2 T2]", "text only", "❓ Ghế W2 hỏi (việc T2)", "NOTHING before"):
         assert s in g, s
     for s in ("(Habblaud)", "not available", "agy-ask", "claude-ask"):
         assert s not in g, s
@@ -38,6 +39,8 @@ def test_bang_task_carries_the_board_rules():
     assert "EXE101" not in b and "version:" not in b
 
 
-def test_advisor_placeholder_says_blocked_when_the_command_fails():
+def test_advisor_says_how_to_ask_and_what_each_exit_means():
     a = read("advisor")
-    assert 'advisor "' in a and "blocked:" in a
+    for s in ('advisor "', "blocked:", "STOP", "timeout: 600000", "| 0 |", "| 5 |", "approve", "Hỏi đáp", "retries"):
+        assert s in a, s
+    assert "placeholder" not in a

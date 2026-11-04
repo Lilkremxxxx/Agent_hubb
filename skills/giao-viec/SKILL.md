@@ -53,6 +53,16 @@ When the job returns (exit 0), do not trust the worker's report: run every comma
 - ❌ → set the row to `doing: sửa 1/2 — review ❌ <what failed>` and give the same seat a fix job: all 6 parts again plus a section `## Kết quả review lần trước` with the paths, the diff, every command you ran and its output. The worker remembers nothing.
 - At most 2 fix rounds. A third ❌: stop and ask the user, with the three review results.
 
+## 5. Answer a seat's question
+A stuck seat runs `advisor`. The office types its question into your terminal as one message: `❓ Seat W2 asks (job T2): <question>` (in Vietnamese `❓ Ghế W2 hỏi (việc T2): <câu hỏi>`), then a line naming the tag to start with.
+- Start the reply with the exact tag, e.g. `[ADVISOR W2 T2] Use docs/a.csv; skip the header row.`, and write NOTHING before it: no "let me check" preface. The first text after the tag is taken as the answer. If you must look at files first, do that, then answer.
+- Reply with text only (no tools in the answer turn), brief and concrete. Everything after the tag, up to the next tag, goes to the seat verbatim.
+- Two questions in one message: answer each under its own tag in the same reply.
+- You do not know: say so under the tag and tell the seat to write `blocked:`; point to another seat's "Ghi chú kỹ thuật" when it holds the answer.
+- Then keep delegating: your jobs keep running in the background (section 3), so the answer must not block them.
+- The office writes the question and your answer to "Hỏi đáp" in task_board.md; do not write it yourself.
+- It only reaches you while you run in a terminal the office opened or took over.
+
 ## Exit codes
 | Exit | Meaning | What you do |
 | --- | --- | --- |
