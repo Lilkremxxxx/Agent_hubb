@@ -52,7 +52,8 @@ def env(tmp_path):
 
 
 def test_skill_dirs_takes_the_newest_version_by_number(env):
-    out = subprocess.run([SKILL_DIRS, env.h], capture_output=True, text=True).stdout.split()
+    ev = {"HOME": env.h, "PATH": os.environ["PATH"]}
+    out = subprocess.run([SKILL_DIRS, env.h], capture_output=True, text=True, env=ev).stdout.split()
     assert out == [f"{env.h}/.claude/skills", f"{env.h}/{PLUG}/plug/1.10.0/skills"]
 
 
@@ -62,6 +63,10 @@ def test_fresh_folder_gets_templates_manifest_links_and_gemini(env):
     code, out, err = env.run([proj])
     assert code == 0, err
     tb = env.read(proj, "task_board.md")
+    for f in ("task_board.md", "project_proposal.md"):
+        want = open(f"{REPO}/templates/{f}", encoding="utf-8").read()
+        want = want.replace("<tên dự án>", "proj").replace("<tên>", "proj").replace("<folder>", env.real(proj))
+        assert env.read(proj, f) == want
     assert tb.startswith("# Task board — proj\n") and f"_Office: {env.real(proj)} · Boss:" in tb
     assert env.read(proj, "project_proposal.md").startswith("# Đề xuất dự án — proj\n")
     assert json.load(open(f"{proj}/.agents/skills.json")) == {"entries": [

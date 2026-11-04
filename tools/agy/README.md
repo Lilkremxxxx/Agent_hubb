@@ -10,7 +10,7 @@ Needs Linux, Python 3, Claude Code, and for Antigravity workers the `agy` CLI, `
 
 ```bash
 npm install
-tools/agy/install.sh
+tools/install.sh
 npm run office         # builds and starts it in the background: open http://127.0.0.1:4747
 ```
 
