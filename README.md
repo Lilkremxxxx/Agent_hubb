@@ -318,7 +318,7 @@ npm run remote:setup   # username, password, hostname, and (optional) custom add
 npm run office         # restart it: npm run office -- restart
 ```
 
-`remote:setup` writes only the password **hash** (scrypt) to `.env`, creates a local CA and the server certificate in
+`remote:setup` writes only the password **hash** (scrypt) to `hub.env` in the data dir, creates a local CA and the server certificate in
 `~/.habblaud/remote-tls`, and leaves a service announcing `<name>.local` on the network (mDNS; systemd on Linux). Open
 `https://<name>.local` on your phone (with `:4748` if port 443 was taken). The first time, accept the warning, tap
 **Install the Habblaud certificate** and trust it (iPhone: Settings › Profile Downloaded › Install, then Settings ›
@@ -333,7 +333,7 @@ certificate), checking the fingerprint the setup showed.
 - **What the phone can do:** by default, view only. `HABBLAUD_REMOTE_ALLOW` accepts
   `terminal` or `none` (view only); `spawn` is no longer a remote feature and is ignored. The interactive terminal never works from the
   phone.
-- **Session:** 30 days; changing the password (running the setup again) ends all of them, and **Settings › Phone
+- **Session:** 7 days; changing the password (running the setup again) ends all of them, and **Settings › Phone
   access › Sign out** ends the one on that device. After 5 wrong passwords in a row, each new attempt waits from 1 s up to 5 min.
 - **Turn off:** `npm run remote:setup -- --off`, then restart.
 

@@ -12,8 +12,8 @@ changes) is held only by the owner; no command here reads `Bang_ver/.env`.
 - `--behind-proxy` defaults to `HABBLAUD_REMOTE_ALLOW=terminal`: anyone who signs in can **read session transcripts
   (commands, files, prompts) over the Internet**. For office-only view use `--allow none` in step 2.
 - Losing the passkey or the password means someone reads the machine's agent activity. Keep passkey-only sign-in.
-- `HABBLAUD_ALLOWED_HOSTS` is shared with local port 4747, so it also accepts `hub.finstar.pp.ua` there (low risk,
-  4747 is loopback only).
+- The hub domain is accepted only on the remote port (4748). Port 4747 refuses it (403), so a tunnel pointed at 4747 by
+  mistake exposes nothing; step 3 checks this.
 - The session cookie is `__Host-habblaud_remote` (Secure, HttpOnly, SameSite=Lax, Path=/, no Domain): `pp.ua` is a
   public suffix, and `__Host-` stops a sibling subdomain from overwriting it. Old plain-named cookies are not used.
 - cloudflared must send `CF-Connecting-IP` (it does by default). Without it every visitor shares one IP and the
@@ -48,16 +48,20 @@ mkdir -p ~/.config/systemd/user && cp deploy/bang-hub.service ~/.config/systemd/
 systemctl --user daemon-reload && systemctl --user enable --now bang-hub
 ss -Hltnp '( sport = :4747 or sport = :4748 )'      # both on 127.0.0.1
 curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: hub.finstar.pp.ua' http://127.0.0.1:4748/login   # 200
+curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: hub.finstar.pp.ua' http://127.0.0.1:4747/        # 403 (main port must refuse the hub name)
+journalctl --user -u bang-hub | grep 'Interactive terminal'   # must say it is on (else claude/agy are not on the unit's PATH)
 ```
 
-The unit's `ExecStart` has an absolute node path (`~/.nvm/versions/node/v25.7.0/bin/node`). **When node is upgraded,
-edit that line** and `systemctl --user daemon-reload && systemctl --user restart bang-hub`. `MemoryMax` is
+The unit's `ExecStart` has an absolute node path (`~/.nvm/versions/node/v25.7.0/bin/node`) and `Environment=PATH=` starts
+with the same directory, then `~/.local/bin` (where `claude` and `agy` live). **When node is upgraded, edit both lines**
+(a repo test checks they agree) and `systemctl --user daemon-reload && systemctl --user restart bang-hub`. `MemoryMax` is
 deliberately absent: the cgroup includes the boss and seat processes.
 To survive logout/reboot the user manager must linger: `loginctl enable-linger $USER`.
 
 ## 4. Tunnel and DNS
 
-Done by the owner, with the Cloudflare login/token held only by the owner (`cloudflared tunnel login`, or the
+The `cloudflared` subcommands and flags below were written from memory and have **not** been run or checked against the
+installed version: check each with `cloudflared tunnel --help` before running it. Done by the owner, with the Cloudflare login/token held only by the owner (`cloudflared tunnel login`, or the
 dashboard for the DNS step).
 
 ```bash
@@ -104,7 +108,7 @@ cloudflared tunnel delete bang-hub
 systemctl --user disable --now bang-hub && npm run office    # back to the plain local office
 ```
 
-## 8. Lost passkey
+## 8. Lost passkey or phone
 
 At the computer. **Stop the service first**: the server keeps passkeys in RAM and may rewrite the file.
 
@@ -115,3 +119,13 @@ systemctl --user start bang-hub
 ```
 
 Or add `HABBLAUD_REMOTE_PASSWORD_LOGIN=1` to `~/.habblaud/hub.env` and restart, to allow the password again.
+
+Two things to know:
+
+- **Deleting passkeys does not sign anyone out.** `--reset-passkeys` and "Remove" on the Passkeys page leave every
+  7-day session cookie valid, including the one on a lost phone. To end all sessions, change the signing key: rerun
+  `npm run remote:setup -- --behind-proxy --domain hub.finstar.pp.ua --user nhatbang` (it asks for the password; the new
+  hash changes the key; do it with the service stopped, then start it), or stop the service, delete
+  `~/.habblaud/remote-secret` (a new one is created at start) and start it.
+- **Deleting the last passkey silently turns password sign-in back on** (it is off only while a passkey exists). If the
+  password may be known to anyone else, change it (the same `remote:setup` command) before the first restart.

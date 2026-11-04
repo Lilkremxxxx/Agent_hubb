@@ -650,7 +650,7 @@ Deploy spec:
 ## Notas de revisão (Task 2, commit 4a86f66 và commit sửa tiếp theo)
 
 - **Cookie không có tiền tố `__Host-`**: `pp.ua` là public suffix, một subdomain anh em bị XSS có thể ghi đè cookie. Task 4/5 quyết định có dùng `__Host-habblaud_remote` hay không (cần `Secure`, `Path=/`, không `Domain`; cookie hiện đã thoả ba điều đó, chỉ cần đổi tên và chấp nhận mọi phiên cũ mất).
-- **`HABBLAUD_ALLOWED_HOSTS` dùng chung với cổng cục bộ 4747**: thêm `hub.finstar.pp.ua` vào đó cũng làm cổng 4747 chấp nhận Host này (rủi ro thấp vì 4747 nghe loopback; ghi vào runbook). Task 6 có thể tách một biến riêng cho cổng remote.
+- **(THAY THẾ: review cuối cùng — cổng remote có guard riêng, `proxyEnv` không ghi domain vào ALLOWED_HOSTS, 4747 trả 403 cho Host hub.)** ~~`HABBLAUD_ALLOWED_HOSTS` dùng chung với cổng cục bộ 4747~~: thêm `hub.finstar.pp.ua` vào đó cũng làm cổng 4747 chấp nhận Host này (rủi ro thấp vì 4747 nghe loopback; ghi vào runbook). Task 6 có thể tách một biến riêng cho cổng remote.
 - **Route passkey KHÔNG dùng chung `LoginThrottle`**: chỉ dùng `FailureWindow` theo IP, để kẻ tấn công không khoá chủ nhà qua passkey. Ở chế độ sau proxy `LoginThrottle` bị chặn trần 30 s; khoá cứng do `FailureWindow` (5 lần/10 phút/IP; IPv6 tính theo /64) đảm nhiệm.
 - **`proxyEnv` mặc định `allow=terminal`**: người giữ mật khẩu đọc được transcript qua Internet. Runbook phải nói rõ và đưa lựa chọn `allow=none` (chỉ xem office).
 - **cloudflared phải gửi `CF-Connecting-IP`** (mặc định có); nếu không, mọi khách dùng chung khoá `127.0.0.1` và `FailureWindow` thành khoá toàn cục. `clientIp` chỉ tin header khi kết nối là loopback và giá trị là một IP hợp lệ.
@@ -701,3 +701,28 @@ Sai khác khi chạy: `scripts/office.sh start` build lại bằng vite nên kh�
 8. Số dòng +697 so với trần +600: controller duyệt hoặc cắt.
 9. Câu hỏi controller còn mở: chế độ LAN/mDNS (Q4), hệ con `POST /api/spawn` local không có UI (Q5), mức (b) gõ từ web.
 10. Còn mở từ Kế hoạch 5 mục 2–12 (nghiệm thu advisor với boss thật, ghế agy duyệt lệnh, tuân thủ thẻ, CLI timeout...), không thuộc deploy.
+
+## Kết quả (sửa sau review cuối toàn nhánh)
+
+Hai commit sửa C1, I1, I2, I3, RSS và độ chính xác tài liệu. Kiểm trong worktree `~/bang-ver-accept6` (đã xoá), cổng 47020-47031, `HOME`/`HABBLAUD_DATA_DIR` riêng, không PTY.
+
+- **C1**: `deploy/bang-hub.service` có `Environment=PATH=%h/.nvm/versions/node/v25.7.0/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin`; test `server/remote/deploy-units.test.ts` khẳng định thư mục node của `ExecStart` và đầu `PATH` trùng nhau. Runbook §3 thêm `journalctl --user -u bang-hub | grep 'Interactive terminal'`. Chưa kiểm dưới systemd thật.
+- **I1**: cổng remote có `createRequestGuard` riêng với `remoteAllowedHosts(config.allowedHosts, domain)`; cổng chính giữ guard cũ; `proxyEnv` không ghi domain vào `HABBLAUD_ALLOWED_HOSTS` (và bỏ bản sao do lần setup cũ để lại). Chạy thật: Host hub → cổng chính 403, cổng remote 200. Runbook §3 có `curl ... :4747/` phải ra 403.
+- **I2**: `normalizeIp` (guard.ts) dùng chung cho `FailureWindow` và chủ challenge; `Challenges.add` trả `false` khi map đầy sau khi cắt phần của chính chủ, `loginOptions` trả `null` → 429. Test: challenge của chủ sống sau 5000 options từ một /64 và 6000 IPv4 khác nhau; yêu cầu mới bị từ chối.
+- **I3**: runbook §8 ghi rõ `--reset-passkeys` và xoá passkey KHÔNG thu hồi cookie 7 ngày; muốn đăng xuất mọi nơi: chạy lại `remote:setup --behind-proxy ...` (hash mới đổi khoá HMAC) hoặc dừng service, xoá `~/.habblaud/remote-secret`, khởi động; xoá passkey cuối cùng bật lại đăng nhập mật khẩu.
+- **Độ chính xác**: CHANGELOG (passkey dùng chung `FailureWindow`, flood), comment `remote.ts`, README (`hub.env`, 7 ngày), `PUBLIC_STATIC` chỉ còn `finstar-144|apple-touch-icon|icon-192|icon-512`, xoá `finstar.png` (711 KB, không dùng), thêm pin 403 cho `rooms/rename`, `accounts`, `agy/jobs|stop|defaults`, cờ cloudflared ở §4 ghi "chưa kiểm". Ghi chú review "ALLOWED_HOSTS dùng chung" ở trên đã bị thay thế.
+- **RSS (lazy `@simplewebauthn/server` + esbuild splitting)**: `dist/server/index.js` 1,583 MB → 613 KB, thêm `dist/server/chunks/` (một chunk 968 KB cho thư viện, một chunk 2 KB). Tải lười trong `PasskeyService`. A/B xen kẽ, 60 giây rảnh, 3 mẫu:
+
+| | mẫu 1 | mẫu 2 | mẫu 3 | trung bình |
+|---|---|---|---|---|
+| A: một file, nạp sớm | 94 756 KB | 94 976 KB | 94 068 KB | 94 600 KB |
+| B: tách chunk, nạp lười | 82 848 KB | 83 040 KB | 83 036 KB | 82 975 KB |
+
+  Chênh −11,6 MB (≈ −12%). Với remote bật và 0 lần dùng passkey: 73,9 MB khi rảnh; sau `login/options` đầu tiên (nạp chunk) 83,9 MB. Bundle chạy từ thư mục không có `node_modules`, `login/options` qua chunk trả đúng `rpId` và `userVerification: required`. Splitting không làm hỏng `office.sh`/ExecStart (vẫn `dist/server/index.js`); lưu ý: build không xoá `dist/server/chunks/` cũ (tên có hash nội dung), để tiến trình đang chạy không mất chunk khi build lại.
+- Test: vitest 85 file, 1046 xanh, 1 đỏ là flaky đã biết (`tail.test.ts > detects replaced file`); i18n 1316/1316; pytest agy 89 xanh. Số dòng không-test cả Kế hoạch 6: ròng +722 (trần +600).
+
+## Để lại cho go-live (bổ sung)
+
+- Kiểm dưới systemd thật: dòng "Interactive terminal" bật, `claude`/`agy` tìm thấy qua `PATH` của unit.
+- Cờ `cloudflared` ở runbook §4 chưa chạy thử; đối chiếu với `cloudflared tunnel --help` trước khi chạy.
+- Sau go-live: `curl -H 'Host: hub.finstar.pp.ua' http://127.0.0.1:4747/` phải 403.
