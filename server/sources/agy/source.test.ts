@@ -1,5 +1,5 @@
 // Antigravity source: temporary profiles on disk, a fake /proc, the AccountsService and the Office.
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -7,7 +7,7 @@ import { AccountsService } from '../../accounts/service';
 import { setQuiet } from '../../log';
 import { NameStore } from '../../model/names';
 import { Office } from '../../model/office';
-import { agyDetected, discoverAgyProfiles, emailFromCliLog, emailFromLogs, parseNamesConf, workerName } from './profiles';
+import { agyDetected, discoverAgyProfiles, emailFromCliLog, emailFromLogs, workerName } from './profiles';
 import { scanAgyProcs, type ProcReader } from './procs';
 import { AgySource, END_WAIT_MS } from './source';
 import { parseAgyUsage } from './usage';
@@ -74,15 +74,13 @@ describe('Antigravity profiles', () => {
     expect(found.map((p) => p.acc)).toEqual(['acc1', 'acc2', 'acc10']);
   });
 
-  it('name: names.conf, else the e-mail user up to the first dot, else the account', () => {
-    expect([...parseNamesConf('# conta nome\nacc2 Bob Tran  \nacc3\n')]).toEqual([['acc2', 'Bob Tran']]);
-    expect(workerName({ acc: 'acc2', email: 'x@gmail.com', name: 'Bob' })).toBe('Bob');
+  it('name: the e-mail user up to the first dot, else the account; names.conf is not read', () => {
     expect(workerName({ acc: 'acc2', email: 'alice.nguyen@gmail.com' })).toBe('alice');
     expect(workerName({ acc: 'acc2' })).toBe('acc2');
     const root = profiles(['acc1', 'acc2']);
     writeFileSync(join(root, 'acc1', '.gemini', 'antigravity-cli', 'cli.log'), 'I1 server_oauth.go:229] OAuth: authenticated successfully as alice@gmail.com\n');
     writeFileSync(join(root, 'names.conf'), 'acc2 Carol\n');
-    expect(discoverAgyProfiles(root).map(workerName)).toEqual(['alice', 'Carol']);
+    expect(discoverAgyProfiles(root).map(workerName)).toEqual(['alice', 'acc2']);
   });
 
   it('letter = account number; color outside the ones in use', () => {
@@ -175,7 +173,7 @@ describe('scanAgyProcs: orphans', () => {
   });
 });
 
-function setup(names = ['acc2', 'acc3']) {
+function setup(names = ['acc2', 'acc3'], opts: { askBin?: string; folder?: string; env?: NodeJS.ProcessEnv } = {}) {
   const root = profiles(names);
   let clock = BOOT_MS + 100_000;
   const now = () => clock;
@@ -197,15 +195,20 @@ function setup(names = ['acc2', 'acc3']) {
     accounts,
     office,
     root,
-    room: '/w/agy-hub',
     home: root,
+    askBin: opts.askBin ?? '/nonexistent/worker-ask',
+    folder: () => opts.folder ?? '',
+    env: opts.env,
     procs: fakeProc(procs),
     kill: (pid, sig) => void killed.push([pid, sig]),
     usage: async (acc) => (acc === 'acc2' ? 'Gemini Models\tWeekly Limit Remaining\t90%\t2030-10-31T09:52:49Z\n' : ''),
     now,
   });
   cleanups.unshift(() => source.stop());
+  const seats = (accs: string[]) => accs.map((acc) => ({ acc, agentId: `agy:${acc}`, name: `${acc} (Agy)`, room: '/w/agy-hub' }));
+  source.setTeam(seats(names));
   return {
+    seats,
     root,
     killed,
     accounts,
@@ -329,7 +332,7 @@ describe('AgySource', () => {
 
   it('ghost check: a profile with no character is not watched', () => {
     const t = setup();
-    t.source.setTeam(['acc2']);
+    t.source.setTeam(t.seats(['acc2']));
     t.source.start();
     t.job(31, 'acc3', 'not a worker');
     expect(t.source.ghostCandidates()).toEqual([]);
@@ -381,7 +384,7 @@ describe('AgySource', () => {
     expect(t.agent('acc3')?.stats).toMatchObject({ tokensIn: 50, tokensOut: 5 });
   });
 
-  it('sending a job validates the worker, mode, role and prompt (no jobsDir = off)', () => {
+  it('sending a job validates the seat, mode, role and prompt (no folder = 400)', () => {
     const t = setup();
     t.source.start();
     expect(t.source.assign('agy:nada', { prompt: 'x', mode: 'plan' })).toMatchObject({ ok: false, status: 404 });
@@ -445,7 +448,7 @@ describe('AgySource', () => {
   it('job effort is validated: only the Gemini 3.8 Flash levels', () => {
     const t = setup();
     t.source.start();
-    (t.source as unknown as { opts: { jobsDir?: string } }).opts.jobsDir = join(t.root, 'jobs');
+    (t.source as unknown as { opts: { folder: () => string } }).opts.folder = () => t.root;
     expect(t.source.assign('agy:acc2', { prompt: 'x', mode: 'plan', effort: 'max' })).toMatchObject({ ok: false, error: 'unknown effort' });
   });
 
@@ -484,42 +487,43 @@ describe('AgySource', () => {
     ]);
   });
 
-  it('team: only registered workers get a character; every profile is an account and seeded', () => {
+  it('team: only seated accounts get a character; every profile is an account', () => {
     const t = setup(['acc2', 'acc3', 'acc4']);
-    expect(t.source.seed()).toEqual(['acc2', 'acc3', 'acc4']);
     expect(t.source.profiles()).toEqual([
       { acc: 'acc2', account: 'agy:acc2' },
       { acc: 'acc3', account: 'agy:acc3' },
       { acc: 'acc4', account: 'agy:acc4' },
     ]);
-    t.source.setTeam(['acc2']);
+    t.source.setTeam(t.seats(['acc2']));
     t.source.start();
     expect(t.agent('acc2')?.status).toBe('idle');
     expect(t.agent('acc3')).toBeUndefined();
     // every profile stays an account (usage, login terminal)
     expect(t.accounts.list(new Map()).map((a) => a.id)).toEqual(['agy:acc2', 'agy:acc3', 'agy:acc4']);
-    expect(t.source.worker('agy:acc4')).toEqual({ acc: 'acc4', account: 'agy:acc4' });
-    // a job of an unregistered account is not watched
+    // a job of an account without a seat is not watched
     t.job(31, 'acc3', 'Hello');
     t.source.poll();
     expect(t.agent('acc3')).toBeUndefined();
+    // no seats = no characters
+    t.source.setTeam([]);
+    expect(t.agent('acc2')?.status).toBe('offline');
   });
 
   it('setTeam: a new worker walks in right away, a removed one leaves (and can come back)', () => {
     const t = setup();
     t.source.start();
     expect(t.agent('acc3')?.status).toBe('idle');
-    t.source.setTeam(['acc2']);
+    t.source.setTeam(t.seats(['acc2']));
     expect(t.agent('acc3')?.status).toBe('offline');
     // gone after the grace period, then registered again
     t.advance(60_000);
     t.office.tick();
     expect(t.agent('acc3')).toBeUndefined();
-    t.source.setTeam(['acc2', 'acc3']);
+    t.source.setTeam(t.seats(['acc2', 'acc3']));
     expect(t.agent('acc3')).toMatchObject({ status: 'idle', name: 'acc3 (Agy)', roomId: '/w/agy-hub' });
     // back during the grace period: the same character returns
-    t.source.setTeam(['acc2']);
-    t.source.setTeam(['acc2', 'acc3']);
+    t.source.setTeam(t.seats(['acc2']));
+    t.source.setTeam(t.seats(['acc2', 'acc3']));
     expect(t.agent('acc3')?.status).toBe('idle');
   });
 
@@ -538,7 +542,7 @@ describe('AgySource', () => {
     const colors = t.accounts.list(new Map()).map((a) => a.color);
     (t.source as unknown as { rescan(): void }).rescan();
     expect(t.accounts.list(new Map()).map((a) => a.color)).toEqual(colors);
-    t.source.setTeam(['acc2', 'acc3', 'acc5']);
+    t.source.setTeam(t.seats(['acc2', 'acc3', 'acc5']));
     expect(t.agent('acc5')?.status).toBe('idle');
     rmSync(join(t.root, 'acc3'), { recursive: true, force: true });
     (t.source as unknown as { rescan(): void; syncCharacters(): void }).rescan();
@@ -547,25 +551,72 @@ describe('AgySource', () => {
     expect(t.source.profiles().map((p) => p.acc)).toEqual(['acc2', 'acc5']);
   });
 
-  it('seats: one character per office (named "(2)" after the first) in each office\'s room; a terminal job shows on its office\'s seat', () => {
+  it('two seats on one account: named by seat in the folder room; the board still shows; a terminal job only on its seat', () => {
     const t = setup();
-    let busyOffice: string | undefined;
-    t.source.setExternal((acc, office) => ({ busy: acc === 'acc2' && office === busyOffice, driving: false }));
-    t.source.setTeam(['acc2'], [], [
-      { acc: 'acc2', agentId: 'agy:acc2', name: 'two (Agy)', room: '/w/agy-hub', office: 'main' },
-      { acc: 'acc2', agentId: 'agy:acc2@fin', name: 'two (Agy) (2)', room: '/w/agy-hub@fin', office: 'fin' },
+    let busy = '';
+    t.source.setExternal((id) => ({ busy: id === busy }));
+    t.source.setTeam([
+      { acc: 'acc2', agentId: 'agy:acc2', name: 'W1', room: '/w/ocr' },
+      { acc: 'acc2', agentId: 'agy:acc2@W2', name: 'W2', room: '/w/ocr' },
     ]);
     t.source.start();
-    expect(t.agent('acc2')).toMatchObject({ name: 'two (Agy)', roomId: '/w/agy-hub', status: 'idle' });
-    const second = () => t.office.commit().snapshot.agents.find((a) => a.id === 'agy:acc2@fin');
-    expect(second()).toMatchObject({ name: 'two (Agy) (2)', roomId: '/w/agy-hub@fin', status: 'idle', provider: 'agy' });
-    busyOffice = 'fin';
+    const get = (id: string) => t.office.commit().snapshot.agents.find((a) => a.id === id);
+    expect(get('agy:acc2')).toMatchObject({ name: 'W1', roomId: '/w/ocr' });
+    expect(get('agy:acc2@W2')).toMatchObject({ name: 'W2', roomId: '/w/ocr', provider: 'agy' });
+    busy = 'agy:acc2@W2';
     t.source.poll();
-    expect(second()?.status).toBe('working');
-    expect(t.agent('acc2')?.status).toBe('idle');
-    // the office leaves: its seat goes away, the first one stays
-    t.source.setTeam(['acc2'], [], [{ acc: 'acc2', agentId: 'agy:acc2', name: 'two (Agy)', room: '/w/agy-hub', office: 'main' }]);
-    expect(second()?.status).toBe('offline');
-    expect(t.agent('acc2')?.status).not.toBe('offline');
+    expect([get('agy:acc2')?.status, get('agy:acc2@W2')?.status]).toEqual(['idle', 'working']);
+    t.source.upsertJob({ id: 'agy:acc2@W2#w1', agentId: 'agy:acc2@W2', worker: 'W2', text: 'two', status: 'working', at: 1 });
+    expect(t.office.commit().snapshot.rooms.find((r) => r.id === '/w/ocr')?.board?.items.map((i) => i.worker)).toEqual(['W2']);
+    // a headless agy of acc2 (seen in /proc) shows on the account's first seat
+    t.job(41, 'acc2', 'Hello');
+    t.source.poll();
+    expect(get('agy:acc2')?.status).toBe('working');
+    // the first seat keeps its old session id; the second is its own
+    expect(t.office.get('agy:acc2')?.sessionId).toBe('agy-acc2');
+    expect(t.office.get('agy:acc2@W2')?.sessionId).toBe('agy-agy:acc2@W2');
+  });
+
+  it('an Antigravity boss seat is titled boss; the worker seat of the same account is not', () => {
+    const t = setup();
+    t.source.setTeam([
+      { acc: 'acc2', agentId: 'agy:acc2', name: 'W1', room: '/w/ocr' },
+      { acc: 'acc2', agentId: 'agy-boss:acc2', name: 'two (Agy)', room: '/w/ocr', boss: true },
+    ]);
+    t.source.start();
+    const title = (id: string) => t.office.commit().snapshot.agents.find((a) => a.id === id)?.title;
+    expect([title('agy-boss:acc2'), title('agy:acc2')]).toEqual(['boss', 'free']);
+  });
+
+  it('an account with only the boss seat sorts first: the board still publishes', () => {
+    const t = setup(['acc1', 'acc2']);
+    t.source.setTeam([
+      { acc: 'acc1', agentId: 'agy-boss:acc1', name: 'boss', room: '/w/ocr', boss: true },
+      { acc: 'acc2', agentId: 'agy:acc2', name: 'W1', room: '/w/ocr' },
+    ]);
+    t.source.start();
+    t.source.upsertJob({ id: 'agy:acc2#w1', agentId: 'agy:acc2', worker: 'W1', text: 'one', status: 'working', at: 1 });
+    expect(t.office.commit().snapshot.rooms.find((r) => r.id === '/w/ocr')?.board?.items).toHaveLength(1);
+  });
+
+  it('assign runs worker-ask with the seat name in the office folder', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bang-ask-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const askBin = join(dir, 'ask');
+    const out = join(dir, 'out.txt');
+    writeFileSync(askBin, '#!/bin/sh\nprintf \'%s\\n\' "$PWD" "$@" > "$OUT"\n', { mode: 0o755 });
+    const folder = realpathSync(dir);
+    const t = setup(['acc2'], { askBin, folder, env: { ...process.env, OUT: out } });
+    t.source.setTeam([
+      { acc: 'acc2', agentId: 'agy:acc2', name: 'W1', room: folder },
+      { acc: 'acc2', agentId: 'agy:acc2@W2', name: 'W2', room: folder },
+    ]);
+    expect(t.source.assign('agy:acc2@W2', { prompt: 'x', mode: 'plan' })).toEqual({ ok: true });
+    for (let i = 0; i < 100 && !existsSync(out); i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(readFileSync(out, 'utf8').trim().split('\n')).toEqual([folder, 'W2', 'x', '--role', 'manual', '--max', '2000', '--mode', 'plan']);
+    // no folder yet: refused before anything runs
+    const none = setup(['acc2']);
+    expect(none.source.assign('agy:acc2', { prompt: 'x' })).toMatchObject({ ok: false, status: 400 });
   });
 });

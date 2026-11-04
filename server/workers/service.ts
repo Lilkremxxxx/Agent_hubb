@@ -212,9 +212,9 @@ export class WorkerService {
     return j && view(j);
   }
 
-  /** For the worker's character: a job is running. */
-  statusOf(worker: string): { busy: boolean; role?: string } | undefined {
-    const s = this.sessions.get(worker);
+  /** For a seat's character: a job is running on it. */
+  statusOf(agentId: string): { busy: boolean; role?: string } | undefined {
+    const s = [...this.sessions.values()].find((x) => x.t.agentId === agentId);
     if (!s) return undefined;
     const busy = !!s.job && live(s.job);
     return { busy, ...(busy && s.job!.role ? { role: s.job!.role } : {}) };

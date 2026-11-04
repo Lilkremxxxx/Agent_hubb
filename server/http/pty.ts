@@ -1,7 +1,6 @@
 // Interactive terminal routes (PtyManager, server/pty/manager.ts):
 //   GET  /api/pty                      feature status and open terminals
-//   POST /api/pty                      {cwd, account?, cols?, rows?}: new Claude Code session;
-//                                      {agy: agentId, cols?, rows?}: an Antigravity worker's interactive agy
+//   POST /api/pty                      {cwd, account?, cols?, rows?}: new Claude Code session
 //   GET  /api/pty/:id/stream           SSE: reset (screen buffer) | data | exit
 //   POST /api/pty/:id/input|resize|close
 //   POST /api/agents/:id/stop          stops agent (here or in another terminal)
@@ -87,7 +86,6 @@ export function createPtyRoutes(ptys: PtyManager): (req: IncomingMessage, res: S
       if (method === 'GET') return sendJson(res, 200, { status: ptys.status(), ptys: ptys.list() });
       if (method !== 'POST') return notAllowed(res, 'GET, POST');
       const body = (await readJson(req)) as Record<string, unknown>;
-      if (body?.agy !== undefined) return sendJson(res, 201, ptys.openAgy({ agent: body.agy, cols: body?.cols, rows: body?.rows }));
       return sendJson(res, 201, ptys.create({ cwd: body?.cwd, account: body?.account, cols: body?.cols, rows: body?.rows }));
     }
     const id = decode(rawId);

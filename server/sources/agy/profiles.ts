@@ -2,10 +2,10 @@
 // `agy-as accN` uses), with agy state in <profile>/.gemini/antigravity-cli. Each one is an account; the ones registered
 // in the team (server/team.ts) are the workers in the office.
 //
-// Character name: from ~/.agy_profiles/names.conf ("acc2 Huy"), else the account's e-mail username
-// ("alice@gmail.com" -> "alice"; up to the first dot), else the account ("acc2").
+// Worker name: the account's e-mail username ("alice@gmail.com" -> "alice"; up to the first dot), else the account
+// ("acc2"). A seat's own name comes from team.json.
 // E-mail: from the most recent "OAuth: ..." line in agy's cli.log (for name and label only; no credentials).
-import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readdirSync, readSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { ACCOUNT_COLORS, type DetectedAccount } from '../../accounts/detect';
 
@@ -22,18 +22,6 @@ export interface AgyProfile {
   /** agy state for the account (<profile>/.gemini/antigravity-cli). */
   stateDir: string;
   email?: string;
-  /** Name chosen in names.conf. */
-  name?: string;
-}
-
-/** `names.conf`: "account character-name" per line (name may contain spaces), `#` for comments. */
-export function parseNamesConf(text: string): Map<string, string> {
-  const names = new Map<string, string>();
-  for (const raw of text.split('\n')) {
-    const m = /^\s*(\S+)\s+(.+?)\s*$/.exec(raw.replace(/#.*/, ''));
-    if (m) names.set(m[1], m[2]);
-  }
-  return names;
 }
 
 /** Account e-mail from the last "server_oauth ... OAuth: ..." line in cli.log (reads only end of file). */
@@ -117,12 +105,6 @@ export function discoverAgyProfiles(root: string): AgyProfile[] {
   } catch {
     return [];
   }
-  let custom = new Map<string, string>();
-  try {
-    custom = parseNamesConf(readFileSync(join(root, 'names.conf'), 'utf8'));
-  } catch {
-    // no names.conf: name from e-mail
-  }
   return names
     .filter((n) => !n.startsWith('_') && !n.startsWith('.') && isDir(join(root, n, '.gemini', 'antigravity-cli')))
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
@@ -132,19 +114,17 @@ export function discoverAgyProfiles(root: string): AgyProfile[] {
       const p: AgyProfile = { acc, home, stateDir };
       const email = emailFromLogs(stateDir);
       if (email) p.email = email;
-      const name = custom.get(acc);
-      if (name) p.name = name;
       return p;
     });
 }
 
-/** Worker name: names.conf, else the e-mail user (up to the first dot), else the account. */
-export function workerName(p: Pick<AgyProfile, 'acc' | 'email' | 'name'>): string {
-  return p.name || p.email?.split('@')[0].split('.')[0] || p.acc;
+/** Worker name: the e-mail user (up to the first dot), else the account. */
+export function workerName(p: Pick<AgyProfile, 'acc' | 'email'>): string {
+  return p.email?.split('@')[0].split('.')[0] || p.acc;
 }
 
 /** Name shown for the character and the account card: "alice (Agy)". */
-export function workerLabel(p: Pick<AgyProfile, 'acc' | 'email' | 'name'>): string {
+export function workerLabel(p: Pick<AgyProfile, 'acc' | 'email'>): string {
   return `${workerName(p)} (Agy)`;
 }
 

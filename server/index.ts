@@ -71,17 +71,17 @@ const office = new Office({
 const claude = new ClaudeWatcher({ accounts, office, inDocker: config.inDocker, ignore: (_acc, pid) => !!late.workers?.ownsPid(pid) });
 const agents = new SourceSet([claude]);
 // Antigravity CLI workers (sources/agy/): every profile in ~/.agy_profiles is an account, the ones registered in the
-// team are workers in config.agy.room; HABBLAUD_AGY=0 turns it off. Linux only (reads /proc).
+// team have characters in the office folder; HABBLAUD_AGY=0 turns it off. Linux only (reads /proc).
 const agyRoot = agyProfilesRoot(process.env, config.home);
 const agy = config.agy.enabled && process.platform === 'linux'
   ? new AgySource({
       accounts,
       office,
       root: agyRoot,
-      room: config.agy.room,
       home: config.home,
       usageMs: config.agy.usageMs,
-      jobsDir: join(config.dataDir, 'agy-jobs'),
+      askBin: join(config.rootDir, 'tools', 'agy', 'bin', 'worker-ask'),
+      folder: () => team.folder,
     })
   : undefined;
 if (agy) agents.add(agy);
@@ -103,22 +103,18 @@ syncAgy();
 
 /**
  * The Antigravity characters: one per agy seat (the first seat of an account keeps "agy:<acc>"), plus the Antigravity
- * boss "agy-boss:<acc>", all in the team's folder.
+ * boss "agy-boss:<acc>", all in the team's folder (empty until set: AgySource stands them in home).
  */
-function agySeats(): AgySeat[] {
-  const room = team.folder || config.home;
-  // Temporary until the seat model reaches AgySource: `office` = the seat name keeps each character's sessionId apart.
-  const out: AgySeat[] = team.seats().filter((s) => s.kind === 'agy').map((s) => ({ acc: s.account, agentId: s.agentId, name: s.name, room, office: s.name }));
+function syncAgy(): void {
+  if (!agy) return;
+  const room = team.folder;
+  const seats: AgySeat[] = team.seats().filter((s) => s.kind === 'agy').map((s) => ({ acc: s.account, agentId: s.agentId, name: s.name, room }));
   if (team.boss.kind === 'agy') {
     const acc = team.boss.account;
-    const p = agy?.profileOf(acc);
-    if (p) out.push({ acc, agentId: agyBossId(acc), name: p.name, room });
+    const p = agy.profileOf(acc);
+    if (p) seats.push({ acc, agentId: agyBossId(acc), name: p.name, room, boss: true });
   }
-  return out;
-}
-function syncAgy(): void {
-  // workers = accounts of agy seats only: the boss account must not count as a worker (full house, board lookups)
-  agy?.setTeam([...new Set(team.seats().filter((x) => x.kind === 'agy').map((x) => x.account))], team.boss.kind === 'agy' ? [team.boss.account] : [], agySeats());
+  agy.setTeam(seats);
 }
 team.start();
 late.office = office;
@@ -171,7 +167,6 @@ const ptys = spawnPty
   ? new PtyManager({
       spawn: spawnPty,
       claudeBin: claudeBin ?? 'claude',
-      agy: agy ? { bin: join(config.home, '.local', 'bin', 'agy-as'), cwd: config.agy.room, worker: (id) => agy.worker(id) } : undefined,
       accounts: () => accounts.entries().map((a) => ({ id: a.id, dir: a.dir, isDefault: isDefaultDir(a.dir, config.home) })),
       agent: (id) => {
         const a = office.get(id);
@@ -179,7 +174,7 @@ const ptys = spawnPty
       },
       onChange: () => office.markDirty(),
       reopen: (id) => {
-        return team.folder && team.boss.kind === 'agy' && id === agyBossId(team.boss.account) ? openAgyBossTerminal(team.boss.account) : undefined;
+        return team.folder && team.boss.kind === 'agy' && id === agyBossId(team.boss.account) ? openBossAgyTerminal(team.boss.account) : undefined;
       },
       createScreen: ptyScreen,
     })
@@ -189,7 +184,8 @@ late.ptyOff = ptyOff;
 
 // Worker terminals (server/workers): jobs typed into each registered worker's terminal, answered from its conversation
 // file; you can watch them. Needs the interactive terminal.
-const agyBin = join(config.home, '.local', 'bin', 'agy-as');
+// The repo's own agy-as (the ~/.local/bin link may point to another checkout that writes a plugin into the profile).
+const agyBin = join(config.rootDir, 'tools', 'agy', 'bin', 'agy-as');
 const workers = ptys
   ? new WorkerService({
       office,
@@ -216,15 +212,14 @@ const workers = ptys
   : undefined;
 late.workers = workers;
 if (workers) {
-  // the seat name is the target id (temporary: the shim puts it in `office`)
-  agy?.setExternal((acc, seatName) => workers.statusOf(seatName ?? acc));
+  agy?.setExternal((agentId) => workers.statusOf(agentId));
   workers.start();
 }
 
 const noFolderMsg = () => tr('the office has no folder yet: set "folder" in {0}', [join(config.dataDir, 'team.json')]);
 
 /** The Antigravity boss's terminal (the open one, or a new idle agy: no prompt, no quota), in the team's folder; AGY_BOSS=1 marks the boss. */
-function openAgyBossTerminal(acc: string): PtyInfo {
+function openBossAgyTerminal(acc: string): PtyInfo {
   if (!team.folder) throw new PtyError(400, noFolderMsg());
   const agentId = agyBossId(acc);
   const open = ptys!.ofAgent(agentId);
@@ -242,7 +237,7 @@ async function openBoss(): Promise<{ ok: true; pty: PtyInfo } | { ok: false; sta
     if (open) return { ok: true, pty: open };
     if (kind === 'agy') {
       if (!agy?.profileOf(acc)) return fail(404, tr('Antigravity account not found: {0}', [acc]));
-      return { ok: true, pty: openAgyBossTerminal(acc) };
+      return { ok: true, pty: openBossAgyTerminal(acc) };
     }
     const dir = claudeConfigDir(acc, config.home);
     const account = accounts.entries().find((e) => resolve(e.dir) === dir)?.id ?? accounts.addDir(dir);
@@ -256,7 +251,7 @@ async function openBoss(): Promise<{ ok: true; pty: PtyInfo } | { ok: false; sta
 }
 if (ptys && team.boss.kind === 'agy') {
   try {
-    openAgyBossTerminal(team.boss.account);
+    openBossAgyTerminal(team.boss.account);
   } catch (err) {
     log.warn(tr("Couldn't open the Antigravity boss's terminal: {0}", [errMsg(err)]));
   }
@@ -313,7 +308,7 @@ const api = createApiHandler({
         home: config.home,
         agyRoot: agyProfilesRoot(process.env, config.home),
         claudeBin: claudeBin ?? 'claude',
-        agyBin: join(config.home, '.local', 'bin', 'agy-as'),
+        agyBin,
         claudeAccounts: () => accounts.entries().map((a) => ({ id: a.id, dir: a.dir, isDefault: isDefaultDir(a.dir, config.home) })),
         addClaudeDir: (dir) => accounts.addDir(dir),
         refresh: () => accounts.refresh(),

@@ -66,23 +66,11 @@ export interface PtyScreen {
 
 export type ScreenFactory = (cols: number, rows: number) => PtyScreen;
 
-/** Interactive agy of an Antigravity worker (sources/agy/): `agy-as <acc>` in the Antigravity room. */
-export interface PtyAgy {
-  /** The agy-as script (runs agy confined to the account profile). */
-  bin: string;
-  /** Folder the terminal opens in (the Antigravity room). */
-  cwd: string;
-  /** Worker in the office with this agent id: its profile (accN) and account id. */
-  worker: (agentId: string) => { acc: string; account: string } | undefined;
-}
-
 export interface PtyManagerOptions {
   spawn: SpawnPty | null;
   /** Why the feature is disabled (when `spawn` is null). */
   disabledReason?: string;
   claudeBin: string;
-  /** Antigravity workers (absent = none in the office). */
-  agy?: PtyAgy;
   accounts: () => PtyAccount[];
   agent: (id: string) => PtyAgentRef | undefined;
   onChange: () => void;
@@ -249,36 +237,6 @@ export class PtyManager {
   /** Opens a new Claude Code session in directory (absolute `cwd`), in requested account (or default). */
   create(p: { cwd: unknown; account?: unknown; cols?: unknown; rows?: unknown }): PtyInfo {
     return this.spawn(this.plan(p, this.takeovers.size));
-  }
-
-  /**
-   * Opens the interactive agy of an Antigravity worker (Manual mode), or returns the one already open: `agy-as <acc>`
-   * in the Antigravity room. "End" closes it like any terminal opened here (stop() finds it by agent).
-   */
-  openAgy(p: { agent: unknown; cols?: unknown; rows?: unknown }): PtyInfo {
-    const spawn = this.opts.spawn;
-    if (!spawn) throw new PtyError(503, tr('terminal disabled: {0}', [this.opts.disabledReason ?? tr('unavailable')]));
-    const agy = this.opts.agy;
-    const agentId = typeof p.agent === 'string' ? p.agent : '';
-    const worker = agy?.worker(agentId);
-    if (!agy || !worker) throw new PtyError(404, tr('Antigravity worker not found'));
-    const own = this.byAgent(agentId);
-    if (own) return { ...own.info };
-    if (!isExecutableFile(agy.bin)) throw new PtyError(503, tr("agy-as doesn't run: {0}", [agy.bin]));
-    this.checkLimit(this.takeovers.size);
-    const cols = clampInt(p.cols, 20, 400, 100);
-    const rows = clampInt(p.rows, 5, 200, 30);
-    const env = this.baseEnv();
-    env.PATH = `${dirname(agy.bin)}:${env.PATH ?? ''}`;
-    let proc: PtyProcess;
-    try {
-      proc = spawn(agy.bin, [worker.acc], { cwd: agy.cwd, cols, rows, env });
-    } catch (err) {
-      throw new PtyError(500, tr("couldn't open agy: {0}", [errMsg(err)]));
-    }
-    const info: PtyInfo = { id: `p${++this.seq}-${proc.pid}`, pid: proc.pid, cwd: agy.cwd, account: worker.account, agentId, startedAt: this.now() };
-    log.info(tr('Terminal {0} opened in {1} (account {2}).', [info.id, agy.cwd, worker.acc]));
-    return this.track(proc, info, cols, rows);
   }
 
   /**

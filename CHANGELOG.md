@@ -10,10 +10,12 @@ middle one (0.**3**.0).
 
 ### Changed
 
+- Antigravity characters are made from the seats (one per seat, in the office folder); a worker's name is its seat name.
 - Worker jobs: one job per seat (BUSY per seat); seats on one agy account start one after another (a second job answers `queued`); every job runs in the office folder with `BANG_SLOT` and `BANG_OFFICE`.
 
 ### Removed
 
+- `names.conf` and the manual Antigravity terminal (`POST /api/pty {agy}`); the server and the page's "send a job" run the repo's own `tools/agy/bin/agy-as` and `worker-ask`.
 - Release tooling, Docker (`docker:up`, compose files), the legacy statusline and permission-hook installers and the statusline tap.
 - The update checker (the "New version" badge) and the news feed.
 - Demo mode (`?mock=1`, `npm run demo`, the simulator).

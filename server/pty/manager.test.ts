@@ -373,53 +373,6 @@ describe('load node-pty and find claude', () => {
   );
 });
 
-describe('PtyManager: interactive agy of an Antigravity worker', () => {
-  const agy = { bin: process.execPath, cwd: tmpdir(), worker: (id: string) => (id === 'agy:acc2' ? { acc: 'acc2', account: 'agy:acc2' } : undefined) };
-
-  it('opens agy-as <acc> in the Antigravity room, tied to the worker; a second open returns the same terminal', () => {
-    const s = setup({ agy });
-    const info = s.manager.openAgy({ agent: 'agy:acc2', cols: 120, rows: 32 });
-    expect(s.spawned).toEqual([{ args: ['acc2'], cwd: tmpdir() }]);
-    expect(info).toMatchObject({ agentId: 'agy:acc2', account: 'agy:acc2', cwd: tmpdir() });
-    expect(s.manager.openAgy({ agent: 'agy:acc2' }).id).toBe(info.id);
-    expect(s.spawned).toHaveLength(1);
-  });
-
-  it('"End" closes it like any terminal opened here', async () => {
-    const s = setup({ agy });
-    s.manager.openAgy({ agent: 'agy:acc2' });
-    await s.manager.stop('agy:acc2');
-    expect(s.manager.list()[0].exitedAt).toBeDefined();
-    expect(s.killPid).not.toHaveBeenCalled();
-  });
-
-  it('a program that ignores SIGHUP (agy at its trust prompt) gets SIGTERM, then SIGKILL', async () => {
-    vi.useFakeTimers();
-    try {
-      const sent: string[] = [];
-      const s = setup({ agy, signal: (_pid, sig) => void sent.push(sig) });
-      s.manager.openAgy({ agent: 'agy:acc2' });
-      const proc = (s.manager as unknown as { ptys: Map<string, { proc: FakeProc }> }).ptys.values().next().value!.proc;
-      proc.kill = () => {};
-      await s.manager.stop('agy:acc2');
-      vi.advanceTimersByTime(2_000);
-      expect(sent).toEqual(['SIGTERM']);
-      vi.advanceTimersByTime(3_000);
-      expect(sent).toEqual(['SIGTERM', 'SIGKILL']);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('rejects unknown or vacant workers, no Antigravity workers at all, and a missing agy-as', () => {
-    expect(() => setup({ agy }).manager.openAgy({ agent: 'agy:acc3' })).toThrow(PtyError);
-    expect(() => setup().manager.openAgy({ agent: 'agy:acc2' })).toThrow(PtyError);
-    const missing = setup({ agy: { ...agy, bin: join(tmpdir(), 'no-agy-as') } });
-    expect(() => missing.manager.openAgy({ agent: 'agy:acc2' })).toThrow(/agy-as/);
-    expect(missing.spawned).toHaveLength(0);
-  });
-});
-
 describe('PtyManager: sign-in terminal (accounts dialog)', () => {
   it('runs the command with its env, tied to "login:<account>"; asking again returns it; onExit when it closes', () => {
     const envs: NodeJS.ProcessEnv[] = [];

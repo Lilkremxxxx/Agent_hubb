@@ -1,8 +1,8 @@
 // Antigravity CLI agent source (AgentSource 'agy', see sources/source.ts): the `agy` workers Claude Code uses as
 // helpers, one isolated profile per account in ~/.agy_profiles/accN (sources/agy/profiles.ts).
 //
-// Every profile is an account (AccountsService, `/usage`, login terminal); only the ones registered as workers in the
-// team (server/team.ts, setTeam) get a character in the Antigravity room (config.agy.room), named after the account.
+// Every profile is an account (AccountsService, `/usage`, login terminal); only the seats of the team (server/team.ts,
+// setTeam) get a character, in the office folder, named after the seat.
 // The profiles folder is re-read every RESCAN_MS, so an account logged in later shows up on its own.
 // None of this costs tokens: status comes only from local files and processes.
 // - Working: an `agy` process of the account is running (sources/agy/procs.ts). A headless call (agy-ask, batch
@@ -19,8 +19,8 @@
 // - Job board (RoomInfo.board): from the agy-ask start/end lines too, so it survives a restart.
 // - Plan usage: each account's `/usage` (sources/agy/usage.ts), one at a time, every config.agy.usageMs.
 import { spawn } from 'node:child_process';
-import { mkdirSync, statSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { statSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import type { Activity, AgentStats, AgentStatus, JobBoardItem, SourceInfo } from '../../../shared/types';
 import { formatDuration, maskSecrets, truncate } from '../../../shared/activity';
 import type { AccountsService } from '../../accounts/service';
@@ -75,15 +75,15 @@ export interface AgyAskLine {
   via?: string;
 }
 
-/** A character to show for a profile (server/team.ts seat, or an Antigravity boss). */
+/** A character to show for a profile (server/team.ts seat, or the Antigravity boss). */
 export interface AgySeat {
   acc: string;
+  /** Agent id: the first seat of an account is "agy:<acc>", later ones "agy:<acc>@<name>", the boss "agy-boss:<acc>". */
   agentId: string;
   name: string;
-  /** Folder (or "<workers room>@<office>") its room is made of. */
+  /** Folder its room is made of (the office folder; empty = not set yet, the character stands in home). */
   room: string;
-  /** OfficeInfo.id of the seat (terminal jobs of that office show on it). */
-  office?: string;
+  boss?: boolean;
 }
 
 /** Statuses of a job stopped on purpose: neither a success nor a failure (PAUSED only in old log lines). */
@@ -116,14 +116,15 @@ export interface AgySourceOptions {
   office: Office;
   /** Profiles root (~/.agy_profiles). */
   root: string;
-  /** Folder of the workers room. */
-  room: string;
+  /** Home: where a character stands while the office has no folder yet. */
   home: string;
   env?: NodeJS.ProcessEnv;
   /** Interval of each account's `/usage` (0 = off). */
   usageMs?: number;
-  /** Folder for jobs sent from the office (one subfolder per account); absent = sending is off. */
-  jobsDir?: string;
+  /** The repo's worker-ask: runs a job on a seat (`worker-ask <seat name> <prompt> …`). */
+  askBin: string;
+  /** The office folder (team.json); empty = not set, sending is refused. */
+  folder: () => string;
   pollMs?: number;
   /** Interval to re-read the profiles folder (RESCAN_MS). */
   rescanMs?: number;
@@ -178,21 +179,14 @@ function boardText(prompt: string | undefined): string {
 
 export class AgySource implements AgentSource {
   readonly provider = 'agy' as const;
-  /** Every profile, registered or not (accounts, `/usage`, login terminal). */
+  /** Every profile, seated or not (accounts, `/usage`, login terminal). */
   private all: Worker[] = [];
-  /** Profiles registered as workers (team.json); until setTeam, every profile. */
-  private team: Set<string>;
-  /** Profiles with a character in the office now. */
+  /** Characters in the office now: agent id -> account. */
   private readonly shown = new Map<string, string>();
-  /**
-   * The characters to show (server/team.ts seats: one per office a worker belongs to, plus each Antigravity boss);
-   * undefined = one per registered profile in the workers room (no offices).
-   */
-  private seatList: AgySeat[] | undefined;
-  /** The Antigravity boss (server/team.ts): it gets a character too (and a terminal), but no jobs. */
-  private bossAccs = new Set<string>();
-  /** Worker terminals (server/workers): a job running there. */
-  private external: ((acc: string, office?: string) => { busy: boolean; role?: string } | undefined) | undefined;
+  /** The characters to show (server/team.ts: the agy seats and the Antigravity boss); none = no characters. */
+  private seatList: AgySeat[] = [];
+  /** Worker terminals (server/workers): a job running on a seat. */
+  private external: ((agentId: string) => { busy: boolean; role?: string } | undefined) | undefined;
   private started = false;
   private readonly now: () => number;
   private readonly procs: ProcReader;
@@ -220,12 +214,11 @@ export class AgySource implements AgentSource {
     this.procs = opts.procs ?? procReader();
     this.tail = new FileTail(join(opts.root, 'agy-ask.log.jsonl'));
     this.rescan();
-    this.team = new Set(this.seed());
   }
 
-  /** Registered workers, in profile order. */
+  /** Profiles with a worker seat (a boss-only account is not a worker: full house, jobs). */
   private get workers(): Worker[] {
-    return this.all.filter((w) => this.team.has(w.profile.acc));
+    return this.all.filter((w) => this.seatList.some((x) => x.acc === w.profile.acc && !x.boss));
   }
 
   /**
@@ -268,31 +261,19 @@ export class AgySource implements AgentSource {
     return this.all.map((w) => ({ acc: w.profile.acc, account: w.account }));
   }
 
-  /** Workers of a brand-new team: every profile. */
-  seed(): string[] {
-    return this.all.map((w) => w.profile.acc);
-  }
-
-  /**
-   * The registered workers changed (server/team.ts): characters walk in or leave right away. Claude workers
-   * ("claude:…") are not this source's; `bossAccs` = the Antigravity bosses (one per office), which get a character too.
-   */
-  setTeam(workers: readonly string[], bossAccs: readonly string[] = [], seats?: readonly AgySeat[]): void {
-    this.team = new Set(workers.filter((w) => !w.startsWith('claude:')));
-    this.bossAccs = new Set(bossAccs);
-    this.seatList = seats ? seats.filter((x) => !x.acc.startsWith('claude:')) : undefined;
+  /** The seats changed (server/team.ts): characters walk in or leave right away. No seats = no characters. */
+  setTeam(seats: readonly AgySeat[]): void {
+    this.seatList = [...seats];
     if (this.started) this.syncCharacters();
   }
 
-  /** The characters to show now: the seats of signed-in profiles (or one per present profile without offices). */
+  /** The characters to show now: the seats of signed-in profiles. */
   private seatsNow(): AgySeat[] {
-    const present = this.present;
-    if (this.seatList) return this.seatList.filter((x) => present.some((w) => w.profile.acc === x.acc));
-    return present.map((w) => ({ acc: w.profile.acc, agentId: w.id, name: workerLabel(w.profile), room: this.opts.room }));
+    return this.seatList.filter((x) => this.all.some((w) => w.profile.acc === x.acc));
   }
 
-  /** Worker terminals tell each worker's state per office (server/workers). */
-  setExternal(fn: (acc: string, office?: string) => { busy: boolean; role?: string } | undefined): void {
+  /** Worker terminals tell each seat's state (server/workers). */
+  setExternal(fn: (agentId: string) => { busy: boolean; role?: string } | undefined): void {
     this.external = fn;
   }
 
@@ -302,9 +283,9 @@ export class AgySource implements AgentSource {
     this.publishBoard();
   }
 
-  /** Profiles with a character: the registered workers and the Antigravity boss. */
+  /** Profiles with at least one seat. */
   private get present(): Worker[] {
-    return this.all.filter((w) => this.team.has(w.profile.acc) || this.bossAccs.has(w.profile.acc));
+    return this.all.filter((w) => this.seatList.some((x) => x.acc === w.profile.acc));
   }
 
   /** Adds a character for each seat not in the office yet and sends away the ones no longer wanted. */
@@ -319,8 +300,9 @@ export class AgySource implements AgentSource {
         id: seat.agentId,
         provider: 'agy',
         account: w.account,
-        sessionId: seat.agentId === w.id ? `agy-${seat.acc}` : `agy-${seat.acc}-${seat.office ?? ''}`,
-        cwd: seat.room,
+        // The first seat of an account keeps `agy-<acc>` (its saved name and look); the others are unique per seat.
+        sessionId: seat.agentId === w.id ? `agy-${seat.acc}` : `agy-${seat.agentId}`,
+        cwd: seat.room || this.opts.home,
         role: tr('Worker'),
         name: seat.name,
         startedAt: at,
@@ -341,12 +323,6 @@ export class AgySource implements AgentSource {
     }
   }
 
-  /** Profile with this agent id ("agy:accN"), registered or not: its name and account id (terminal, pty/manager.ts). */
-  worker(agentId: string): { acc: string; account: string } | undefined {
-    const w = this.all.find((x) => x.id === agentId);
-    return w && { acc: w.profile.acc, account: w.account };
-  }
-
   start(): void {
     this.opts.office.beginBoot();
     try {
@@ -358,7 +334,6 @@ export class AgySource implements AgentSource {
       this.started = true;
       this.syncCharacters();
       this.poll();
-      for (const w of this.workers) this.opts.office.setProgress(w.id, w.progress.view());
     } finally {
       this.opts.office.endBoot();
     }
@@ -425,11 +400,11 @@ export class AgySource implements AgentSource {
       // lands before the end of the turn, and the Office does not synthesize another one on top.
       const job = [...w.jobs.values()].at(-1);
       const start = job?.ppid !== undefined ? this.starts.get(job.ppid) : undefined;
-      // Each seat (one character per office): jobs found on this machine show on the first one (w.id); a terminal job
-      // shows on the seat of the office that gave it.
+      // Each seat of the account: jobs found on this machine (/proc) show on its first seat (w.id); a terminal job shows
+      // on the seat that got it.
       for (const seat of seats.filter((x) => x.acc === w.profile.acc)) {
         const base = seat.agentId === w.id;
-        const ext = this.external?.(w.profile.acc, seat.office);
+        const ext = this.external?.(seat.agentId);
         const busy = (base && (w.jobs.size > 0 || w.ending.length > 0)) || !!ext?.busy;
         const status: AgentStatus = busy ? 'working' : 'idle';
         const cur = this.opts.office.get(seat.agentId);
@@ -437,7 +412,7 @@ export class AgySource implements AgentSource {
         const summary: TranscriptSummary = { tasks: [], stats: w.stats };
         // Subtitle: the role Claude gave the job (agy-ask --role); idle = free.
         summary.title =
-          this.bossAccs.has(w.profile.acc)
+          seat.boss
             ? tr('boss')
             : (base && job && start?.role) || (ext?.busy && ext.role) || tr('free');
         this.seatSummary(w, seat.agentId, base ? job : undefined, start, summary);
@@ -468,7 +443,8 @@ export class AgySource implements AgentSource {
    * transcript shows, as a 'prompt' activity).
    */
   private publishBoard(): void {
-    const roomId = this.present.length ? this.opts.office.get(this.present[0].id)?.roomId : undefined;
+    const first = this.shown.keys().next().value;
+    const roomId = first ? this.opts.office.get(first)?.roomId : undefined;
     if (!roomId) return;
     let order: { text: string; at: number; boss: string } | undefined;
     for (const a of this.opts.office.list()) {
@@ -604,13 +580,13 @@ export class AgySource implements AgentSource {
     const mine = job.ppid !== undefined && this.manual.has(job.ppid);
     const by = !mine && job.claudePid ? this.claudeRoom(job.claudePid) : undefined;
     const who = mine ? tr('sent by you from the office') : by ? tr('requested by Claude in {0}', [by]) : '';
-    const role = (job.ppid !== undefined ? this.starts.get(job.ppid)?.role : undefined);
+    const role = job.ppid !== undefined ? this.starts.get(job.ppid)?.role : undefined;
     const id = this.boardId(w, job);
     const known = this.board.find((x) => x.id === id);
     if (known) {
       if (job.prompt?.trim()) known.text = boardText(job.prompt);
     } else {
-      this.newBoardItem(w, job, id, mine, role);
+      this.newBoardItem(w, job, id, role);
     }
     const detail = [maskSecrets(job.prompt ?? '').slice(0, 300), job.cwd ? tr('folder: {0}', [job.cwd]) : '', who]
       .filter(Boolean)
@@ -618,7 +594,7 @@ export class AgySource implements AgentSource {
     this.activity(w, { kind: 'prompt', icon: '📋', text: promptText(job.prompt) || tr('New job'), detail }, Math.min(job.startedAt, this.now()));
   }
 
-  private newBoardItem(w: Worker, job: AgyProc, id: string, mine: boolean, role: string | undefined): void {
+  private newBoardItem(w: Worker, job: AgyProc, id: string, role: string | undefined): void {
     const item: JobBoardItem = {
       id,
       agentId: w.id,
@@ -656,33 +632,29 @@ export class AgySource implements AgentSource {
   }
 
   /**
-   * Job sent from the office (manual mode): runs `agy-ask <account> <prompt> --mode M --role R` in the account's folder
-   * under jobsDir (empty, so an accept-edits run touches nothing of yours). The rest (working, prompt, end, tokens)
-   * comes the usual way (processes and log); the answer becomes a 📦 activity when agy-ask finishes.
+   * Job sent from the office (manual mode): runs the repo's `worker-ask <seat name> <prompt> --role R [--mode M]` in the
+   * office folder, so the job goes through the seat's terminal like Claude's. The rest (working, end, tokens) comes
+   * the usual way; the answer becomes a 📦 activity when worker-ask finishes.
    */
   assign(agentId: string, job: AgyJobInput): AgyJobResult {
-    const w = this.workers.find((x) => x.id === agentId);
-    if (!w) return { ok: false, status: 404, error: tr('Antigravity worker not found') };
-    if (!this.opts.jobsDir) return { ok: false, status: 400, error: tr('sending jobs from the office is off') };
+    const seat = this.seatList.find((x) => x.agentId === agentId && !x.boss);
+    const w = seat && this.all.find((x) => x.profile.acc === seat.acc);
+    if (!seat || !w) return { ok: false, status: 404, error: tr('Antigravity worker not found') };
+    const cwd = this.opts.folder();
+    if (!cwd) return { ok: false, status: 400, error: tr('the office has no folder yet: set "folder" in {0}', ['team.json']) };
     const prompt = job.prompt.trim();
     if (!prompt || prompt.length > AGY_PROMPT_MAX) return { ok: false, status: 400, error: tr('prompt empty or too long') };
     if (job.mode && !AGY_MODES.includes(job.mode)) return { ok: false, status: 400, error: tr('unknown mode') };
     if (job.role !== undefined && job.role !== '' && !AGY_ROLE.test(job.role)) return { ok: false, status: 400, error: tr('invalid role (up to 24 letters, digits, - or _)') };
     if (job.effort && !(AGY_EFFORTS as readonly string[]).includes(job.effort)) return { ok: false, status: 400, error: tr('unknown effort') };
-    const cwd = join(this.opts.jobsDir, w.profile.acc);
-    mkdirSync(cwd, { recursive: true });
-    const env = { ...(this.opts.env ?? process.env) };
-    env.PATH = `${join(this.opts.home, '.local', 'bin')}:${env.PATH ?? ''}`;
-    // Your job, not a Claude session's: agy-ask's team rule (only the boss gives jobs) does not apply.
-    env.AGY_ASK_FROM_OFFICE = '1';
-    const args = [w.profile.acc, prompt, '--role', job.role || 'manual', '--cwd', cwd, '--max', '2000'];
+    const args = [seat.name, prompt, '--role', job.role || 'manual', '--max', '2000'];
     if (job.mode) args.push('--mode', job.mode);
     if (job.effort) args.push('--effort', job.effort);
-    const child = spawn('agy-ask', args, { cwd, env, stdio: ['ignore', 'pipe', 'ignore'] });
+    const child = spawn(this.opts.askBin, args, { cwd, env: { ...(this.opts.env ?? process.env) }, stdio: ['ignore', 'pipe', 'ignore'] });
     if (child.pid) this.manual.add(child.pid);
     let out = '';
     child.stdout.on('data', (b: Buffer) => (out = (out + b.toString('utf8')).slice(0, 4_000)));
-    child.on('error', (err) => this.activity(w, { kind: 'error', icon: '⚠️', text: tr('agy-ask did not run'), detail: errMsg(err), error: true }));
+    child.on('error', (err) => this.activity(w, { kind: 'error', icon: '⚠️', text: tr('worker-ask did not run'), detail: errMsg(err), error: true }));
     child.on('close', (code) => {
       if (child.pid) setTimeout(() => this.manual.delete(child.pid!), END_WAIT_MS * 2).unref?.();
       if (code !== 0 || !out.trim()) return;
@@ -691,12 +663,18 @@ export class AgySource implements AgentSource {
     return { ok: true };
   }
 
+  /** The profile of a seat (any seat, boss included). */
+  private workerOfSeat(agentId: string): Worker | undefined {
+    const seat = this.seatList.find((x) => x.agentId === agentId);
+    return seat && this.all.find((x) => x.profile.acc === seat.acc);
+  }
+
   /**
    * Stops the worker's headless jobs: the agy-ask (which takes agy down with it) or, without it, agy itself. Only PIDs
    * this source saw running; the request never picks the PID. Returns how many were stopped.
    */
   stopJobs(agentId: string): number {
-    const w = this.workers.find((x) => x.id === agentId);
+    const w = this.workerOfSeat(agentId);
     if (!w) return 0;
     let n = 0;
     for (const job of w.jobs.values()) {
@@ -755,31 +733,25 @@ export class AgySource implements AgentSource {
 
   /** Sets a worker's defaults for jobs that do not say (POST /api/agy/defaults). */
   setDefaults(agentId: string, d: AgyDefaults): AgyJobResult {
-    const w = this.workers.find((x) => x.id === agentId);
+    const w = this.workerOfSeat(agentId);
     if (!w) return { ok: false, status: 404, error: tr('Antigravity worker not found') };
     if (d.mode && !(AGY_MODES as readonly string[]).includes(d.mode)) return { ok: false, status: 400, error: tr('unknown mode') };
     if (d.effort && !(AGY_EFFORTS as readonly string[]).includes(d.effort)) return { ok: false, status: 400, error: tr('unknown effort') };
     this.defaults.set(w.profile.acc, d);
-    this.opts.office.setAgyDefaults(w.id, this.defaults.get(w.profile.acc));
+    for (const [id, acc] of this.shown) if (acc === w.profile.acc) this.opts.office.setAgyDefaults(id, this.defaults.get(acc));
     return { ok: true };
-  }
-
-  /** Environment to run agy-as/agy-ask (with ~/.local/bin on PATH). */
-  private agyEnv(): NodeJS.ProcessEnv {
-    const env = { ...(this.opts.env ?? process.env) };
-    env.PATH = `${join(this.opts.home, '.local', 'bin')}:${env.PATH ?? ''}`;
-    return env;
   }
 
   /** Each account's `/usage`, one at a time (no burst of agy processes). */
   async refreshUsage(): Promise<void> {
     if (this.usageBusy) return;
     this.usageBusy = true;
+    // The repo's tools/agy/bin first on PATH, so `agy-as` is the repo's (it never writes into the profile).
     const env = { ...(this.opts.env ?? process.env) };
-    env.PATH = `${join(this.opts.home, '.local', 'bin')}:${env.PATH ?? ''}`;
+    env.PATH = `${dirname(this.opts.askBin)}:${env.PATH ?? ''}`;
     try {
       for (const w of this.all) {
-        // One agy per profile: an account whose agy is running (its terminal, a job) waits for the next round.
+        // An account whose agy is running (its terminal, a job) waits for the next round.
         if (scanAgyProcs(this.opts.root, this.procs).some((p) => p.acc === w.profile.acc)) continue;
         const text = await (this.opts.usage ?? ((acc: string) => runAgyUsage('agy-as', acc, env)))(w.profile.acc);
         const usage = parseAgyUsage(text, this.now());

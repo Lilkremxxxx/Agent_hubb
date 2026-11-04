@@ -134,7 +134,7 @@ repository, so they stay on your machine.
 | Offices, bosses, workers | The page. Saved in `~/.agy_profiles/team.json` |
 | Overload thresholds, language, sounds | Settings on the page |
 | Default mode and effort of a worker | A worker's drawer › "Defaults for jobs" |
-| Display name of an account | `~/.agy_profiles/names.conf` (`acc2 Alice`) |
+| Display name of a seat | The seat's name in `team.json` |
 | Reference for the boss and worker rules (kept for a later plan; nothing loads it yet) | `docs/boss-rules-from-fork.md` |
 | The skills a Claude Code boss uses | `tools/agy/skills/` |
 | The scripts | `tools/agy/bin/`. They are linked, so an edit applies at once |
