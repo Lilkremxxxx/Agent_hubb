@@ -252,6 +252,22 @@ class Seats(unittest.TestCase):
             self.assertEqual((code, out.strip()), (1, ""), args)
             self.assertIn("returned an empty answer", err)
 
+    def test_empty_prompt_and_flag_first_prompt_exit_1(self):
+        for prompt, msg in (("", "empty prompt"), ("  \n", "empty prompt"), ("--raw", "prompt first")):
+            code, _, err = self.ask(["W1", prompt], raw=False)
+            self.assertEqual(code, 1, prompt)
+            self.assertIn(msg, err)
+        code, _, err = self.ask(["W1", ""])  # also with --raw
+        self.assertEqual((code, "empty prompt" in err), (1, True))
+
+    def test_headless_empty_answer_logs_EMPTY(self):
+        prof = os.path.join(self.home, "profiles")
+        os.makedirs(prof, exist_ok=True)
+        self.ask(["W2", "ping"], office=False, env={"FAKE_EMPTY": "1", "HABBLAUD_AGY_PROFILES": prof})
+        log = os.path.join(prof, "agy-ask.log.jsonl")
+        ends = [json.loads(l) for l in open(log) if '"end"' in l]
+        self.assertEqual(ends[-1]["status"], "EMPTY")
+
     def test_claude_seat_without_lean_sends_no_lean_key(self):
         self.ask(["C1", "ping"])
         self.assertNotIn("lean", Office.bodies[-1])

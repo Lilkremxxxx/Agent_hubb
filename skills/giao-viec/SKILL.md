@@ -43,8 +43,8 @@ EOF
 )" --role impl --effort medium [--mode plan] [--timeout 1800]
 ```
 - Always in the background, so you stay free for `advisor` questions: Claude Code with `run_in_background`; an Antigravity boss appends `> /tmp/T3.out 2>&1 &` and reads the file when it is done. Several seats in parallel are fine; never two seats on one file.
-- `--mode auto` is the default label for Antigravity seats, but on this host it is only a label: agy falls back to its default mode (no terminal sandbox) and the seat may still ask for permission in its terminal. Tell the seat to prefer file tools over shell commands, and when a seat waits on a permission dialog the user approves it in the seat's terminal on the page. Claude seats keep their own default mode unless you pass `--mode`. Pass `--mode plan` when the job deletes, writes outside its output folder, touches the source data, or installs anything. With the office running the user approves the plan in the seat's terminal on the page; headless (office off) a plan job returns its plan and ends: read it, and if you agree give the same job again with `--mode auto`.
-- `--effort low|medium|high` (Claude seats also take `xhigh|max`); `--model` only for Claude seats. Claude seats run full; `--lean` (Claude seats only; no MCP, skills or slash commands, and only the tools Bash, Read, Edit, Write, WebFetch, WebSearch) for small jobs.
+- `--mode auto` is the default label for Antigravity seats, but on this host file tools run without asking, shell commands may prompt in the seat's terminal, and the user approves them on the page. Tell the seat to prefer file tools over shell commands. Claude seats keep their own default mode unless you pass `--mode`. Pass `--mode plan` when the job deletes, writes outside its output folder, touches the source data, or installs anything. Plan jobs need the office running: the user approves the plan in the seat's terminal on the page. Headless (office off) a plan job returns an empty answer.
+- `--effort low|medium|high` (Claude seats also take `xhigh|max`); `--model` takes Claude models for Claude seats; agy seats accept the gemini models too. Claude seats run full; `--lean` (Claude seats only; no MCP, skills or slash commands, and only the tools Bash, Read, Edit, Write, WebFetch, WebSearch) for small jobs.
 - `--cwd` only when the worker must write outside the office folder. Killing the command, or `--timeout` (seconds), cancels the job.
 
 ## 4. Review: run the criteria yourself
@@ -57,7 +57,7 @@ When the job returns (exit 0), do not trust the worker's report: run every comma
 | Exit | Meaning | What you do |
 | --- | --- | --- |
 | 0 | done, answer printed | review it (section 4) |
-| 1 | failed, timeout, missing headings, unknown seat, no folder, untrusted folder | read the message. "does not trust the folder": ask the user to run `cd <folder> && agy-as <acc>` once and answer yes; retrying cannot help. Missing headings: fix the prompt. Otherwise retry once, or do it yourself |
+| 1 | failed, timeout, missing headings, over 100,000 bytes, empty prompt, empty answer, unknown seat, no folder, untrusted folder | read the message. "does not trust the folder": ask the user to run `cd <folder> && agy-as <acc>` (agy seats only) once and answer yes; retrying cannot help. Missing headings, empty prompt, or a prompt starting with `--`: fix the call. Empty answer: the job may be done, so check the review criteria before resending (headless usually means the seat could not run a command). Otherwise retry once, or do it yourself |
 | 2 | refused by the office | do not retry, do not work around it |
 | 3 | BUSY: the seat is on another job | wait until that job returns, or give this one to a free seat; never cancel another job to make room |
 | 4 | the user cancelled the job | do not resend it unasked; tell the user |

@@ -134,8 +134,7 @@ says so: add it.
    seats run full; add `--lean` for a light run. A job for project work is written in the 6 parts of the `giao-viec`
    skill (worker-ask refuses one without them; `--raw` sends a quick question as is). Every job starts with the seat's
    preamble and the board's "Bài học" lines. Antigravity seats are labelled `auto` unless the job or the page's defaults say
-   otherwise; on this host that is only a label (agy falls back to its default mode, and the seat may still ask for
-   permission in its terminal, which the user approves on the page). See [`tools/agy/README.md`](tools/agy/README.md).
+   otherwise; on this host file tools run without asking, shell commands may prompt in the seat's terminal, and the user approves them on the page). See [`tools/agy/README.md`](tools/agy/README.md).
 
 ## Start a project: `bang-init <folder>`
 

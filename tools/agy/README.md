@@ -47,7 +47,7 @@ agy-ask W2 "<prompt>" --raw --role impl --mode accept-edits --effort medium
 claude-ask C1 "<prompt>" --raw --role review --mode plan --effort high --cwd <project> --lean
 ```
 
-**Modes.** On this host `auto` is only a label: agy falls back to its default mode (no terminal sandbox), so an agy seat may still ask for permission in its terminal. Prefer file tools over shell commands for agy seats; the user approves a waiting permission dialog in the seat's terminal on the page.
+**Modes.** On this host, in `auto` file tools run without asking, shell commands may prompt in the seat's terminal, and the user approves them on the page. Prefer file tools over shell commands for agy seats.
 
 The first argument is a seat name from `team.json` (`~/.habblaud/team.json`, or `$HABBLAUD_DATA_DIR/team.json`); the seat
 says which agent runs (`agy-ask` and `claude-ask` are the same command). Anyone may give jobs. The job runs in the office
@@ -58,7 +58,7 @@ skips the check; the examples above use it for short jobs). Every job starts wit
 lines of `task_board.md`.
 
 With the office running the job goes to the seat's terminal, which you can watch; otherwise it runs headless (with
-`BANG_SLOT` and `BANG_OFFICE` set). Exit codes: 0 done, 1 failed, timed out, unknown seat or no folder, 2 refused by the
+`BANG_SLOT` and `BANG_OFFICE` set). Exit codes: 0 done, 1 failed, timed out, unknown seat or no folder, missing headings, over 100,000 bytes, an empty prompt, a prompt starting with `--` or an empty answer (the job may be done: check the review criteria before resending; headless usually means the seat could not run a command), 2 refused by the
 office, 3 seat busy, 4 cancelled from the office.
 
 ## Tests

@@ -26,7 +26,9 @@ long parts (diffs, logs) in a file and give its path.
 Claude Code seats run full (all tools, MCP and skills); --lean starts them light: no MCP servers, no skills or slash
 commands, only the tools in LEAN_TOOLS, plus a short worker rule (answer only, compact, under --max chars).
 
-Exit codes: 0 done; 1 failed, timeout, unknown seat or no folder; 2 refused by the office (403); 3 BUSY: the seat is on
+Exit codes: 0 done; 1 failed, timeout, unknown seat or no folder, missing headings, a prompt over 100,000 bytes, an empty
+prompt, a prompt starting with "--" (put the prompt first, flags after) or an empty answer (the job may be done: check the
+review criteria before resending; headless usually means the seat could not run a command); 2 refused by the office (403); 3 BUSY: the seat is on
 another job (ask again when it is over, or pick another seat); 4 the job was cancelled (from the office).
 
 Antigravity seats only run Gemini 3.8 Flash: --model accepts only gemini-3.8-flash[-low|-medium|-high], --effort only
@@ -65,6 +67,7 @@ HEADINGS = ("# Việc <ID> — <tên>", "## Bối cảnh", "## Input", "## Skill
 PREAMBLE = ("Bạn là ghế {seat} trong office {folder}. Luật: đọc task_board.md trước khi làm; chỉ sửa dòng việc của mình;\n"
             "kẹt thì đọc Ghi chú kỹ thuật, rồi chạy lệnh `advisor \"<câu hỏi>\"` và chờ trả lời, rồi ghi `blocked:` và dừng; "
             "xong thì cập nhật dòng việc + báo cáo ≤10 dòng.\n\n## Bài học (từ task_board.md)\n{lessons}\n---\n")
+EMPTY_HINT = "the job may be done: check the review criteria before resending"
 PROMPT_MAX = 100_000  # bytes, as the office (service.ts PROMPT_MAX_BYTES): the prompt is one argv string (128 KiB each)
 LEAN_TOOLS = "Bash,Read,Edit,Write,WebFetch,WebSearch"
 WORKER_RULE = ("You are a worker: another agent gave you this one job and reads only your final message. Do the job, "
@@ -155,6 +158,10 @@ def parse(argv):
     if not found:
         die(f"no seat {argv[0]} (seats: {', '.join(w['name'] for w in seats(t))})")
     seat = found[0]
+    if argv[1].lstrip().startswith("--"):
+        die("the prompt starts with '--': put the prompt first and the flags after it, e.g. W1 \"<prompt>\" --raw")
+    if not argv[1].strip():
+        die("empty prompt")
     a = {"worker": seat["name"], "kind": seat["kind"], "account": seat["account"],
          "prompt": argv[1], "task": argv[1], "mode": "", "role": "", "effort": "", "model": "", "max": 2000, "cwd": "",
          "timeout": 900, "lean": False, "raw": False, "extra": []}
@@ -344,10 +351,14 @@ def log_end(a, t0, **fields):
 
 def finish(a, t0, status, answer, other, fields):
     """Logs the end, prints the answer (or the error) and exits."""
+    if status == "SUCCESS" and not (answer or "").strip():
+        status = "EMPTY"
     end = {"status": status, **fields}
     if status != "SUCCESS":  # last error lines (e.g. 429 "Individual quota reached"): Habblaud shows quota hits
         end["error"] = ("\n".join(other[-5:]) or answer or "")[-300:]
     log_end(a, t0, **end)
+    if status == "EMPTY":
+        die(f"{a['worker']} returned an empty answer ({EMPTY_HINT}; headless usually means the seat could not run a command)")
     if status != "SUCCESS":
         print(f"{CMD}: {a['worker']} {status} after {round(time.time() - t0)}s:", file=sys.stderr)
         print("\n".join(other[-5:]) or answer, file=sys.stderr)
@@ -358,7 +369,7 @@ def finish(a, t0, status, answer, other, fields):
 def emit(a, answer):
     """Prints a done job's answer and exits; an empty answer is a failure, not a success."""
     if not (answer or "").strip():
-        die(f"{a['worker']} returned an empty answer")
+        die(f"{a['worker']} returned an empty answer ({EMPTY_HINT}; the office board shows the job done)")
     out = answer.rstrip("\n")
     print(out if len(out) <= a["max"] else f"{out[:a['max']]}\n[... cut at {a['max']} chars]")
     sys.exit(OK)

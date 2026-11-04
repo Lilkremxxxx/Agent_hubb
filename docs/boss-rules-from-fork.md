@@ -24,7 +24,7 @@ claude-ask .claude-work "<prompt>" --role <label> --mode <default|plan|accept-ed
 - The command waits until the worker is done and prints only its final answer (up to `--max` characters, default
   2000). Several jobs at once: start each in the background with its output in a file, then wait, e.g.
   `agy-ask acc2 "..." --role impl ... > /tmp/job-acc2.txt 2>&1 & agy-ask acc4 "..." --role review ... > /tmp/job-acc4.txt 2>&1 & wait`.
-- `--mode`: `auto` = edits and runs commands on its own (the default for Antigravity seats); `plan` = read only, on request; `accept-edits` = may edit files inside `--cwd`; `default` = answers directly (good for
+- `--mode`: `auto` = the default label for Antigravity seats (file tools run without asking; shell commands may prompt in the seat's terminal and the user approves them on the page); `plan` = read only, on request; `accept-edits` = may edit files inside `--cwd`; `default` = answers directly (good for
   data in the prompt). `--effort`: `low` for lookups and simple edits, `medium` for code from a clear spec, `high` for
   review and debugging. Always pass `--role`, `--mode`, `--effort` and `--cwd`.
 - Write each prompt in English and make it self-contained (workers share nothing with you): goal, exact files, limits,
