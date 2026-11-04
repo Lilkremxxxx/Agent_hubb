@@ -643,6 +643,7 @@ Bàn giao Kế hoạch 3: lời mở đầu ở một chỗ, Bài học từ fol
 
 ## Để lại cho kế hoạch sau
 
+- Lần chạy lại sau khi gỡ deny chung: `--mode auto` vẫn không ghi được file trong 300 s (kẹt ở `run_command` chờ duyệt). Cần quyết định cách cấp quyền lệnh cho ghế agy trong office; `worker-ask` nên huỷ/dọn tiến trình `agy -i` khi TIMEOUT (nó còn sống sau khi huỷ việc).
 - Cấu hình ghế agy acc1 (`~/.agy_profiles/acc1/.gemini/antigravity-cli/settings.json`) có `deny` cho `command(*)`, `read_file(*)`, `write_file(*)`: `--mode auto` không ghi được file. Cần người dùng quyết định (gỡ deny cho `/home/nhatbang/bang-test-office`, hoặc dùng tài khoản agy khác) trước khi chạy lại Step 4-6. Quyết định 7 (`auto` mặc định) chưa được chứng minh trên máy này; `worker-ask` nên báo rõ khi agy trả "Blocked ... denied by user-configured deny rules" thay vì exit 0.
 - Chạy lại Step 4, 5, 6 sau khi gỡ chặn: Step 5 chưa thử nhánh ❌ lẫn Bài học, Step 6 chưa thử lời mở đầu headless.
 - Đã biết trước: thẻ `[ADVISOR …]` và cách boss trả lời advisor trong `giao-viec` (Kế hoạch 5); câu hỏi mở 1–3; `worker-ask` tự xưng `agy-ask:` trong mọi thông báo khi chạy dưới tên `worker-ask` (`CMD`, :47); dọn hội thoại headless dưới `.gemini` (`worker-ask:329–335`) đối chiếu phản mục tiêu §3.
@@ -657,9 +658,9 @@ Nghiệm thu ngày 2026-11-04, HEAD 4b1cfc2, cổng 4749. Cổng 4747 của ngư
 | 1 Sao lưu, worktree, build, start | PASS: `200`, 4747 = `1` (symlink node_modules build được) |
 | 2 `bang-init` mới | PASS: `readlink` = `$B/tools/agy/bin/bang-init`; `exit=0`, `already the office folder`; dòng 2 đúng; `0`; `1`; bảng cũ: `1`, `SAME` |
 | 3 Thiếu tiêu đề | PASS: `exit=1`, stderr `the prompt lacks # Việc <ID> — <tên>, ## Bối cảnh, ## Input, ## Skill dùng, ## Cách làm, ## Output, ## Tiêu chí review: write the job in the 6 parts of the giao-viec skill, or pass --raw to send it as is`; số việc 0 = 0 |
-| 4 `--raw`, `auto` | FAIL: `--raw` qua, bảng hiện chữ của boss (`Tạo file out/auto-probe.txt chứa đúng ch`, `0`), nhưng `auto` không ghi được file. agy trả `Result: Blocked. Cannot create out/auto-probe.txt or execute advisor because read_file, write_file, and run_command are all denied by user-configured deny rules.`, `exit=0`, file không tồn tại. Nguyên nhân: `settings.json` của acc1 có deny `command(*)`, `read_file(*)`, `write_file(*)` (chỉ đọc, không sửa). agy không từ chối cờ `--mode auto`; quy tắc dừng chỉ nói đến từ chối cờ nhưng hệ quả giống (Quyết định 7 chưa đúng trên acc1) nên dừng Step 5-6 và hỏi controller |
-| 5 Vòng ❌ → sửa → ✅ | KHÔNG CHẠY (phụ thuộc Step 4: W1 không ghi được file). Nhánh ❌ chưa được thử; chưa có dòng T1/T2/Bài học; chưa có prompt hay review nào được gửi |
-| 6 Headless, plan | KHÔNG CHẠY (W2 cũng acc1, cùng deny; cần Bài học từ Step 5) |
+| 4 `--raw`, `auto` | FAIL, hai lần chạy. Lần 1 (acc1 còn deny `command(*)`, `read_file(*)`, `write_file(*)`): agy trả `Result: Blocked. Cannot create out/auto-probe.txt or execute advisor because read_file, write_file, and run_command are all denied by user-configured deny rules.` với `exit=0`, không có file. Lần 2 (người dùng đã gỡ ba deny chung của acc1, còn 23 deny riêng): `agy-ask: W1 TIMEOUT after 300s (job cancelled)`, `exit=1`, không có `out/auto-probe.txt`; bảng hiện `Tạo file out/auto-probe.txt chứa đúng ch` và `0` mục bắt đầu bằng `Bạn là ghế`. Transcript chỉ đọc: agy `read_file task_board.md` (được), rồi gọi `run_command "git status"` (không ghi file) và đứng chờ, 19107 token; allow của acc1 chỉ có `read_url(*)`, `execute_url(*)`, nên lệnh shell có vẻ chờ duyệt mà không ai duyệt được trong `--mode auto`. Chưa rõ `write_file` có chạy được không. Tiến trình `agy -i` mồ côi sau khi huỷ (pid 1789230, cwd đúng worktree office) đã được kill |
+| 5 Vòng ❌ → sửa → ✅ | KHÔNG CHẠY (dừng sau Step 4 theo quy tắc dừng). Nhánh ❌ chưa được thử; không có prompt, review, dòng T1/T2/Bài học |
+| 6 Headless, plan | KHÔNG CHẠY (cần Bài học từ Step 5; W2 cùng acc1) |
 | 7 Test, số dòng | PASS: typecheck exit 0; vitest 79 files, 958 tests; i18n 1257/1257; pytest tools/agy 71 passed. Code không-test: 10 files, +146 −44 = +102 ròng (≤300). skills+templates: 1 file, +48 −36 |
 | 8 RSS | PASS (xem dưới) |
 | 9 Boss Claude thật | chờ người dùng (gộp vào nghiệm thu Kế hoạch 5) |
@@ -675,4 +676,4 @@ RSS rảnh (KB, 3 lần đọc mỗi lượt, 3 cặp xen kẽ, mốc trước):
 
 Trung vị mốc 113076, trung vị HEAD 113132, tỉ lệ 1,0005 (≤ 1,03): PASS. (18 số đọc = 9 mỗi bên.)
 
-Còn chờ người dùng: gỡ chặn `deny` của acc1 (hoặc đổi tài khoản) rồi chạy lại Step 4-6; Step 9.
+Còn chờ người dùng/controller: cho ghế agy chạy lệnh trong office (thêm allow `command(...)` cần thiết hoặc xác nhận cách `--mode auto` duyệt lệnh) rồi chạy lại Step 4-6; Step 9. Nghiệm thu đã cần gỡ ba deny chung của acc1 (cả 8 tài khoản cùng mang chúng; acc2-8 vẫn khoá). Sao lưu cấu hình cũ: `~/.bang-test-data/plan4/acc1-settings.before.json`. Step 10 chạy lại sau lần 2: 4749 = 0, 4747 = 1, worktree đã gỡ, `team.json: OK`.
