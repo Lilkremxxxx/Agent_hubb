@@ -91,7 +91,7 @@ export interface AgySeat {
 const STOPPED = new Set(['PAUSED', 'CANCELLED']);
 
 /** Modes the office offers when sending a job (agy-ask --mode; 'default' = no mode). */
-export const AGY_MODES = ['plan', 'default', 'accept-edits'] as const;
+export const AGY_MODES = ['auto', 'plan', 'default', 'accept-edits'] as const;
 export type AgyMode = (typeof AGY_MODES)[number];
 /** Maximum length of a prompt sent from the office. */
 export const AGY_PROMPT_MAX = 20_000;

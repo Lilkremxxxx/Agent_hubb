@@ -28,7 +28,7 @@ another job (ask again when it is over, or pick another seat); 4 the job was can
 
 Antigravity seats only run Gemini 3.8 Flash: --model accepts only gemini-3.8-flash[-low|-medium|-high], --effort only
 low, medium, high. Without --mode / --effort an agy seat uses its account's defaults in ~/.agy_profiles/defaults.json
-({"acc2": {"mode": "plan", "effort": "low"}}), else mode plan (agy) or default (Claude).
+({"acc2": {"mode": "plan", "effort": "low"}}), else mode auto (agy; the office folder needs no rules) or default (Claude).
 """
 import glob, json, os, re, signal, subprocess, sys, threading, time, unicodedata, urllib.error, urllib.parse, urllib.request
 
@@ -153,7 +153,7 @@ def parse(argv):
     if a["mode"] and a["mode"] not in MODES and not (not agy and a["mode"] in CLAUDE_MODES.values()):
         die(f"--mode must be one of {', '.join(MODES)}")
     d = defaults(a["account"]) if agy else {}
-    a["mode"] = a["mode"] or d.get("mode") or ("plan" if agy else "default")
+    a["mode"] = a["mode"] or d.get("mode") or ("auto" if agy else "default")
     if not a["effort"] and d.get("effort") in efforts:
         a["effort"] = d["effort"]
     a["given_cwd"] = bool(a["cwd"])

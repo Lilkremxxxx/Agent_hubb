@@ -423,6 +423,11 @@ describe('AgySource', () => {
     expect(snapshot.rooms.find((r) => r.id === '/w/agy-hub')?.effect).toMatchObject({ kind: 'party' });
   });
 
+  it('auto is a mode of the page defaults (AGY_MODES, also checked by assign)', () => {
+    const t = setup(['acc2']);
+    expect(t.source.setDefaults('agy:acc2', { mode: 'auto' })).toEqual({ ok: true });
+  });
+
   it('mode and effort: what agy applied (its log) while working, the defaults (defaults.json) when idle', () => {
     const t = setup();
     t.source.start();

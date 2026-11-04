@@ -126,6 +126,15 @@ class Seats(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertNotIn("--raw", json.loads(out)["args"])
 
+    def test_an_agy_seat_runs_auto_unless_told_a_claude_seat_keeps_its_own(self):
+        r = json.loads(self.ask(["W2", "ping"], office=False)[1])
+        self.assertEqual(r["args"][r["args"].index("--mode") + 1], "auto")
+        self.ask(["W1", "ping"])
+        self.assertEqual(Office.bodies[-1]["mode"], "auto")
+        r = json.loads(self.ask(["W2", "ping", "--mode", "plan"], office=False)[1])
+        self.assertEqual(r["args"][r["args"].index("--mode") + 1], "plan")
+        self.assertNotIn("--permission-mode", json.loads(self.ask(["C1", "ping"], office=False)[1])["args"])
+
     def test_seat_job_goes_to_the_office_by_name(self):
         code, out, err = self.ask(["W2", "ping"])
         self.assertEqual((code, out.strip()), (0, "pong"), err)

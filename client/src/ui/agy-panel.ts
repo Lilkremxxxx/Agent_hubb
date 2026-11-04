@@ -18,7 +18,7 @@ import { segmented } from './settings';
 import { askWorker, cancelJobs } from './workers-api';
 import { tr } from '../../../shared/i18n';
 
-type Mode = 'plan' | 'default' | 'accept-edits';
+type Mode = 'auto' | 'plan' | 'default' | 'accept-edits';
 
 const PRESETS_KEY = 'habblaud:agy-presets';
 const EFFORTS = ['low', 'medium', 'high'] as const;
@@ -189,6 +189,7 @@ export class AgyDefaultsPanel {
     this.modes = segmented<Mode>(
       tr('Mode'),
       [
+        ['auto', tr('Automatic')],
         ['plan', tr('Read only')],
         ['default', tr('Default')],
         ['accept-edits', tr('Can edit')],
@@ -219,8 +220,8 @@ export class AgyDefaultsPanel {
       this.agentId = a.id;
       setHidden(this.status, true);
     }
-    // agy-ask's own default mode is plan.
-    this.modes.set((a.agyDefaults?.mode as Mode | undefined) ?? 'plan');
+    // worker-ask's own default mode is auto.
+    this.modes.set((a.agyDefaults?.mode as Mode | undefined) ?? 'auto');
     if (document.activeElement !== this.effort) this.effort.value = a.agyDefaults?.effort ?? '';
   }
 
