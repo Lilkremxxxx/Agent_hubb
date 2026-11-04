@@ -1241,7 +1241,6 @@ export const VI: Readonly<Record<string, string>> = {
   "Boss overloaded: sessions with a long context, open a new session": "Sếp quá tải: các phiên có context dài, mở phiên mới",
   "expected {boss}": "cần {boss}",
   "the interactive terminal is off (HABBLAUD_PTY=1)": "terminal tương tác đang tắt (HABBLAUD_PTY=1)",
-  "the office has no folder yet: set \"folder\" in ~/.habblaud/team.json": "văn phòng chưa có thư mục: đặt \"folder\" trong ~/.habblaud/team.json",
   "the office has no folder yet: set \"folder\" in {0}": "văn phòng chưa có thư mục: đặt \"folder\" trong {0}",
   "Antigravity account not found: {0}": "không tìm thấy tài khoản Antigravity: {0}",
   "Claude Code account folder not found: {0}": "không tìm thấy thư mục tài khoản Claude Code: {0}",

@@ -41,7 +41,7 @@ const TICK_MS = 1_000;
  * this long after its terminal opened (agy shows no conversation of its own until then, so two starts would mix up).
  */
 export const START_SETTLE_MS = 30_000;
-/** Waiting for an old terminal of the same account to close before starting another one. */
+/** Waiting for an old terminal of the same seat to close before starting another one. */
 const CLOSE_WAIT_MS = 8_000;
 const ESC = '\x1b';
 /** A Claude job whose conversation has not started by then, in a folder its account does not trust, is stopped. */
@@ -110,6 +110,8 @@ export interface WorkerServiceOptions {
   claudeBin: string;
   /** The office folder: where every job runs unless it gives a `cwd` ('' = none declared yet). */
   folder: () => string;
+  /** Message of the 400 for a job with no folder anywhere (names the team file in use). */
+  noFolderMsg: () => string;
   /** ~/.agy_profiles/agy-ask.log.jsonl. */
   logFile: string;
   /** Remembered conversations per worker (<dataDir>/workers.json). */
@@ -243,7 +245,7 @@ export class WorkerService {
     if (!prompt || prompt.length > 20_000) return { ok: false, status: 400, error: tr('prompt empty or too long') };
     if (input.cwd !== undefined && (!isAbsolute(input.cwd) || !isDir(input.cwd))) return { ok: false, status: 400, error: tr('folder not found: {0}', [input.cwd]) };
     const cwd = input.cwd ?? this.opts.folder();
-    if (!cwd) return { ok: false, status: 400, error: tr('the office has no folder yet: set "folder" in ~/.habblaud/team.json') };
+    if (!cwd) return { ok: false, status: 400, error: this.opts.noFolderMsg() };
     if (s.job && live(s.job)) return { ok: false, status: 409, busy: 'job', error: tr('{0} is busy with another job', [s.t.name]) };
     const now = this.now();
     const job: Job = {
@@ -267,7 +269,7 @@ export class WorkerService {
     s.job = job;
     this.jobList = [job, ...this.jobList].slice(0, JOBS_KEPT);
     // Another seat of this account is still starting: wait in line (never hold the HTTP request; tick() starts it).
-    if (!this.gateFree(s.t.account)) {
+    if (!this.gateFree(s.t.account) || this.queue.some((q) => q.s.t.account === s.t.account)) {
       job.status = 'queued';
       this.queue.push({ s, job, prompt });
       this.toBoard(job);
@@ -287,7 +289,8 @@ export class WorkerService {
   /** Can another seat of this account start? Not while the last one started has no conversation yet and is within START_SETTLE_MS. */
   private gateFree(account: string): boolean {
     const g = this.starting.get(account);
-    return !g || !live(g) || !!g.conv || (g.launchedAt !== undefined && this.now() - g.launchedAt >= START_SETTLE_MS);
+    // A start that opened its terminal holds the gate even if cancelled: its agy may still create a conversation.
+    return !g || !!g.conv || (g.launchedAt === undefined ? !live(g) : this.now() - g.launchedAt >= START_SETTLE_MS);
   }
 
   /** Opens the job's terminal (the old one of the seat closes first) and records the start. */
@@ -441,7 +444,7 @@ export class WorkerService {
    * Trust is never given for the user.
    */
   private checkTrust(s: Session, j: Job): void {
-    if (s.t.kind !== 'claude' || j.trustChecked || this.now() - j.startedAt < TRUST_WAIT_MS) return;
+    if (s.t.kind !== 'claude' || j.trustChecked || this.now() - (j.launchedAt ?? j.startedAt) < TRUST_WAIT_MS) return;
     j.trustChecked = true;
     if (claudeTrusts(s.t.configDir!, !!s.t.isDefault, j.cwd) !== false) return;
     this.opts.ptys.typeTo(s.t.agentId, ESC);

@@ -208,6 +208,7 @@ const workers = ptys
       agyBin,
       claudeBin: claudeBin ?? 'claude',
       folder: () => team.folder,
+      noFolderMsg: () => noFolderMsg(),
       logFile: join(agyRoot, 'agy-ask.log.jsonl'),
       onChange: () => team.publish(),
       board: (item) => agy?.upsertJob(item),

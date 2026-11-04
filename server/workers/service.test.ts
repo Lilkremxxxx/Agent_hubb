@@ -107,6 +107,7 @@ function setup(workers = ['W1', 'W2', 'C1']) {
   const all: WorkerTarget[] = [
     { id: 'W1', kind: 'agy', agentId: 'agy:acc2', account: 'agy:acc2', name: 'W1', acc: 'acc2', stateDir },
     { id: 'W2', kind: 'agy', agentId: 'agy:acc2@W2', account: 'agy:acc2', name: 'W2', acc: 'acc2', stateDir },
+    { id: 'W3', kind: 'agy', agentId: 'agy:acc2@W3', account: 'agy:acc2', name: 'W3', acc: 'acc2', stateDir },
     { id: 'C1', kind: 'claude', agentId: 'claude-worker:C1', account: '.claude-w', name: 'C1', configDir },
   ];
   let folder = root;
@@ -122,6 +123,7 @@ function setup(workers = ['W1', 'W2', 'C1']) {
     agyBin: '/bin/agy-as',
     claudeBin: '/bin/claude',
     folder: () => folder,
+    noFolderMsg: () => 'no folder',
     logFile,
     onChange: () => void changes++,
     board: (i) => void board.push(i),
@@ -268,13 +270,16 @@ describe('WorkerService', () => {
     const a = await t.svc.ask({ worker: 'W1', prompt: 'a' });
     expect(t.svc.cancel({ job: (a as { job: { id: string } }).job.id })).toBe(1);
     expect(t.svc.jobs()[0]).toMatchObject({ status: 'cancelled' });
+    t.advance(START_SETTLE_MS); // a cancelled start holds its account's gate until settle
     await t.svc.ask({ worker: 'W1', prompt: 'b' });
     await t.svc.ask({ worker: 'C1', prompt: 'c' });
     expect(t.svc.cancel({ all: true })).toBe(2);
+    t.advance(START_SETTLE_MS); // a cancelled start holds its account's gate until settle
     await t.svc.ask({ worker: 'W1', prompt: 'd' });
     t.open.delete('agy:acc2');
     t.svc.tick();
     expect(t.svc.jobs()[0]).toMatchObject({ status: 'failed', error: 'the terminal closed before the answer' });
+    t.advance(START_SETTLE_MS); // a cancelled start holds its account's gate until settle
     await t.svc.ask({ worker: 'W1', prompt: 'e' });
     t.advance(31 * 60_000);
     t.svc.tick();
@@ -433,5 +438,33 @@ describe('WorkerService', () => {
     expect(t.office.get('claude-worker:C1')?.name).toBe('C1');
     t.setFolder('');
     expect(await t.svc.ask({ worker: 'W2', prompt: 'c' })).toMatchObject({ ok: false, status: 400 });
+  });
+  it('a start cancelled before its conversation shows up still holds the gate until settle', async () => {
+    const t = setup(['W1', 'W2']);
+    await t.svc.ask({ worker: 'W1', prompt: 'one' });
+    await t.svc.ask({ worker: 'W2', prompt: 'two' });
+    t.advance(3000);
+    t.svc.cancel({ worker: 'W1' });
+    t.svc.tick();
+    await settle();
+    expect(t.open.has('agy:acc2@W2')).toBe(false);
+    t.agyWrites(answer('W1 answer'), CONV); // W1's agy was already starting
+    t.advance(START_SETTLE_MS);
+    t.svc.tick();
+    await settle();
+    expect(t.open.has('agy:acc2@W2')).toBe(true);
+    t.svc.tick();
+    expect(t.svc.jobs().find((j) => j.worker === 'W2')?.status).toBe('working');
+  });
+  it('a fresh ask does not jump ahead of a queued seat of the same account', async () => {
+    const t = setup(['W1', 'W2', 'W3']);
+    await t.svc.ask({ worker: 'W1', prompt: 'one' });
+    await t.svc.ask({ worker: 'W2', prompt: 'two' });
+    t.advance(START_SETTLE_MS);
+    expect(await t.svc.ask({ worker: 'W3', prompt: 'three' })).toMatchObject({ ok: true, job: { status: 'queued' } });
+    t.svc.tick();
+    await settle();
+    expect(t.open.has('agy:acc2@W2')).toBe(true);
+    expect(t.open.has('agy:acc2@W3')).toBe(false);
   });
 });
