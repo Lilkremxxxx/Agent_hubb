@@ -44,7 +44,7 @@ EOF
 ```
 - Always in the background, so you stay free for `advisor` questions: Claude Code with `run_in_background`; an Antigravity boss appends `> /tmp/T3.out 2>&1 &` and reads the file when it is done. Several seats in parallel are fine; never two seats on one file.
 - `--mode auto` is the default for Antigravity seats; Claude seats keep their own default mode unless you pass `--mode`. Pass `--mode plan` when the job deletes, writes outside its output folder, touches the source data, or installs anything. With the office running the user approves the plan in the seat's terminal on the page; headless (office off) a plan job returns its plan and ends: read it, and if you agree give the same job again with `--mode auto`.
-- `--effort low|medium|high` (Claude seats also take `xhigh|max`); `--model` only for Claude seats. Claude seats run full; `--lean` (no MCP, skills or slash commands) for small jobs.
+- `--effort low|medium|high` (Claude seats also take `xhigh|max`); `--model` only for Claude seats. Claude seats run full; `--lean` (Claude seats only; no MCP, skills or slash commands, and only the tools Bash, Read, Edit, Write, WebFetch, WebSearch) for small jobs.
 - `--cwd` only when the worker must write outside the office folder. Killing the command, or `--timeout` (seconds), cancels the job.
 
 ## 4. Review: run the criteria yourself

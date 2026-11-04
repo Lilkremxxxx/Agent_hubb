@@ -628,4 +628,10 @@ describe('WorkerService', () => {
     expect(t.open.get('claude-worker:C1')?.args.at(-1)).toBe('Bạn là ghế C1 trong office /w.\n---\n# Việc T1 — x');
     expect(t.log().at(-1)).toMatchObject({ event: 'start', prompt: '# Việc T1 — x' }); // C1's launch wrote last
   });
+
+  it('an empty task falls back to the prompt on the board', async () => {
+    const t = setup();
+    await t.svc.ask({ worker: 'C1', prompt: 'do it', task: '' });
+    expect(t.svc.jobs().find((j) => j.worker === 'C1')?.prompt).toBe('do it');
+  });
 });

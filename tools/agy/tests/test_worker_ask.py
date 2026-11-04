@@ -227,6 +227,19 @@ class Seats(unittest.TestCase):
         self.assertIn("over 100000", err)
         self.assertEqual(Office.bodies, [])
 
+    def test_lessons_heading_is_case_insensitive(self):
+        self.board(self.folder, "## bài học\n- Khi X → Y [T1]\n")
+        p = json.loads(self.ask(["W2", "ping"], office=False)[1])["args"][2]
+        self.assertIn("- Khi X → Y [T1]\n---\n", p)
+
+    def test_the_prompt_cap_is_100000_bytes_inclusive(self):
+        n = 100_000 - len(PRE.format("W1", self.folder, "(chưa có)").encode())
+        for office in (True, False):
+            self.assertEqual(self.ask(["W1", "x" * n], office=office)[0], 0)
+            code, _, err = self.ask(["W1", "x" * (n + 1)], office=office)
+            self.assertEqual(code, 1)
+            self.assertIn("over 100000", err)
+
     def test_busy_seat_exits_3(self):
         code, _, err = self.ask(["W1", "busy"])
         self.assertEqual(code, 3, err)

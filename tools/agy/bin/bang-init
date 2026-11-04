@@ -31,7 +31,7 @@ if os.path.exists(team):
 b = t.get("boss") if isinstance(t.get("boss"), dict) else {}
 ws = t.get("workers") if isinstance(t.get("workers"), list) else []
 seats = ", ".join(f"{w['name']} {w['kind']}/{w['account']}" for w in ws if isinstance(w, dict) and all(isinstance(w.get(k), str) for k in ("name", "kind", "account")))
-boss = f"{b.get('kind') or 'claude'}/{b.get('account') or 'default'}"
+boss = "/".join(b[k] if isinstance(b.get(k), str) and b[k] else d for k, d in (("kind", "claude"), ("account", "default")))
 
 def example_rows(text):  # the template's sample rows: a row or bullet right under a table rule or the lessons heading
     ls = text.split("\n")

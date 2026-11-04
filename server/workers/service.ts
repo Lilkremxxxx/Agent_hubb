@@ -261,7 +261,7 @@ export class WorkerService {
       id: `w${now.toString(36)}${(++this.seq).toString(36)}`,
       worker: s.t.id,
       agentId: s.t.agentId,
-      prompt: truncate(maskSecrets((input.task ?? prompt).replace(/\s+/g, ' ')), 300),
+      prompt: truncate(maskSecrets((input.task || prompt).slice(0, 1000).replace(/\s+/g, ' ')), 300),
       status: 'working',
       startedAt: now,
       max: Math.max(200, Math.min(input.max ?? ANSWER_MAX, 20_000)),

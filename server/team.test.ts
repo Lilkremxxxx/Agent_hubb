@@ -174,13 +174,13 @@ describe('TeamService: the boss', () => {
     const t = setup();
     writeFileSync(t.file, JSON.stringify({ folder: '/w/p', boss: { kind: 'agy', account: 'acc1' }, workers: [] }));
     const svc = t.team();
-    for (const boss of [{ kind: 'Agy', account: 'acc1' }, { kind: 'agy', account: 'a b' }]) {
+    for (const boss of [{ kind: 'Agy', account: 'acc1' }, { kind: 'agy', account: 'a b' }, {}, 'agy']) {
       writeFileSync(t.file, JSON.stringify({ folder: '/w/p', boss, workers: [] }));
       expect(svc.reload()).toBe(false);
       expect(svc.boss).toEqual({ kind: 'agy', account: 'acc1' });
     }
     expect(t.changes()).toBe(0);
-    writeFileSync(t.file, JSON.stringify({ folder: '/w/p', workers: [] }));
+    writeFileSync(t.file, JSON.stringify({ folder: '/w/p', boss: null, workers: [] }));
     expect(svc.reload()).toBe(true);
     expect(svc.boss).toEqual({ kind: 'claude', account: 'default' });
   });

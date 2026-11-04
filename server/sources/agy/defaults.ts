@@ -5,7 +5,7 @@ import { readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export interface AgyDefaults {
-  /** agy-ask --mode ('plan', 'default', 'accept-edits'). */
+  /** agy-ask --mode ('auto', 'plan', 'default', 'accept-edits'). */
   mode?: string;
   /** agy-ask --effort ('low', 'medium', 'high'). */
   effort?: string;

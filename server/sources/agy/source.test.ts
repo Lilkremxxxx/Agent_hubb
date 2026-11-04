@@ -423,7 +423,7 @@ describe('AgySource', () => {
     expect(snapshot.rooms.find((r) => r.id === '/w/agy-hub')?.effect).toMatchObject({ kind: 'party' });
   });
 
-  it('auto is a mode of the page defaults (AGY_MODES, also checked by assign)', () => {
+  it('auto is accepted as a mode of the page defaults (AGY_MODES)', () => {
     const t = setup(['acc2']);
     expect(t.source.setDefaults('agy:acc2', { mode: 'auto' })).toEqual({ ok: true });
   });

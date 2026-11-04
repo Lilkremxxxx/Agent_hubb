@@ -95,6 +95,21 @@ def test_board_copy_names_the_real_boss_and_seats_and_has_no_example_rows(env):
     assert "OCR" not in tb and "| T1 |" not in tb and "ocr.py" not in tb
 
 
+def test_missing_or_broken_team_json_gives_the_default_boss_and_no_seats_in_the_board(env):
+    for broken in (False, True):
+        if broken:
+            open(f"{env.d}/team.json", "w").write("{bad")
+        proj = f"{env.proj}{int(broken)}"
+        env.run([proj])
+        assert env.read(proj, "task_board.md") == board_copy(env.real(proj), "claude/default", "chưa có")
+
+
+def test_a_boss_with_non_string_parts_falls_back_to_the_defaults(env):
+    env.team({"folder": "", "boss": {"kind": 5, "account": ["x"]}, "workers": []})
+    assert env.run([env.proj])[0] == 0
+    assert env.read(env.proj, "task_board.md") == board_copy(env.real(env.proj), "claude/default", "chưa có")
+
+
 def test_an_existing_board_with_the_example_rows_is_warned_about_not_changed(env):
     tpl = open(f"{REPO}/templates/task_board.md", encoding="utf-8").read()
     touch(f"{env.proj}/task_board.md", tpl)

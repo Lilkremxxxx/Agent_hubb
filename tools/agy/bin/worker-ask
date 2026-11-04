@@ -18,7 +18,7 @@ the result event, kills the process group, deletes that call's conversation file
 "start"/"end" lines to ~/.agy_profiles/agy-ask.log.jsonl (via "headless").
 
 The prompt must have the giao-viec headings (the title "# Việc <ID> — <tên>" and the sections Bối cảnh, Input, Skill dùng,
-Cách làm, Output, Tiêu chí review); --raw sends it as is.
+Cách làm, Output, Tiêu chí review); --raw skips this check.
 Every prompt starts with the seat preamble (also with --raw): the seat and office, the worker rules and the "Bài học"
 lines of <folder>/task_board.md. The whole prompt may not pass 100000 bytes (one argv string for agy / claude): put
 long parts (diffs, logs) in a file and give its path.
@@ -129,11 +129,11 @@ def lessons(folder):
     except OSError:
         return ""
     out, on = [], False
-    for ln in unicodedata.normalize("NFC", text).splitlines():
+    for ln in unicodedata.normalize("NFC", text).split("\n"):
         if ln.startswith("## "):
             if on:
                 break
-            on = ln.startswith("## Bài học")
+            on = ln.lower().startswith("## bài học")
         elif on:
             out.append(ln)
     while out and not out[-1].strip():
@@ -200,7 +200,7 @@ def parse(argv):
     a["prompt"] = preamble(a["worker"], a["folder"] or a["cwd"]) + a["task"]  # the one place both paths get it
     n = len(a["prompt"].encode(errors="replace"))
     if n > PROMPT_MAX:
-        die(f"the prompt is {n} bytes with the seat preamble, over {PROMPT_MAX}: put long parts (diffs, logs) in a file and give its path")
+        die(f"the prompt is {n} bytes with the seat preamble, over {PROMPT_MAX}: put long parts (diffs, logs) in a file and give its path, or shorten ## Bài học (move old lines to task_board.archive.md)")
     return a
 
 
