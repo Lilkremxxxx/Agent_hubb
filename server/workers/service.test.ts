@@ -112,6 +112,7 @@ function setup(workers = ['W1', 'W2', 'C1']) {
   ];
   let folder = root;
   let registered = workers;
+  let retarget: (() => WorkerTarget[]) | undefined;
   const f = fakePtys();
   const board: JobBoardItem[] = [];
   let changes = 0;
@@ -119,7 +120,8 @@ function setup(workers = ['W1', 'W2', 'C1']) {
   const svc = new WorkerService({
     office,
     ptys: f.ptys,
-    targets: () => all.filter((t) => registered.includes(t.id)),
+    targets: () => retarget?.() ?? all.filter((t) => registered.includes(t.id)),
+    selfUrl: 'http://127.0.0.1:4999',
     agyBin: '/bin/agy-as',
     claudeBin: '/bin/claude',
     folder: () => folder,
@@ -149,6 +151,8 @@ function setup(workers = ['W1', 'W2', 'C1']) {
     setFolder: (f: string) => void (folder = f),
     advance: (ms: number) => (clock += ms),
     register: (w: string[]) => (registered = w),
+    retarget: (fn: () => WorkerTarget[]) => void (retarget = fn),
+    stateDir,
     changes: () => changes,
     log: () => readFileSync(logFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>),
   };
@@ -466,5 +470,33 @@ describe('WorkerService', () => {
     await settle();
     expect(t.open.has('agy:acc2@W2')).toBe(true);
     expect(t.open.has('agy:acc2@W3')).toBe(false);
+  });
+  it('every seat terminal knows this server (HABBLAUD_URL)', async () => {
+    const t = setup();
+    await t.svc.ask({ worker: 'W1', prompt: 'one' });
+    await t.svc.ask({ worker: 'C1', prompt: 'two' });
+    expect(t.open.get('agy:acc2')?.env?.HABBLAUD_URL).toBe('http://127.0.0.1:4999');
+    expect(t.open.get('claude-worker:C1')?.env?.HABBLAUD_URL).toBe('http://127.0.0.1:4999');
+  });
+  it('removing the first agy seat while the second runs a job ends that job naming team.json and closes its terminal', async () => {
+    const t = setup(['W1', 'W2']);
+    await t.svc.ask({ worker: 'W2', prompt: 'two' });
+    expect([...t.open.keys()]).toEqual(['agy:acc2@W2']);
+    // W1 leaves: W2 becomes the first seat of its account, so its id flips to agy:acc2
+    t.retarget(() => [{ id: 'W2', kind: 'agy', agentId: 'agy:acc2', account: 'agy:acc2', name: 'W2', acc: 'acc2', stateDir: t.stateDir }]);
+    t.svc.sync();
+    expect(t.svc.jobs()[0]).toMatchObject({ status: 'failed' });
+    expect(t.svc.jobs()[0].error).toContain('team.json');
+    expect(t.svc.jobs()[0].error).not.toContain('cancelled by you');
+    expect([...t.open.keys()]).toEqual([]);
+  });
+  it('a Claude seat character follows a folder set after start and a rename', () => {
+    const t = setup(['C1']);
+    t.setFolder('/w/proj');
+    t.svc.sync();
+    expect(t.office.get('claude-worker:C1')?.roomId).toBe('/w/proj');
+    t.retarget(() => [{ id: 'C1', kind: 'claude', agentId: 'claude-worker:C1', account: '.claude-w', name: 'Cara', configDir: t.configDir }]);
+    t.svc.sync();
+    expect(t.office.get('claude-worker:C1')?.name).toBe('Cara');
   });
 });

@@ -81,6 +81,7 @@ const agy = config.agy.enabled && process.platform === 'linux'
       home: config.home,
       usageMs: config.agy.usageMs,
       askBin: join(config.rootDir, 'tools', 'agy', 'bin', 'worker-ask'),
+      selfUrl: `http://127.0.0.1:${config.port}`,
       folder: () => team.folder,
     })
   : undefined;
@@ -202,6 +203,7 @@ const workers = ptys
           return p ? [{ id: s.name, kind: 'agy', agentId: s.agentId, account: p.account, name: s.name, acc: s.account, stateDir: p.stateDir }] : [];
         }),
       agyBin,
+      selfUrl: `http://127.0.0.1:${config.port}`,
       claudeBin: claudeBin ?? 'claude',
       folder: () => team.folder,
       noFolderMsg: () => noFolderMsg(),

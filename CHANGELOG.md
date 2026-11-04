@@ -45,7 +45,7 @@ middle one (0.**3**.0).
 - **Job board in the workers room:** the wall board shows the latest order given to the boss and the recent jobs (seat, role, status); a new job sends the worker to the board to "hear" it before it heads to its desk.
 - **Workers have a terminal of their own:** a job (`worker-ask`, or "Send a job") restarts the seat's terminal with the request as its first message, so every job is a fresh conversation. The caller waits without spending tokens and gets only the final answer. The terminal is read-only to watch, closes after 20 minutes idle, and a seat on a job refuses another (BUSY).
 - **"Send a job" and "Defaults for jobs":** every worker's drawer can send a job with mode and effort (low, medium, high), and keeps defaults for jobs without `--mode`/`--effort` in `~/.agy_profiles/defaults.json`.
-- **The boss, appointed by you:** one Claude Code session wears the crown and a gold BOSS badge ("👑 Make boss" / "Step down" in its drawer); the choice survives restarts. A closed boss stays named in the Boss group.
+- **The boss, appointed by you:** one Claude Code session wears the crown and a gold BOSS badge ("👑 Make boss" / "Step down" in its drawer); the choice is kept in memory only (reopen the boss with the boss button or 👑 after a restart). A closed boss stays named in the Boss group.
 - **The sidebar by role:** Boss, Workers and Others (folded by default); each Claude row says its folder.
 - **"Boss overloaded" warns you:** when the boss passes a threshold a notice appears once per level and suggests a new session; an overloaded boss's notice stays until dismissed.
 - **Antigravity workers' usage and jobs:** each account's 5-hour and weekly `/usage` every 15 min (`HABBLAUD_AGY_USAGE_MIN`; 0 disables; `HABBLAUD_AGY=0` turns the Antigravity workers off), and a finished job shows its duration and tokens from the `agy-ask` log.
@@ -55,8 +55,7 @@ middle one (0.**3**.0).
   `~/.claude-<name>` (watched at once, no restart) and opens `claude auth login` in it; "＋ Add Antigravity account"
   makes the next `~/.agy_profiles/accN` and opens agy in it to sign in with Google (an unfinished one is reused).
   Needs the interactive terminal (`HABBLAUD_PTY=1`).
-- **Antigravity workers named after their account:** "alice (Agy)" instead of "Antigravity acc6", on the
-  character and the account card; the line under the name shows the role Claude gave the job (`agy-ask --role`) or
+- **Antigravity workers named after their seat:** the seat's name from `team.json` on the character; the line under the name shows the role Claude gave the job (`agy-ask --role`) or
   "free".
 - **Model and effort on every character.** The name tag on the floor (when zoomed in, hovered or selected), the
   drawer (new Effort row) and the role tooltip show what each agent really uses: "Opus 5.5 · high" for Claude Code
@@ -66,8 +65,7 @@ middle one (0.**3**.0).
   and effort (low, medium, high), saved at once to `~/.agy_profiles/defaults.json`. agy-ask uses them for calls
   without `--mode`/`--effort` (jobs sent from the office included); Claude passes its own for each job. "Send a job"
   no longer has its own mode and effort.
-- **Workers have no terminal of their own:** an Antigravity worker only gets jobs through `agy-ask` (from the boss or
-  "Send a job"), and its drawer only shows them. Signing in to an agy account is in the Accounts window.
+- Signing in to an agy account is in the Accounts window.
 - **Claude Code account cards named the same way:** "alice (Claude)" (the part of the account e-mail before @)
   instead of "Account A"; without an e-mail in `.claude.json` it stays "Account A".
 - **Interface in English and Vietnamese only.** English is now the source language of the whole code base (texts,

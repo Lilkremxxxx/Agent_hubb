@@ -107,6 +107,8 @@ export interface WorkerServiceOptions {
   /** The registered workers now. */
   targets: () => WorkerTarget[];
   agyBin: string;
+  /** This server's own URL, put in every seat's environment as HABBLAUD_URL (worker-ask / advisor reach this office). */
+  selfUrl?: string;
   claudeBin: string;
   /** The office folder: where every job runs unless it gives a `cwd` ('' = none declared yet). */
   folder: () => string;
@@ -240,7 +242,7 @@ export class WorkerService {
     this.sync();
     const s = this.sessions.get(input.worker);
     // 400, not 404: agy-ask / claude-ask run a job headless on 404 (an office without worker terminals).
-    if (!s) return { ok: false, status: 400, error: tr('{0} is not a registered worker', [input.worker]) };
+    if (!s) return { ok: false, status: 400, error: tr('{0} is not a seat in team.json, or its account is not signed in', [input.worker]) };
     const prompt = input.prompt.trim();
     if (!prompt || prompt.length > 20_000) return { ok: false, status: 400, error: tr('prompt empty or too long') };
     if (input.cwd !== undefined && (!isAbsolute(input.cwd) || !isDir(input.cwd))) return { ok: false, status: 400, error: tr('folder not found: {0}', [input.cwd]) };
@@ -336,8 +338,15 @@ export class WorkerService {
     const targets = this.opts.targets();
     for (const t of targets) {
       const s = this.sessions.get(t.id);
-      if (s) s.t = t;
-      else {
+      if (s) {
+        const o = s.t;
+        if (o.agentId !== t.agentId || o.kind !== t.kind || o.account !== t.account || o.acc !== t.acc || o.configDir !== t.configDir) {
+          // Ids are positional: a team.json edit can hand this seat another terminal or account under a running job.
+          if (s.job && live(s.job)) this.finish(s.job, 'failed', 'ERROR', tr('{0} changed in team.json while this job ran', [t.name]));
+          this.opts.ptys.closeAgent(o.agentId);
+        }
+        s.t = t;
+      } else {
         this.sessions.set(t.id, { t, activeAt: this.now() });
       }
     }
@@ -360,6 +369,7 @@ export class WorkerService {
       this.opts.office.addMain({ id: agentId, account: s.t.account, sessionId: agentId, cwd: this.opts.folder() || homedir(), role: tr('Worker'), name: s.t.name, startedAt: this.now(), status: 'idle' });
       this.showClaude(s);
     }
+    for (const [agentId, s] of want) this.opts.office.relocate(agentId, this.opts.folder() || homedir(), s.t.name);
     for (const agentId of [...this.claudeShown]) {
       if (want.has(agentId)) continue;
       this.claudeShown.delete(agentId);
@@ -519,6 +529,7 @@ export class WorkerService {
   private open(s: Session, args: string[], cwd: string): PtyInfo {
     const t = s.t;
     const env: Record<string, string> = { BANG_SLOT: t.id, BANG_OFFICE: this.opts.folder() };
+    if (this.opts.selfUrl) env.HABBLAUD_URL = this.opts.selfUrl;
     if (t.kind === 'claude' && !t.isDefault && t.configDir) env.CLAUDE_CONFIG_DIR = t.configDir;
     return this.opts.ptys.openProgram({
       agentId: t.agentId,

@@ -86,7 +86,14 @@ def team():
 
 
 def seats(t):
-    return [w for w in t.get("workers") or [] if isinstance(w, dict) and w.get("name")]
+    """The seats the server keeps (parseTeam): valid name, kind and account; the first of a duplicate name wins."""
+    out = []
+    for w in t.get("workers") or []:
+        if (isinstance(w, dict) and isinstance(w.get("name"), str) and re.match(r"^[A-Za-z][\w-]{0,15}$", w["name"])
+                and w.get("kind") in ("claude", "agy") and isinstance(w.get("account"), str)
+                and re.match(r"^[\w.-]+$", w["account"]) and all(x["name"] != w["name"] for x in out)):
+            out.append(w)
+    return out
 
 
 def flag(extra, name):
@@ -102,7 +109,7 @@ def parse(argv):
     if not found:
         die(f"no seat {argv[0]} (seats: {', '.join(w['name'] for w in seats(t))})")
     seat = found[0]
-    a = {"worker": seat["name"], "kind": seat.get("kind") or "agy", "account": seat.get("account") or "default",
+    a = {"worker": seat["name"], "kind": seat["kind"], "account": seat["account"],
          "prompt": argv[1], "task": argv[1], "mode": "", "role": "", "effort": "", "model": "", "max": 2000, "cwd": "",
          "timeout": 900, "lean": False, "extra": []}
     rest = argv[2:]
@@ -133,7 +140,8 @@ def parse(argv):
     if not a["effort"] and d.get("effort") in efforts:
         a["effort"] = d["effort"]
     a["given_cwd"] = bool(a["cwd"])
-    a["folder"] = t.get("folder") if isinstance(t.get("folder"), str) else ""
+    f = t.get("folder")  # a relative folder counts as none, like the server; BANG_OFFICE gets it normalized
+    a["folder"] = os.path.normpath(f) if isinstance(f, str) and os.path.isabs(f) else ""
     cwd = a["cwd"] or a["folder"]
     if not cwd or not os.path.isdir(cwd):
         die(f'the office has no folder yet: set "folder" in {TEAM}' if not a["cwd"] else f"no such directory {cwd}")

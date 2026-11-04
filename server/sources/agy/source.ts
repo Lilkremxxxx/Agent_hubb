@@ -119,6 +119,8 @@ export interface AgySourceOptions {
   /** Home: where a character stands while the office has no folder yet. */
   home: string;
   env?: NodeJS.ProcessEnv;
+  /** This server's own URL, for the worker-ask a job runs (HABBLAUD_URL). */
+  selfUrl?: string;
   /** Interval of each account's `/usage` (0 = off). */
   usageMs?: number;
   /** The repo's worker-ask: runs a job on a seat (`worker-ask <seat name> <prompt> …`). */
@@ -183,6 +185,8 @@ export class AgySource implements AgentSource {
   private all: Worker[] = [];
   /** Characters in the office now: agent id -> account. */
   private readonly shown = new Map<string, string>();
+  /** The room that holds the job board now (it moves with the first character). */
+  private boardRoom: string | undefined;
   /** The characters to show (server/team.ts: the agy seats and the Antigravity boss); none = no characters. */
   private seatList: AgySeat[] = [];
   /** Worker terminals (server/workers): a job running on a seat. */
@@ -264,7 +268,9 @@ export class AgySource implements AgentSource {
   /** The seats changed (server/team.ts): characters walk in or leave right away. No seats = no characters. */
   setTeam(seats: readonly AgySeat[]): void {
     this.seatList = [...seats];
-    if (this.started) this.syncCharacters();
+    if (!this.started) return;
+    this.syncCharacters();
+    this.publishBoard(); // the board follows the first character's room
   }
 
   /** The characters to show now: the seats of signed-in profiles. */
@@ -293,8 +299,12 @@ export class AgySource implements AgentSource {
     const at = this.now();
     const seats = this.seatsNow();
     for (const seat of seats) {
-      if (this.shown.has(seat.agentId)) continue;
       const w = this.all.find((x) => x.profile.acc === seat.acc)!;
+      if (this.shown.has(seat.agentId)) {
+        // Same id, new folder or name (team.json edit): move or rename the character.
+        this.opts.office.relocate(seat.agentId, seat.room || this.opts.home, seat.name);
+        continue;
+      }
       this.shown.set(seat.agentId, seat.acc);
       this.opts.office.addMain({
         id: seat.agentId,
@@ -446,6 +456,8 @@ export class AgySource implements AgentSource {
     const first = this.shown.keys().next().value;
     const roomId = first ? this.opts.office.get(first)?.roomId : undefined;
     if (!roomId) return;
+    if (this.boardRoom && this.boardRoom !== roomId) this.opts.office.setBoard(this.boardRoom, undefined);
+    this.boardRoom = roomId;
     let order: { text: string; at: number; boss: string } | undefined;
     for (const a of this.opts.office.list()) {
       if (!a.boss) continue;
@@ -650,7 +662,7 @@ export class AgySource implements AgentSource {
     const args = [seat.name, prompt, '--role', job.role || 'manual', '--max', '2000'];
     if (job.mode) args.push('--mode', job.mode);
     if (job.effort) args.push('--effort', job.effort);
-    const child = spawn(this.opts.askBin, args, { cwd, env: { ...(this.opts.env ?? process.env) }, stdio: ['ignore', 'pipe', 'ignore'] });
+    const child = spawn(this.opts.askBin, args, { cwd, env: { ...(this.opts.env ?? process.env), ...(this.opts.selfUrl ? { HABBLAUD_URL: this.opts.selfUrl } : {}) }, stdio: ['ignore', 'pipe', 'ignore'] });
     if (child.pid) this.manual.add(child.pid);
     let out = '';
     child.stdout.on('data', (b: Buffer) => (out = (out + b.toString('utf8')).slice(0, 4_000)));

@@ -160,6 +160,26 @@ class Seats(unittest.TestCase):
         self.assertIn("has no folder", err)
         self.assertEqual(Office.bodies, [])
 
+    def test_seats_are_filtered_like_the_server(self):
+        with open(os.path.join(self.data, "team.json"), "w") as f:
+            json.dump({"folder": self.folder, "workers": [{"name": "X1", "kind": "gpt", "account": "a"},
+                                                         {"name": "W1", "kind": "agy", "account": "acc1"},
+                                                         {"name": "W1", "kind": "claude", "account": "other"}]}, f)
+        code, _, err = self.ask(["X1", "ping"])
+        self.assertEqual(code, 1)
+        self.assertIn("no seat X1 (seats: W1)", err)
+        code, out, _ = self.ask(["W1", "ping"], office=False)
+        self.assertEqual(json.loads(out)["args"][0], "acc1")  # the first duplicate won
+
+    def test_relative_folder_is_no_folder_and_office_env_is_normalized(self):
+        self.write_team("rel/dir")
+        code, _, err = self.ask(["W1", "ping"])
+        self.assertEqual(code, 1)
+        self.assertIn("has no folder", err)
+        self.write_team(self.folder + "/./")
+        code, out, err = self.ask(["W2", "ping"], office=False)
+        self.assertEqual((code, json.loads(out)["office"]), (0, self.folder), err)
+
     def test_missing_team_file_fails(self):
         os.remove(os.path.join(self.data, "team.json"))
         code, _, err = self.ask(["W1", "ping"])

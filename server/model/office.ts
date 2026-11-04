@@ -349,6 +349,21 @@ export class Office {
     this.markDirty();
   }
 
+  /** Moves a main agent to another room and/or renames it (a seat whose folder or name changed in team.json). */
+  relocate(id: string, cwd: string, name: string): void {
+    const rec = this.agents.get(id);
+    if (!rec || rec.info.kind !== 'main') return;
+    const roomId = normalizeCwd(cwd);
+    if (rec.info.roomId === roomId && rec.info.name === name) return;
+    this.ensureRoom(roomId, this.now());
+    rec.info.roomId = roomId;
+    rec.info.name = name;
+    const occupied = new Set([...this.agents.values()].map((r) => r.info.roomId));
+    for (const r of [...this.rooms.keys()]) if (!occupied.has(r)) this.rooms.delete(r);
+    this.recomputeRoomNames();
+    this.markDirty();
+  }
+
   /** Same process, new session (/clear, /resume): character stays, tasks and stats reset. */
   switchSession(id: string, sessionId: string): void {
     const rec = this.agents.get(id);

@@ -493,7 +493,7 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_ACCOUNTS` | — | JSON to customize name, letter or color, matched by the account folder name. E.g. `[{"id":".claude-conta2","name":"Work","short":"T","color":"#5cc97b"}]`. |
 | `HABBLAUD_AGY` | on | `0` turns off the Antigravity workers. |
 | `HABBLAUD_AGY_USAGE_MIN` | `15` | Minutes between two reads of each Antigravity account's `/usage`; `0` turns it off. |
-| `HABBLAUD_AGY_PROFILES` | `~/.agy_profiles` | Where the Antigravity profiles and `team.json` live. |
+| `HABBLAUD_AGY_PROFILES` | `~/.agy_profiles` | Where the Antigravity profiles live (an old `team.json` there is imported once into `<HABBLAUD_DATA_DIR or ~/.habblaud>/team.json`). |
 
 ## How it works
 

@@ -577,6 +577,19 @@ describe('AgySource', () => {
     expect(t.office.get('agy:acc2@W2')?.sessionId).toBe('agy-agy:acc2@W2');
   });
 
+  it('a seat that keeps its id follows team.json: new folder moves the character and the board, a rename renames it', () => {
+    const t = setup();
+    t.source.setTeam([{ acc: 'acc2', agentId: 'agy:acc2', name: 'W1', room: '' }]);
+    t.source.start();
+    t.source.upsertJob({ id: 'agy:acc2#w1', agentId: 'agy:acc2', worker: 'W1', text: 'one', status: 'working', at: 1 });
+    const room = (id: string) => t.office.commit().snapshot.rooms.find((r) => r.id === id);
+    expect(t.office.get('agy:acc2')?.roomId).toBe(t.root);
+    t.source.setTeam([{ acc: 'acc2', agentId: 'agy:acc2', name: 'Ann', room: '/w/ocr' }]);
+    expect(t.office.get('agy:acc2')).toMatchObject({ roomId: '/w/ocr', name: 'Ann' });
+    expect(room('/w/ocr')?.board?.items.length).toBe(1);
+    expect(room(t.root)).toBeUndefined();
+  });
+
   it('an Antigravity boss seat is titled boss; the worker seat of the same account is not', () => {
     const t = setup();
     t.source.setTeam([
