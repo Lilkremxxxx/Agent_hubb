@@ -270,7 +270,7 @@ extra port is published.
 
 ```bash
 npm run remote:setup   # username, password, hostname, and (optional) custom address
-npm run office         # restart it
+npm run office         # restart it: npm run office -- restart
 ```
 
 `remote:setup` writes only the password **hash** (scrypt) to `.env`, creates a local CA and the server certificate in
@@ -576,7 +576,7 @@ tools/    agy: worker scripts (worker-ask, agy-as) and the skills
 | `npm run dev` | Server + Vite at http://localhost:4747, with hot reload. |
 | `npm run dev:client` | Vite only, at http://localhost:5173 (`/api` is proxied to port 4747). |
 | `npm run build` / `npm start` | Builds and runs the production version. |
-| `npm run office` | Builds and starts it in the background. |
+| `npm run office` | Builds and starts it in the background. `npm run office -- stop` stops it, `-- restart` rebuilds and restarts it (stop only touches this repo's own server on the port). |
 | `npm test` | Tests (Vitest). |
 | `npm run typecheck` | Type checking for the client, the server and the scripts. |
 | `npm run i18n:check` | Lists untranslated texts and leftover translations. |
