@@ -33,7 +33,7 @@ function setup() {
     accountName: (id) => accounts.find(id)?.detected.name,
     now,
   });
-  const watcher = new ClaudeWatcher({ accounts, office, inDocker: false, now, isAlive: () => true, watch: false });
+  const watcher = new ClaudeWatcher({ accounts, office, now, isAlive: () => true, watch: false });
   const notices: Notice[] = [];
   const transcript = (sid: string) => join(dir, 'projects', encodeCwd(CWD), `${sid}.jsonl`);
   return {

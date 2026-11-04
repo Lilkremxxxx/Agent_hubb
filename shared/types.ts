@@ -475,8 +475,7 @@ export interface OfficeSnapshot {
      */
     terminal?: boolean;
     /**
-     * Interactive terminal (open/take over sessions and exit agents via office): only outside Docker,
-     * with node-pty and local access. Absent = feature disabled.
+     * Interactive terminal (open/take over sessions and exit agents via office): with node-pty and local access. Absent = feature disabled.
      */
     pty?: PtyStatus;
   };

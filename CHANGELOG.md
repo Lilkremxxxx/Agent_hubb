@@ -46,6 +46,7 @@ middle one (0.**3**.0).
 
 ### Removed
 
+- Docker runtime mode (`HABBLAUD_IN_DOCKER`, `HABBLAUD_BIND`, `/remote-tls`), the host helper routes (`/api/host/spawn/*`) and the remote `spawn` permission (`HABBLAUD_REMOTE_ALLOW=spawn` is now ignored; New agent stays on this computer only).
 - The `agy-orchestrator` skill (now `giao-viec`).
 - Several offices on the page: the office tabs and their menu, the new-office, rename, folder and delete dialogs, and ＋ Worker.
 - The team rule (only the boss gives jobs; the call-chain check in `agy-ask`).

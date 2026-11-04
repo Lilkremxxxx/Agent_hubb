@@ -15,7 +15,6 @@ export interface ServerConfig {
   /** `--dev`: Vite in middleware mode (HMR) on the same server. */
   dev: boolean;
   /** Running inside a container (registry PIDs are from host: cannot check them). */
-  inDocker: boolean;
   home: string;
   /** Observed Claude Code config dirs (one per account). */
   claudeDirs: string[];
@@ -76,11 +75,6 @@ function readPackage(rootDir: string): { version: string } {
   }
 }
 
-export function detectDocker(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env.HABBLAUD_IN_DOCKER !== undefined) return isTruthy(env.HABBLAUD_IN_DOCKER);
-  return existsSync('/.dockerenv');
-}
-
 /**
  * Listen address reachable only by the computer itself: 127.0.0.0/8, `::1` (with or without brackets),
  * or `localhost`. `0.0.0.0`, `::`, network IPs, and arbitrary names do not count.
@@ -102,43 +96,32 @@ export function isLoopbackBind(value: string | undefined): boolean {
 
 /**
  * Why the terminal stays disabled (undefined = enabled). Transcripts contain full conversation, so it
- * only turns on when Habblaud is not exposed beyond the computer itself:
- * - Node: HABBLAUD_HOST must be loopback;
- * - Docker: process always listens on 0.0.0.0 inside container and exposure is decided by the host
- *   published port, HABBLAUD_BIND (docker-compose.yml forwards the same value to container). Missing
- *   or empty = disabled: without it we cannot know if the port is exposed.
+ * only turns on when Habblaud is not exposed beyond the computer itself: HABBLAUD_HOST must be loopback.
  * HABBLAUD_TERMINAL with any value other than "enabled" (0, false, off...) disables it; there is no
  * way to enable it with an exposed port.
  */
-export function terminalOffReason(env: NodeJS.ProcessEnv, host: string, inDocker: boolean): string | undefined {
+export function terminalOffReason(env: NodeJS.ProcessEnv, host: string): string | undefined {
   const flag = env.HABBLAUD_TERMINAL?.trim();
   if (flag && !isTruthy(flag)) return `HABBLAUD_TERMINAL=${flag}`;
-  if (inDocker) {
-    const bind = env.HABBLAUD_BIND?.trim();
-    if (!bind) return tr("HABBLAUD_BIND didn't reach the container, so the port may be exposed on the network");
-    return isLoopbackBind(bind) ? undefined : tr('the port is exposed on the network: HABBLAUD_BIND={0}', [bind]);
-  }
   return isLoopbackBind(host) ? undefined : tr('the port is exposed on the network: HABBLAUD_HOST={0}', [host]);
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] = process.argv): ServerConfig {
   const home = env.HOME || homedir();
-  const inDocker = detectDocker(env);
   const port = Number.parseInt(env.HABBLAUD_PORT ?? '', 10);
   const rootDir = findRoot(dirname(fileURLToPath(import.meta.url)));
   const host = env.HABBLAUD_HOST?.trim() || '127.0.0.1';
   const pkg = readPackage(rootDir);
-  const remote = parseRemoteConfig(env, inDocker);
+  const remote = parseRemoteConfig(env);
   return {
     port: Number.isFinite(port) && port > 0 && port < 65536 ? port : 4747,
     host,
     dev: argv.includes('--dev'),
-    inDocker,
     home,
     claudeDirs: discoverClaudeDirs(env, home),
-    dataDir: resolve(env.HABBLAUD_DATA_DIR?.trim() || (inDocker ? '/data' : join(home, '.habblaud'))),
+    dataDir: resolve(env.HABBLAUD_DATA_DIR?.trim() || join(home, '.habblaud')),
     allowedHosts: parseAllowedHosts(env.HABBLAUD_ALLOWED_HOSTS),
-    terminal: terminalOffReason(env, host, inDocker) === undefined,
+    terminal: terminalOffReason(env, host) === undefined,
     rootDir,
     version: pkg.version,
     agy: parseAgyConfig(env),

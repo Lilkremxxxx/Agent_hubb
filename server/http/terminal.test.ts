@@ -30,46 +30,28 @@ describe('terminal lock (config)', () => {
     }
   });
 
-  it('Node: decides HABBLAUD_HOST', () => {
-    for (const host of ['127.0.0.1', 'localhost', '::1']) expect(terminalOffReason({}, host, false)).toBeUndefined();
-    expect(terminalOffReason({}, '0.0.0.0', false)).toBe('the port is exposed on the network: HABBLAUD_HOST=0.0.0.0');
-    for (const host of ['::', '192.168.0.10', 'meu-mac.local']) expect(terminalOffReason({}, host, false)).toMatch(/exposed on the network/);
-    // HABBLAUD_BIND is only valid in Docker: does not enable exposed Node mode.
-    expect(terminalOffReason({ HABBLAUD_BIND: '127.0.0.1' }, '0.0.0.0', false)).toBeDefined();
-  });
-
-  it('Docker: decides HABBLAUD_BIND (missing or empty = disabled)', () => {
-    expect(terminalOffReason({ HABBLAUD_BIND: '127.0.0.1' }, '0.0.0.0', true)).toBeUndefined();
-    expect(terminalOffReason({ HABBLAUD_BIND: '[::1]' }, '0.0.0.0', true)).toBeUndefined();
-    expect(terminalOffReason({}, '0.0.0.0', true)).toMatch(/HABBLAUD_BIND didn't reach/);
-    expect(terminalOffReason({ HABBLAUD_BIND: '  ' }, '0.0.0.0', true)).toMatch(/HABBLAUD_BIND didn't reach/);
-    expect(terminalOffReason({ HABBLAUD_BIND: '0.0.0.0' }, '0.0.0.0', true)).toBe('the port is exposed on the network: HABBLAUD_BIND=0.0.0.0');
-    expect(terminalOffReason({ HABBLAUD_BIND: '192.168.0.10' }, '0.0.0.0', true)).toMatch(/exposed on the network/);
-    // Inside the container, process host does not count (it is always 0.0.0.0).
-    expect(terminalOffReason({ HABBLAUD_BIND: '0.0.0.0' }, '127.0.0.1', true)).toBeDefined();
+  it('decides HABBLAUD_HOST (HABBLAUD_BIND is ignored)', () => {
+    for (const host of ['127.0.0.1', 'localhost', '::1']) expect(terminalOffReason({}, host)).toBeUndefined();
+    expect(terminalOffReason({}, '0.0.0.0')).toBe('the port is exposed on the network: HABBLAUD_HOST=0.0.0.0');
+    for (const host of ['::', '192.168.0.10', 'meu-mac.local']) expect(terminalOffReason({}, host)).toMatch(/exposed on the network/);
+    expect(terminalOffReason({ HABBLAUD_BIND: '127.0.0.1' }, '0.0.0.0')).toBeDefined();
   });
 
   it('HABBLAUD_TERMINAL only disables: cannot enable with exposed port', () => {
-    for (const v of ['0', 'false', 'off', 'nao']) {
-      expect(terminalOffReason({ HABBLAUD_TERMINAL: v }, '127.0.0.1', false)).toBe(`HABBLAUD_TERMINAL=${v}`);
-      expect(terminalOffReason({ HABBLAUD_TERMINAL: v, HABBLAUD_BIND: '127.0.0.1' }, '0.0.0.0', true)).toMatch(/HABBLAUD_TERMINAL/);
-    }
-    expect(terminalOffReason({ HABBLAUD_TERMINAL: '1' }, '127.0.0.1', false)).toBeUndefined();
-    expect(terminalOffReason({ HABBLAUD_TERMINAL: '' }, '127.0.0.1', false)).toBeUndefined();
-    expect(terminalOffReason({ HABBLAUD_TERMINAL: '1' }, '0.0.0.0', false)).toBeDefined();
-    expect(terminalOffReason({ HABBLAUD_TERMINAL: 'sim', HABBLAUD_BIND: '0.0.0.0' }, '0.0.0.0', true)).toBeDefined();
+    for (const v of ['0', 'false', 'off', 'nao']) expect(terminalOffReason({ HABBLAUD_TERMINAL: v }, '127.0.0.1')).toBe(`HABBLAUD_TERMINAL=${v}`);
+    expect(terminalOffReason({ HABBLAUD_TERMINAL: '1' }, '127.0.0.1')).toBeUndefined();
+    expect(terminalOffReason({ HABBLAUD_TERMINAL: '' }, '127.0.0.1')).toBeUndefined();
+    expect(terminalOffReason({ HABBLAUD_TERMINAL: '1' }, '0.0.0.0')).toBeDefined();
   });
 
   it('loadConfig populates ServerConfig.terminal', () => {
     const tmp = tempDir();
     try {
-      const terminal = (env: NodeJS.ProcessEnv) => loadConfig({ HOME: tmp.dir, HABBLAUD_IN_DOCKER: '0', ...env }, []).terminal;
+      const terminal = (env: NodeJS.ProcessEnv) => loadConfig({ HOME: tmp.dir, ...env }, []).terminal;
       expect(terminal({})).toBe(true);
       expect(terminal({ HABBLAUD_HOST: '0.0.0.0' })).toBe(false);
       expect(terminal({ HABBLAUD_TERMINAL: '0' })).toBe(false);
-      expect(terminal({ HABBLAUD_IN_DOCKER: '1', HABBLAUD_HOST: '0.0.0.0' })).toBe(false);
-      expect(terminal({ HABBLAUD_IN_DOCKER: '1', HABBLAUD_HOST: '0.0.0.0', HABBLAUD_BIND: '127.0.0.1' })).toBe(true);
-      expect(terminal({ HABBLAUD_IN_DOCKER: '1', HABBLAUD_HOST: '0.0.0.0', HABBLAUD_BIND: '0.0.0.0' })).toBe(false);
+      expect(terminal({ HABBLAUD_HOST: '0.0.0.0', HABBLAUD_BIND: '127.0.0.1' })).toBe(false);
     } finally {
       tmp.cleanup();
     }
@@ -126,7 +108,7 @@ async function serve(opts: { terminal?: boolean; streams?: Partial<TerminalOptio
   const accounts = new AccountsService({ dirs: [], home: tmp.dir, env: {}, onChange: () => {} });
   const paths = new Map<string, string>();
   const terminals = new TerminalStreams({ office, transcriptPathOf: (id) => paths.get(id), createParser: fakeParser, pollMs: 20, ...opts.streams });
-  const api = createApiHandler({ office, hub, accounts, sources: () => [], version: 't', inDocker: false, terminal, terminals });
+  const api = createApiHandler({ office, hub, accounts, sources: () => [], version: 't', terminal, terminals });
   const guard = createRequestGuard({ allowedHosts: new Set(['habblaud.lan']) });
   const server = http.createServer((req, res) => {
     if (guard(req, res)) return;
@@ -516,7 +498,7 @@ describe('ClaudeWatcher.transcriptPathOf', () => {
       sources: () => [],
       accountName: () => undefined,
     });
-    const watcher = new ClaudeWatcher({ accounts, office, inDocker: false, isAlive: () => true, watch: false });
+    const watcher = new ClaudeWatcher({ accounts, office, isAlive: () => true, watch: false });
     try {
       watcher.poll();
       expect(watcher.transcriptPathOf('.claude:100')).toBe(transcript);

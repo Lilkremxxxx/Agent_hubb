@@ -47,7 +47,7 @@ async function start(extra: Partial<ApiDeps> = {}, officeExtra: Partial<OfficeDe
   late.office = office;
   const hub = new Hub(office, { throttleMs: 10 });
   hub.start();
-  const api = createApiHandler({ office, hub, accounts, sources: () => [], version: '9.9.9', inDocker: false, ...extra });
+  const api = createApiHandler({ office, hub, accounts, sources: () => [], version: '9.9.9', ...extra });
   const serveStatic = createStaticHandler(dist);
   const guard = createRequestGuard({ allowedHosts: new Set(['habblaud.lan']) });
   const server = http.createServer((req, res) => {
@@ -137,7 +137,7 @@ describe('API HTTP', () => {
     expect(await ok.json()).toMatchObject({ agent: { id: '.claude:1' }, history: [] });
     expect((await fetch(`${env.base}/api/agents/does-not-exist`)).status).toBe(404);
     const health = await (await fetch(`${env.base}/api/health`)).json();
-    expect(health).toMatchObject({ ok: true, version: '9.9.9', docker: false, terminal: false, accounts: [{ id: '.claude', usageStatus: 'disabled' }] });
+    expect(health).toMatchObject({ ok: true, version: '9.9.9', terminal: false, accounts: [{ id: '.claude', usageStatus: 'disabled' }] });
   });
 
   it('answers 404 for removed APIs', async () => {

@@ -48,7 +48,6 @@ import { tr } from '../../shared/i18n';
 export interface WatcherOptions {
   accounts: AccountsService;
   office: Office;
-  inDocker: boolean;
   now?: () => number;
   pollMs?: number;
   /** How much of the end of each transcript is read when opening the session (default 1 MB). */
@@ -277,7 +276,7 @@ export class ClaudeWatcher implements AgentSource {
     for (const acc of this.opts.accounts.entries()) {
       let reader = this.readers.get(acc.dir);
       if (!reader) {
-        reader = new RegistryReader(acc.dir, { checkPid: !this.opts.inDocker, isAlive: this.opts.isAlive });
+        reader = new RegistryReader(acc.dir, { checkPid: true, isAlive: this.opts.isAlive });
         this.readers.set(acc.dir, reader);
         this.watchDir(join(acc.dir, 'sessions'));
       }

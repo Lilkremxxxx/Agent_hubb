@@ -4,13 +4,10 @@
 // Claude Code only does this in a directory already trusted by it (trust prompt was accepted in terminal); if
 // the folder is untrusted or `claude` is absent, falls back to `claude://code/new?folder=<path>&q=<prompt>`
 // (same as Finder's "New Claude Code Session Here"), opening pre-filled new session screen in app: session then
-// begins when the user hits Enter there. The runner must run on the app's machine:
-// - Node mode: the server itself;
-// - Docker: host helper polls requests via
-//   POST /api/host/spawn/poll, checks folder, runs, and confirms via POST /api/host/spawn/ack.
+// begins when the user hits Enter there. The server itself runs it, on the app's machine.
 // Attachments (spawn/attachments.ts): runner saves files in ~/.habblaud/attachments/ and appends paths to
 // end of prompt. Shell-free (execFile), with timeout, and prompt follows `--` (never treated as option/subcommand).
-// Pure Node without dependencies: also imported by host helper (via tsx).
+// Pure Node without dependencies.
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
@@ -26,15 +23,8 @@ export const OPEN_TIMEOUT_MS = 10_000;
 /** `claude --bg` timeout (spawns background daemon on first launch then returns). */
 export const CLI_TIMEOUT_MS = 30_000;
 const NAME_MAX = 48;
-/** Host helper is considered present until this duration after last poll. */
-export const HOST_PRESENCE_MS = 10_000;
-/**
- * Polled request unconfirmed becomes a failure; unpolled requests also fail. Runner may execute `claude --bg`
- * plus `open` (CLI_TIMEOUT_MS + OPEN_TIMEOUT_MS): "sent" timeout covers both with margin, and UI waits
- * longer than the sum of both timeouts, to avoid false timeouts while still opening.
- */
+/** A request still "sent" after this long is a failure (covers `claude --bg` plus `open`, with margin). */
 export const SENT_TIMEOUT_MS = CLI_TIMEOUT_MS + OPEN_TIMEOUT_MS + 10_000;
-export const QUEUED_TIMEOUT_MS = 30_000;
 /** Completed requests are retained for this duration for GET. */
 export const KEEP_MS = 10 * 60_000;
 const MAX_OPEN = 5;
@@ -135,7 +125,7 @@ export async function launch(req: SpawnRequest, open: Opener, cli?: CliRunner): 
   return note ? { ok: true, how: 'app', note } : { ok: true, how: 'app' };
 }
 
-/** Verifies directory exists locally (helper checks before open; Docker cannot access host folders). */
+/** Verifies directory exists locally (checked before open). */
 export function folderProblem(folder: string, stat: (p: string) => { isDirectory(): boolean } = statSync): string | undefined {
   try {
     return stat(folder).isDirectory() ? undefined : tr('not a folder');
@@ -164,54 +154,34 @@ interface Entry {
   at: number;
 }
 
-/** Request dispatched to host helper, with attachments in base64. */
-export interface PolledSpawn extends SpawnRequest {
-  id: string;
-  files: Array<{ name: string; type: string; data: string }>;
-}
-
 export interface SpawnServiceOptions {
-  /** Node mode: opens directly. Absent (Docker): queues for host helper. */
-  opener?: Opener;
-  /** Node mode: runs in background before falling back to app (absent = app only). */
+  opener: Opener;
+  /** Runs in background before falling back to app (absent = app only). */
   cli?: CliRunner;
-  /** Validates folder before opening in direct mode (default: statSync). */
+  /** Validates folder before opening (default: statSync). */
   folderProblem?: (folder: string) => string | undefined;
   /** Attachments uploaded before request (POST /api/spawn/attachments); absent = no attachments. */
   attachments?: AttachmentStore;
-  /** Direct mode: writes attachments and returns paths (default: ~/.habblaud/attachments/). */
+  /** Writes attachments and returns paths (default: ~/.habblaud/attachments/). */
   writeFiles?: (spawnId: string, files: readonly Attachment[]) => string[];
   now?: () => number;
   newId?: () => string;
 }
 
-export type SpawnSubmit = { spawn: SpawnInfo } | { error: 'invalid' | 'unavailable' | 'too-many'; reason: string };
+export type SpawnSubmit = { spawn: SpawnInfo } | { error: 'invalid' | 'too-many'; reason: string };
 
 export class SpawnService {
   private readonly entries = new Map<string, Entry>();
-  private hostSeenAt = -Infinity;
   private readonly now: () => number;
 
-  constructor(private readonly opts: SpawnServiceOptions = {}) {
+  constructor(private readonly opts: SpawnServiceOptions) {
     this.now = opts.now ?? Date.now;
-  }
-
-  /** Can launch now: direct mode or host helper was seen recently. */
-  available(): boolean {
-    return !!this.opts.opener || this.now() - this.hostSeenAt <= HOST_PRESENCE_MS;
-  }
-
-  mode(): 'direct' | 'host' {
-    return this.opts.opener ? 'direct' : 'host';
   }
 
   submit(raw: unknown): SpawnSubmit {
     this.prune();
     const req = parseSpawn(raw);
     if ('error' in req) return { error: 'invalid', reason: req.error };
-    if (!this.available()) {
-      return { error: 'unavailable', reason: tr("the computer's helper isn't running (Habblaud is in Docker)") };
-    }
     let open = 0;
     for (const e of this.entries.values()) if (e.info.status === 'queued' || e.info.status === 'sent') open++;
     if (open >= MAX_OPEN) return { error: 'too-many', reason: tr('there are already {0} new agents waiting to open', [MAX_OPEN]) };
@@ -226,7 +196,7 @@ export class SpawnService {
     const info: SpawnInfo = { id: this.opts.newId?.() ?? randomUUID(), folder: req.folder, status: 'queued' };
     const entry: Entry = { info, req, files, at: this.now() };
     this.entries.set(info.id, entry);
-    if (this.opts.opener) void this.openDirect(entry, this.opts.opener);
+    void this.openDirect(entry, this.opts.opener);
     return { spawn: { ...info } };
   }
 
@@ -234,38 +204,6 @@ export class SpawnService {
     this.prune();
     const e = this.entries.get(id);
     return e && { ...e.info };
-  }
-
-  /** Helper poll round: marks presence and yields queued requests (helper constructs link: avoids untrusted URLs). */
-  poll(): PolledSpawn[] {
-    this.hostSeenAt = this.now();
-    this.prune();
-    const out: PolledSpawn[] = [];
-    for (const e of this.entries.values()) {
-      if (e.info.status !== 'queued') continue;
-      e.info.status = 'sent';
-      e.at = this.now();
-      const files = e.files.map((f) => ({ name: f.name, type: f.type, data: f.data.toString('base64') }));
-      this.dropFiles(e);
-      out.push({ id: e.info.id, folder: e.req.folder, prompt: e.req.prompt, files });
-    }
-    return out;
-  }
-
-  ack(raw: unknown): void {
-    this.hostSeenAt = this.now();
-    const list = raw && typeof raw === 'object' && Array.isArray((raw as { results?: unknown }).results) ? (raw as { results: unknown[] }).results : [];
-    for (const r of list) {
-      const x = r && typeof r === 'object' ? (r as Record<string, unknown>) : {};
-      const e = typeof x.id === 'string' ? this.entries.get(x.id) : undefined;
-      if (!e || e.info.status !== 'sent') continue;
-      const how: SpawnHow = x.how === 'cli' ? 'cli' : 'app';
-      const note = typeof x.note === 'string' && x.note ? x.note.slice(0, ERROR_MAX) : undefined;
-      this.resolve(
-        e,
-        x.ok === true ? { ok: true, how, ...(note ? { note } : {}) } : { ok: false, error: typeof x.error === 'string' && x.error ? x.error.slice(0, ERROR_MAX) : tr("the helper didn't open the app") },
-      );
-    }
   }
 
   private async openDirect(e: Entry, opener: Opener): Promise<void> {
@@ -305,8 +243,7 @@ export class SpawnService {
     const now = this.now();
     for (const [id, e] of this.entries) {
       const age = now - e.at;
-      if (e.info.status === 'queued' && age > QUEUED_TIMEOUT_MS) this.resolve(e, { ok: false, error: tr("the computer's helper didn't fetch the request") });
-      else if (e.info.status === 'sent' && age > SENT_TIMEOUT_MS) this.resolve(e, { ok: false, error: tr("the computer's helper didn't confirm") });
+      if (e.info.status === 'sent' && age > SENT_TIMEOUT_MS) this.resolve(e, { ok: false, error: tr("the app didn't open in time") });
       else if ((e.info.status === 'opened' || e.info.status === 'failed') && age > KEEP_MS) this.entries.delete(id);
     }
   }

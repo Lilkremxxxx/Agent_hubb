@@ -64,7 +64,7 @@ async function serve(opts: { terminal?: boolean; extra?: (root: string) => Histo
   const terminals = new TerminalStreams({ office, transcriptPathOf: () => undefined, sessionPollMs: 20 });
   const history = new HistorySet([new SessionHistory({ accounts: () => accounts.entries(), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) })]);
   if (opts.extra) history.add(opts.extra(tmp.dir));
-  const api = createApiHandler({ office, hub, accounts, sources: () => [], version: 't', inDocker: false, terminal, terminals, sessions: history });
+  const api = createApiHandler({ office, hub, accounts, sources: () => [], version: 't', terminal, terminals, sessions: history });
   const guard = createRequestGuard({ allowedHosts: new Set(['habblaud.lan']) });
   const server = http.createServer((req, res) => {
     if (guard(req, res)) return;

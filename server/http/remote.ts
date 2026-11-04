@@ -8,14 +8,13 @@
 // Configuration (written by `npm run remote:setup`, scripts/remote-setup.ts):
 //   HABBLAUD_REMOTE_USER + HABBLAUD_REMOTE_PASSWORD_HASH  enable the port (hash is scrypt, see remote/password.ts;
 //                                                         plain-text password not accepted)
-//   HABBLAUD_REMOTE_ALLOW   what remote session can do besides view: terminal, spawn ("none" = view
+//   HABBLAUD_REMOTE_ALLOW   what remote session can do besides view: terminal ("none" = view
 //                           only). Default (unset): view only.
 //   HABBLAUD_REMOTE_TLS_DIR directory with server.key, server.crt (and ca.crt, served at /remote/ca.crt). Default:
-//                           /remote-tls in Docker, ~/.habblaud/remote-tls/server in Node. Without certificate the port
+//                           ~/.habblaud/remote-tls/server. Without certificate the port
 //                           does not start unless HABBLAUD_REMOTE_INSECURE_HTTP=1 (plain HTTP: password and cookie
 //                           exposed on LAN).
-//   HABBLAUD_REMOTE_PORT / HABBLAUD_REMOTE_HOST  Node only (default 0.0.0.0:4748); in Docker container always listens
-//                           on 0.0.0.0:4748 and exposure is decided by published port (HABBLAUD_REMOTE_BIND).
+//   HABBLAUD_REMOTE_PORT / HABBLAUD_REMOTE_HOST  default 0.0.0.0:4748.
 //
 // Session: HttpOnly + SameSite=Strict cookie (+ Secure with HTTPS) signed with HMAC; key = random secret in
 // <dataDir>/remote-secret mixed with user and password hash: changing password revokes all sessions.
@@ -30,9 +29,9 @@ import { parsePasswordHash, verifyPassword, type PasswordHash } from '../remote/
 import { hostAllowed } from './guard';
 import { getLocale, tr } from '../../shared/i18n';
 
-export type RemoteFeature = 'terminal' | 'spawn';
+export type RemoteFeature = 'terminal';
 
-const FEATURES: readonly RemoteFeature[] = ['terminal', 'spawn'];
+const FEATURES: readonly RemoteFeature[] = ['terminal'];
 
 export interface RemoteTls {
   dir: string;
@@ -63,15 +62,14 @@ function truthy(v: string | undefined): boolean {
   return !!v && /^(1|true|yes|sim|on)$/i.test(v.trim());
 }
 
-export function defaultTlsDir(env: NodeJS.ProcessEnv, inDocker: boolean): string {
+export function defaultTlsDir(env: NodeJS.ProcessEnv): string {
   if (env.HABBLAUD_REMOTE_TLS_DIR?.trim()) return env.HABBLAUD_REMOTE_TLS_DIR.trim();
-  return inDocker ? '/remote-tls' : join(env.HOME || homedir(), '.habblaud', 'remote-tls', 'server');
+  return join(env.HOME || homedir(), '.habblaud', 'remote-tls', 'server');
 }
 
 /** Enables remote access from environment. `warning` explains why it stayed off when intentional. */
 export function parseRemoteConfig(
   env: NodeJS.ProcessEnv,
-  inDocker: boolean,
   exists: (path: string) => boolean = existsSync,
 ): { config?: RemoteConfig; warning?: string } {
   const user = env.HABBLAUD_REMOTE_USER?.trim() ?? '';
@@ -82,14 +80,14 @@ export function parseRemoteConfig(
   if (!user || !hashText) return { warning: tr('remote access off: HABBLAUD_REMOTE_USER and HABBLAUD_REMOTE_PASSWORD_HASH are missing; run npm run remote:setup') };
   const passwordHash = parsePasswordHash(hashText);
   if (!passwordHash) return { warning: tr('remote access off: invalid HABBLAUD_REMOTE_PASSWORD_HASH; run npm run remote:setup') };
-  const dir = defaultTlsDir(env, inDocker);
+  const dir = defaultTlsDir(env);
   const tls: RemoteTls = { dir, keyFile: join(dir, 'server.key'), certFile: join(dir, 'server.crt'), caFile: join(dir, 'ca.crt') };
   const hasTls = exists(tls.keyFile) && exists(tls.certFile);
   const insecure = truthy(env.HABBLAUD_REMOTE_INSECURE_HTTP);
   if (!hasTls && !insecure) return { warning: tr('remote access off: no certificate in {0} (HTTPS is required); run npm run remote:setup', [dir]) };
   const rawPort = Number.parseInt(env.HABBLAUD_REMOTE_PORT ?? '', 10);
-  const port = inDocker ? DEFAULT_REMOTE_PORT : Number.isInteger(rawPort) && rawPort > 0 && rawPort < 65536 ? rawPort : DEFAULT_REMOTE_PORT;
-  const host = inDocker ? '0.0.0.0' : env.HABBLAUD_REMOTE_HOST?.trim() || '0.0.0.0';
+  const port = Number.isInteger(rawPort) && rawPort > 0 && rawPort < 65536 ? rawPort : DEFAULT_REMOTE_PORT;
+  const host = env.HABBLAUD_REMOTE_HOST?.trim() || '0.0.0.0';
   return {
     config: { port, host, user, passwordHash, passwordHashText: hashText, allow: parseAllow(env.HABBLAUD_REMOTE_ALLOW), tls: hasTls ? tls : undefined },
   };
@@ -224,7 +222,7 @@ export function readCookie(header: string | undefined, name: string): string | u
 
 /**
  * Brute-force throttle: after 5 consecutive failures, each new attempt waits 2^(n-5) s (up to 5 min).
- * Global, not per IP: in Docker every LAN client arrives with gateway address. One password check at a time
+ * Global, not per IP. One password check at a time
  * (begin/end), counted as failure from start: parallel attempts cannot bypass throttle while scrypt runs.
  */
 export class LoginThrottle {

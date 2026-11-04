@@ -70,7 +70,7 @@ const office = new Office({
   ptys: () => (late.ptys ? { status: late.ptys.status(), list: late.ptys.list() } : { status: { enabled: false, reason: late.ptyOff ?? tr('off') }, list: [] }),
 });
 // Claude workers' sessions run in the office's terminals and are shown by server/workers, not as sessions.
-const claude = new ClaudeWatcher({ accounts, office, inDocker: config.inDocker, home: config.home, ignore: (_acc, pid) => !!late.workers?.ownsPid(pid) });
+const claude = new ClaudeWatcher({ accounts, office, home: config.home, ignore: (_acc, pid) => !!late.workers?.ownsPid(pid) });
 const agents = new SourceSet([claude]);
 // Antigravity CLI workers (sources/agy/): every profile in ~/.agy_profiles is an account, the ones registered in the
 // team have characters in the office folder; HABBLAUD_AGY=0 turns it off. Linux only (reads /proc).
@@ -141,20 +141,19 @@ const ptyOptIn = isTruthy(ptyFlag);
 // opt-in above plus the terminal lock.
 const spawnOn = config.terminal && ptyOptIn;
 const attachments = spawnOn ? new AttachmentStore() : undefined;
-const spawnBin = config.inDocker ? undefined : runnableClaudeBin(process.env);
+const spawnBin = runnableClaudeBin(process.env);
 const spawn = spawnOn
-  ? new SpawnService(config.inDocker ? { attachments } : { opener: createOpener(), cli: spawnBin ? createCliRunner(spawnBin) : undefined, attachments })
+  ? new SpawnService({ opener: createOpener(), cli: spawnBin ? createCliRunner(spawnBin) : undefined, attachments })
   : undefined;
 // Interactive terminal (open/take over sessions and stop agents): opt-in with HABBLAUD_PTY=1, local bind only,
-// outside Docker, with node-pty and claude executable in PATH.
+// with node-pty and claude executable in PATH.
 const claudeBinSetting = process.env.HABBLAUD_CLAUDE_BIN?.trim();
 const claudeBin = claudeBinFrom();
 let spawnPty: SpawnPty | null = null;
 let ptyScreen: ScreenFactory | undefined;
 let ptyOff: string | undefined;
 if (!ptyOptIn) ptyOff = ptyFlag ? tr('off via HABBLAUD_PTY={0}', [ptyFlag]) : tr('off (turn it on with HABBLAUD_PTY=1)');
-else if (config.inDocker) ptyOff = tr('unavailable in Docker (run with npm start)');
-else if (!config.terminal) ptyOff = tr('same lock as the terminal ({0})', [terminalOffReason(process.env, config.host, config.inDocker)]);
+else if (!config.terminal) ptyOff = tr('same lock as the terminal ({0})', [terminalOffReason(process.env, config.host)]);
 else if (!claudeBin) ptyOff = claudeBinSetting ? tr('HABBLAUD_CLAUDE_BIN not found in PATH ({0})', [claudeBinSetting]) : tr('"claude" executable not found in PATH (set HABBLAUD_CLAUDE_BIN)');
 else if (!isExecutableFile(claudeBin)) ptyOff = tr("the Claude Code executable doesn't run: {0} (check HABBLAUD_CLAUDE_BIN)", [claudeBin]);
 else {
@@ -321,7 +320,6 @@ const api = createApiHandler({
   accounts,
   sources: () => agents.sources(),
   version: config.version,
-  inDocker: config.inDocker,
   terminal: config.terminal,
   terminals,
   sessions: history,
@@ -431,10 +429,8 @@ if (config.remote) {
   );
   remoteListener.server.once('listening', () => {
     const allow = [...remote.allow].join(', ') || tr('view only');
-    const where = config.inDocker ? tr('published via HABBLAUD_REMOTE_BIND') : remote.host;
     const scheme = remote.tls ? 'HTTPS' : tr('HTTP WITHOUT encryption (HABBLAUD_REMOTE_INSECURE_HTTP)');
-    log.info(tr('   Remote access: on at port {0} ({1}), {2}, with login; allows: {3}.', [remote.port, where, scheme, allow]));
-    if (remote.allow.has('spawn') && !spawn) log.warn(tr('   Remote access: "spawn" allowed, but New agent is off (turn it on with HABBLAUD_PTY=1).'));
+    log.info(tr('   Remote access: on at port {0} ({1}), {2}, with login; allows: {3}.', [remote.port, remote.host, scheme, allow]));
   });
 } else if (config.remoteWarning) {
   log.warn(`   ${config.remoteWarning}.`);
@@ -442,7 +438,7 @@ if (config.remote) {
 
 server.listen(config.port, config.host, () => {
   const host = config.host === '0.0.0.0' || config.host === '::' ? 'localhost' : config.host;
-  log.info(tr('🏢 Habblaud {0}{1}{2} at http://{3}:{4}', [config.version, config.dev ? ' (dev)' : '', config.inDocker ? ' (docker)' : '', host, config.port]));
+  log.info(tr('🏢 Habblaud {0}{1} at http://{2}:{3}', [config.version, config.dev ? ' (dev)' : '', host, config.port]));
   const list = accounts.entries();
   if (!list.length) log.warn(tr('No Claude Code folder found (set HABBLAUD_CLAUDE_DIRS).'));
   for (const a of list) {
@@ -451,16 +447,14 @@ server.listen(config.port, config.host, () => {
     log.info(tr('   Account {0} ({1}): {2} open session(s) · usage: {3} · {4}', [a.detected.short, a.id, src?.sessions ?? 0, usage, a.dir]));
   }
   if (config.terminal) log.info(tr('   Terminal: on (local access only).'));
-  else log.info(tr('   Terminal: off ({0}).', [terminalOffReason(process.env, config.host, config.inDocker)]));
+  else log.info(tr('   Terminal: off ({0}).', [terminalOffReason(process.env, config.host)]));
   log.info(ptys ? tr('   Interactive terminal: on ({0}).', [claudeBin]) : tr('   Interactive terminal: {0}.', [ptyOff ?? tr('off')]));
   log.info(
     !spawn
       ? tr('   New agent: off ({0}).', [!ptyOptIn ? tr('turn it on with HABBLAUD_PTY=1') : tr('same lock as the terminal')])
-      : config.inDocker
-        ? tr('   New agent: on, via the host helper.')
-        : spawnBin
-          ? tr('   New agent: on ({0} --bg; a folder not yet trusted opens in the Claude app).', [spawnBin])
-          : tr('   New agent: on, only via the Claude app (claude not found in PATH).'),
+      : spawnBin
+        ? tr('   New agent: on ({0} --bg; a folder not yet trusted opens in the Claude app).', [spawnBin])
+        : tr('   New agent: on, only via the Claude app (claude not found in PATH).'),
   );
 });
 

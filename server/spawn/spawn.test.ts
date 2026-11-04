@@ -6,10 +6,8 @@ import {
   cliArgs,
   createCliRunner,
   folderProblem,
-  HOST_PRESENCE_MS,
   launch,
   parseSpawn,
-  QUEUED_TIMEOUT_MS,
   SENT_TIMEOUT_MS,
   sessionName,
   SpawnService,
@@ -49,7 +47,6 @@ describe('SpawnService', () => {
     const opened: string[] = [];
     const opener: Opener = async (url) => (opened.push(url), { ok: true });
     const s = new SpawnService({ opener, folderProblem: () => undefined, newId: () => 'a1' });
-    expect(s.available()).toBe(true);
     const r = s.submit({ folder: '/p', prompt: 'hi' });
     expect(r).toMatchObject({ spawn: { id: 'a1', folder: '/p' } });
     await new Promise((ok) => setTimeout(ok, 0));
@@ -61,28 +58,13 @@ describe('SpawnService', () => {
     expect(bad.get('b')).toMatchObject({ status: 'failed', error: 'folder not found on this computer' });
   });
 
-  it('Docker: rejects without helper; with helper, queue → poll → ack; and timeouts', () => {
+  it('a request stuck opening fails after SENT_TIMEOUT_MS', () => {
     let now = 1_000_000;
-    let n = 0;
-    const s = new SpawnService({ now: () => now, newId: () => `id${++n}` });
-    expect(s.submit({ folder: '/p', prompt: '' })).toMatchObject({ error: 'unavailable' });
-    expect(s.poll()).toEqual([]);
-    expect(s.available()).toBe(true);
-    s.submit({ folder: '/p', prompt: 'a' });
-    expect(s.poll()).toEqual([{ id: 'id1', folder: '/p', prompt: 'a', files: [] }]);
-    expect(s.poll()).toEqual([]);
-    s.ack({ results: [{ id: 'id1', ok: false, error: 'open: failed' }] });
-    expect(s.get('id1')).toMatchObject({ status: 'failed', error: 'open: failed' });
-    s.submit({ folder: '/p', prompt: 'b' });
-    s.poll();
+    const s = new SpawnService({ opener: () => new Promise(() => {}), folderProblem: () => undefined, now: () => now, newId: () => 'id1' });
+    s.submit({ folder: '/p', prompt: '' });
+    expect(s.get('id1')?.status).toBe('sent');
     now += SENT_TIMEOUT_MS + 1;
-    expect(s.get('id2')).toMatchObject({ status: 'failed', error: "the computer's helper didn't confirm" });
-    now += HOST_PRESENCE_MS + 1;
-    expect(s.available()).toBe(false);
-    s.poll();
-    s.submit({ folder: '/p', prompt: 'c' });
-    now += QUEUED_TIMEOUT_MS + 1;
-    expect(s.get('id3')).toMatchObject({ status: 'failed', error: "the computer's helper didn't fetch the request" });
+    expect(s.get('id1')).toMatchObject({ status: 'failed', error: "the app didn't open in time" });
   });
 
   it('at most 5 opening at the same time', () => {
@@ -95,19 +77,8 @@ describe('SpawnService', () => {
 describe('SpawnService with attachments', () => {
   const att = (name: string) => ({ name, type: 'image/png', data: Buffer.from(name) });
 
-  it('host: request carries base64 attachments once, and store does not return them again', async () => {
-    const { AttachmentStore } = await import('./attachments');
-    const store = new AttachmentStore(Date.now, (() => { let n = 0; return () => `f${++n}`; })());
-    store.put(att('a.png'));
-    const s = new SpawnService({ attachments: store, newId: () => 's1' });
-    s.poll();
-    expect(s.submit({ folder: '/p', prompt: 'see', attachments: ['f1'] })).toMatchObject({ spawn: { id: 's1' } });
-    const [polled] = s.poll();
-    expect(polled.files).toEqual([{ name: 'a.png', type: 'image/png', data: Buffer.from('a.png').toString('base64') }]);
-    expect(s.poll()).toEqual([]);
-    expect(s.submit({ folder: '/p', attachments: ['f1'] })).toMatchObject({ error: 'invalid' });
-    const bare = new SpawnService({ newId: () => 'z' });
-    bare.poll();
+  it('attachments disabled without a store', () => {
+    const bare = new SpawnService({ opener: async () => ({ ok: true }), newId: () => 'z' });
     expect(bare.submit({ folder: '/p', attachments: ['f1'] })).toMatchObject({ error: 'invalid', reason: 'attachments disabled' });
   });
 
@@ -196,21 +167,10 @@ describe('new background agent (claude --bg)', () => {
     });
   });
 
-  it('SpawnService: direct mode with claude and helper ack with how/note', async () => {
+  it('SpawnService: with claude, resolves as cli', async () => {
     const s = new SpawnService({ opener: async () => ({ ok: true }), cli: async () => ({ ok: true, id: 'x' }), folderProblem: () => undefined, newId: () => 'c1' });
     s.submit({ folder: '/p', prompt: 'hi' });
     await new Promise((ok) => setTimeout(ok, 0));
     expect(s.get('c1')).toEqual({ id: 'c1', folder: '/p', status: 'opened', how: 'cli' });
-    let n = 0;
-    const d = new SpawnService({ newId: () => `d${++n}` });
-    d.poll();
-    d.submit({ folder: '/p', prompt: 'a' });
-    d.submit({ folder: '/p', prompt: 'b' });
-    d.submit({ folder: '/p', prompt: 'c' });
-    d.poll();
-    d.ack({ results: [{ id: 'd1', ok: true, how: 'cli' }, { id: 'd2', ok: true, how: 'app', note: 'new folder' }, { id: 'd3', ok: true }] });
-    expect(d.get('d1')).toMatchObject({ status: 'opened', how: 'cli' });
-    expect(d.get('d2')).toMatchObject({ status: 'opened', how: 'app', note: 'new folder' });
-    expect(d.get('d3')).toMatchObject({ status: 'opened', how: 'app' });
   });
 });

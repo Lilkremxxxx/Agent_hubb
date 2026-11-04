@@ -1,8 +1,7 @@
 // "New agent" attachments (images and files sent from mobile alongside request). Claude app link only carries
 // text, so files are saved on the app's computer at ~/.habblaud/attachments/<date>-<id>/, and the request gets
-// the list of paths for the agent to read. Saved by whoever opens the link: server in Node mode, host helper
-// in Docker. Files arrive as base64 JSON (guard requires JSON on all POSTs: CSRF).
-// Pure Node without dependencies: also imported by host helper (via tsx).
+// the list of paths for the agent to read. Saved by the server. Files arrive as base64 JSON (guard requires JSON on all POSTs: CSRF).
+// Pure Node without dependencies.
 import { randomUUID } from 'node:crypto';
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';

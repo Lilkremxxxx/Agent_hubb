@@ -8,7 +8,7 @@
 // and executable match the registry: pty/procinfo.ts).
 //
 // Security: anyone controlling one of these terminals executes commands on the machine. The feature is opt-in
-// (HABBLAUD_PTY=1), routes only accept connections from localhost (see http/pty.ts), and it is disabled in Docker.
+// (HABBLAUD_PTY=1), routes only accept connections from localhost (see http/pty.ts).
 import { chmodSync, readFileSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';

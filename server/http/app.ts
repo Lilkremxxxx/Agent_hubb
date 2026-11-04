@@ -26,7 +26,6 @@ export interface ApiDeps {
   accounts: AccountsService;
   sources: () => SourceInfo[];
   version: string;
-  inDocker: boolean;
   /** Terminal enabled (ServerConfig.terminal: local bind only). */
   terminal?: boolean;
   /** Terminal streams; without them the feature is disabled even with `terminal`. */
@@ -38,10 +37,10 @@ export interface ApiDeps {
   sessions?: SessionLookup;
   /**
    * Interactive terminal and agent actions (/api/pty/*, POST /api/agents/:id/stop|takeover; http/pty.ts).
-   * Missing = disabled (without HABBLAUD_PTY=1, Docker, without node-pty, or without local bind).
+   * Missing = disabled (without HABBLAUD_PTY=1, without node-pty, or without local bind).
    */
   pty?: (req: IncomingMessage, res: ServerResponse, path: string) => void;
-  /** New agent from the office (/api/spawn and, for host helper, /api/host/spawn/*; server/spawn/spawn.ts). */
+  /** New agent from the office (/api/spawn; server/spawn/spawn.ts). */
   spawn?: SpawnService;
   /** Suggested folders in "New agent" (GET /api/spawn/folders; spawn/folders.ts): recent projects. */
   spawnFolders?: () => Promise<SpawnFolder[]>;
@@ -99,11 +98,6 @@ function isLoopbackAddress(addr: string | undefined): boolean {
   if (!addr) return false;
   const a = addr.replace(/^::ffff:/i, '');
   return a === '::1' || /^127\./.test(a);
-}
-
-/** Host helper routes: local port only; remote port denied even with login. */
-function isLocalOnlyPath(path: string): boolean {
-  return path.startsWith('/api/host/');
 }
 
 const MAX_BODY = 256 * 1024;
@@ -256,11 +250,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     const method = req.method ?? 'GET';
     const isRead = method === 'GET' || method === 'HEAD';
 
-    if (isRemote(req) && isLocalOnlyPath(path)) {
-      req.resume();
-      sendJson(res, 403, { error: tr('route only for the computer running Habblaud (hooks, plugins and the host helper)') });
-      return true;
-    }
     if (path === '/api/stream') {
       if (method !== 'GET') methodNotAllowed(res, 'GET');
       else hub.attach(req, res);
@@ -278,7 +267,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         sendJson(res, 200, {
           ok: true,
           version: deps.version,
-          docker: deps.inDocker,
           remote,
           terminal: !!terminals && (!remote || trusted(req, 'terminal')),
           // Interactive terminal (pty) is never allowed over remote port.
@@ -301,7 +289,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           remote,
           local: !remote && isLoopbackHost(req.headers.host),
           terminal: !!terminals && trusted(req, 'terminal'),
-          spawn: !!deps.spawn && trusted(req, 'spawn'),
+          spawn: !!deps.spawn && trusted(req),
         };
         sendJson(res, 200, access);
       }
@@ -366,8 +354,8 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       // Opens new session in Claude app: runs code on computer, so same lock as the terminal.
       const spawn = deps.spawn;
       if (!spawn) sendJson(res, 403, { error: tr('new agent from the office disabled') });
-      else if (!trusted(req, 'spawn')) sendJson(res, 403, { error: denied(req, tr('new agents can only be opened from the computer running Habblaud (http://localhost)')) });
-      else if (path === '/api/spawn' && isRead) sendJson(res, 200, { available: spawn.available(), mode: spawn.mode() });
+      else if (!trusted(req)) sendJson(res, 403, { error: denied(req, tr('new agents can only be opened from the computer running Habblaud (http://localhost)')) });
+      else if (path === '/api/spawn' && isRead) sendJson(res, 200, { available: true });
       else if (path === '/api/spawn/folders') {
         if (!isRead) methodNotAllowed(res, 'GET');
         else (deps.spawnFolders ?? (async () => []))().then((folders) => sendJson(res, 200, { folders }), (err) => fail(res, err));
@@ -399,26 +387,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         if (info) sendJson(res, 200, info);
         else sendJson(res, 404, { error: tr('unknown request') });
       } else methodNotAllowed(res, path === '/api/spawn' ? 'GET, POST' : 'GET');
-      return true;
-    }
-    if (path === '/api/host/spawn/poll' || path === '/api/host/spawn/ack') {
-      // Host helper only, via local port (never remote); outside Docker, loopback only.
-      const spawn = deps.spawn;
-      if (method !== 'POST') methodNotAllowed(res, 'POST');
-      else if (!spawn) sendJson(res, 403, { error: tr('new agent from the office disabled') });
-      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
-        sendJson(res, 403, { error: denied(req, tr('only the helper on the computer running Habblaud')) });
-      } else if (path === '/api/host/spawn/poll') {
-        req.resume();
-        sendJson(res, 200, { spawns: spawn.poll() });
-      } else {
-        readJson(req)
-          .then((body) => {
-            spawn.ack(body);
-            sendJson(res, 200, { ok: true });
-          })
-          .catch((err) => fail(res, err));
-      }
       return true;
     }
     if (path.startsWith('/api/agents/')) {

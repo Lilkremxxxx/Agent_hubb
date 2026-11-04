@@ -41,7 +41,7 @@ function setup(opts: { tailBytes?: number } = {}) {
   });
   late.office = office;
   const alive = new Set<number>();
-  const watcher = new ClaudeWatcher({ accounts, office, inDocker: false, home, now, isAlive: (pid) => alive.has(pid), watch: false, tailBytes: opts.tailBytes });
+  const watcher = new ClaudeWatcher({ accounts, office, home, now, isAlive: (pid) => alive.has(pid), watch: false, tailBytes: opts.tailBytes });
   const notices: Notice[] = [];
 
   const ctx = {

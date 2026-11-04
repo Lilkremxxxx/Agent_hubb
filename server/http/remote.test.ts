@@ -42,33 +42,30 @@ const TLS_FILES = (p: string) => p.endsWith('server.key') || p.endsWith('server.
 describe('parseRemoteConfig', () => {
   const base = { HABBLAUD_REMOTE_USER: 'ana', HABBLAUD_REMOTE_PASSWORD_HASH: HASH_TEXT };
   it('stays disabled without variables', () => {
-    expect(parseRemoteConfig({}, false)).toEqual({});
+    expect(parseRemoteConfig({})).toEqual({});
   });
   it('rejects plaintext password and missing or invalid hash', () => {
-    expect(parseRemoteConfig({ HABBLAUD_REMOTE_USER: 'a', HABBLAUD_REMOTE_PASSWORD: '12345678' }, false).warning).toMatch(/plain-text/);
-    expect(parseRemoteConfig({ HABBLAUD_REMOTE_USER: 'a' }, false).warning).toMatch(/remote:setup/);
-    expect(parseRemoteConfig({ HABBLAUD_REMOTE_USER: 'a', HABBLAUD_REMOTE_PASSWORD_HASH: 'scrypt:1:2' }, false, TLS_FILES).warning).toMatch(/invalid/i);
+    expect(parseRemoteConfig({ HABBLAUD_REMOTE_USER: 'a', HABBLAUD_REMOTE_PASSWORD: '12345678' }).warning).toMatch(/plain-text/);
+    expect(parseRemoteConfig({ HABBLAUD_REMOTE_USER: 'a' }).warning).toMatch(/remote:setup/);
+    expect(parseRemoteConfig({ HABBLAUD_REMOTE_USER: 'a', HABBLAUD_REMOTE_PASSWORD_HASH: 'scrypt:1:2' }, TLS_FILES).warning).toMatch(/invalid/i);
   });
   it('requires HTTPS: will not start without certificate unless HABBLAUD_REMOTE_INSECURE_HTTP=1', () => {
-    expect(parseRemoteConfig(base, false, () => false).warning).toMatch(/HTTPS is required/);
-    const insecure = parseRemoteConfig({ ...base, HABBLAUD_REMOTE_INSECURE_HTTP: '1' }, false, () => false).config;
+    expect(parseRemoteConfig(base, () => false).warning).toMatch(/HTTPS is required/);
+    const insecure = parseRemoteConfig({ ...base, HABBLAUD_REMOTE_INSECURE_HTTP: '1' }, () => false).config;
     expect(insecure?.tls).toBeUndefined();
   });
   it('starts with defaults: port 4748, view only, certificate in default folder', () => {
-    const { config } = parseRemoteConfig({ ...base, HOME: '/h' }, false, TLS_FILES);
+    const { config } = parseRemoteConfig({ ...base, HOME: '/h' }, TLS_FILES);
     expect(config).toMatchObject({ port: 4748, host: '0.0.0.0', user: 'ana' });
     expect(config?.tls?.certFile).toBe('/h/.habblaud/remote-tls/server/server.crt');
     expect([...config!.allow]).toEqual([]);
   });
-  it('in Docker ignores port and host (container always listens on 0.0.0.0:4748) and reads cert from /remote-tls', () => {
+  it('reads HABBLAUD_REMOTE_PORT and HABBLAUD_REMOTE_HOST', () => {
     const env = { ...base, HABBLAUD_REMOTE_PORT: '9999', HABBLAUD_REMOTE_HOST: '10.0.0.1' };
-    const docker = parseRemoteConfig(env, true, TLS_FILES).config;
-    expect(docker).toMatchObject({ port: 4748, host: '0.0.0.0' });
-    expect(docker?.tls?.dir).toBe('/remote-tls');
-    expect(parseRemoteConfig(env, false, TLS_FILES).config).toMatchObject({ port: 9999, host: '10.0.0.1' });
+    expect(parseRemoteConfig(env, TLS_FILES).config).toMatchObject({ port: 9999, host: '10.0.0.1' });
   });
   it('HABBLAUD_REMOTE_ALLOW: lists, ignores unknown names, "none" = view only', () => {
-    expect([...parseAllow('spawn, Terminal, bogus')]).toEqual(['spawn', 'terminal']);
+    expect([...parseAllow('spawn, Terminal, bogus')]).toEqual(['terminal']);
     expect([...parseAllow('none')]).toEqual([]);
     expect([...parseAllow('')]).toEqual([]);
     expect([...parseAllow(undefined)]).toEqual([]);
@@ -167,7 +164,7 @@ interface Harness {
   remoteBase: string;
   localBase: string;
   ptyCalls: string[];
-  spawn: SpawnService;
+  calls: string[];
   close: () => Promise<void>;
 }
 
@@ -194,19 +191,24 @@ async function start(allow: RemoteFeature[] = []): Promise<Harness> {
   const hub = new Hub(office, { throttleMs: 10 });
   hub.start();
   const ptyCalls: string[] = [];
-  const spawn = new SpawnService();
+  const calls: string[] = [];
+  const spawn = new SpawnService({ opener: async () => ({ ok: true }) });
+  // Stubs that record any call: a 403 must come from the gate, never from a missing dep.
+  const rec = (name: string) => () => { calls.push(name); throw new Error('must not be reached'); };
   const api = createApiHandler({
     office,
     hub,
     accounts,
     sources: () => [],
     version: '9.9.9',
-    inDocker: true,
     terminal: true,
     // Stubs: enough for the terminal and session-history routes to answer once the remote session is allowed.
     terminals: new TerminalStreams({ office, transcriptPathOf: () => undefined, parserFor: () => undefined }),
     sessions: { list: async () => [], resolve: () => ({ ok: false, status: 404, error: 'unknown' }) } as unknown as SessionLookup,
     spawn,
+    advisor: { ask: rec('advisor.ask'), wait: rec('advisor.wait') } as never,
+    workers: { ask: rec('workers.ask'), waitJob: rec('workers.waitJob'), cancel: rec('workers.cancel') } as never,
+    team: { appoint: rec('team.appoint') } as never,
     pty: (req, res, path) => {
       req.resume();
       ptyCalls.push(`${req.method} ${path}`);
@@ -246,7 +248,7 @@ async function start(allow: RemoteFeature[] = []): Promise<Harness> {
     localBase: `http://127.0.0.1:${(local.address() as AddressInfo).port}`,
     remoteBase: `http://127.0.0.1:${(remote.address() as AddressInfo).port}`,
     ptyCalls,
-    spawn,
+    calls,
     close,
   };
 }
@@ -287,53 +289,35 @@ async function login(base: string): Promise<string> {
 }
 
 describe('remote port', () => {
-  it('logged in: interactive terminal and helper routes never pass, even with local Host', async () => {
-    const s = await start(['terminal', 'spawn']);
-    const cookie = await login(s.remoteBase);
-    const headers = { Cookie: cookie, Host: 'localhost' };
-    const blocked: Array<[string, string]> = [
+  it('logged in: advisor, workers, team, pty and spawn never pass over the remote port, even with Host localhost and --allow terminal', async () => {
+    const s = await start(['terminal']);
+    const headers = { Cookie: await login(s.remoteBase), Host: 'localhost' };
+    const blocked: Array<[string, string, unknown?]> = [
+      ['POST', '/api/advisor', { slot: 'W2', question: 'x' }],
+      ['GET', '/api/advisor/q1'],
+      ['GET', '/api/workers/jobs/w1'],
+      ['POST', '/api/workers/cancel', { worker: 'W1' }],
+      ['POST', '/api/team', { openBoss: true }],
+      ['POST', '/api/spawn', { folder: '/p', prompt: 'hi' }],
       ['GET', '/api/pty'],
-      ['POST', '/api/pty/x/input'],
-      ['POST', '/api/agents/a1/stop'],
-      ['POST', '/api/agents/a1/takeover'],
-      ['POST', '/api/host/spawn/poll'],
+      ['POST', '/api/pty/x/input', {}],
+      ['POST', '/api/agents/a1/stop', {}],
+      ['POST', '/api/agents/a1/takeover', {}],
     ];
-    for (const [method, path] of blocked) {
-      const r = await request(s.remoteBase, path, { method, headers, ...(method === 'POST' ? { body: {} } : {}) });
+    for (const [method, path, body] of blocked) {
+      const r = await request(s.remoteBase, path, { method, headers, ...(body ? { body } : {}) });
       expect(r.status, `${method} ${path}`).toBe(403);
     }
+    expect(s.calls).toEqual([]);
     expect(s.ptyCalls).toEqual([]);
     expect(JSON.parse((await request(s.remoteBase, '/api/health', { headers })).body).pty).toBe(false);
+    expect(JSON.parse((await request(s.remoteBase, '/api/access', { headers })).body)).toMatchObject({ remote: true, terminal: true, spawn: false });
     // Office-wide effects: phone cannot trigger them.
     expect((await request(s.remoteBase, '/api/fun/party', { method: 'POST', body: { enabled: true }, headers })).status).toBe(403);
-    // On local port, the interactive terminal continues as before.
+    // On local port, the interactive terminal continues as before; the host helper routes are gone.
     expect((await request(s.localBase, '/api/pty')).status).toBe(200);
-  });
-
-  it('new agent: only with spawn enabled on phone; host helper never through remote port', async () => {
-    const s = await start([]);
-    const cookie = await login(s.remoteBase);
-    const body = { folder: '/Users/voce/projeto', prompt: 'hi' };
-    expect((await request(s.remoteBase, '/api/spawn', { method: 'POST', body, headers: { Cookie: cookie } })).status).toBe(403);
-    expect(JSON.parse((await request(s.remoteBase, '/api/access', { headers: { Cookie: cookie } })).body).spawn).toBe(false);
-
-    const t = await start(['spawn']);
-    const c2 = await login(t.remoteBase);
-    expect(JSON.parse((await request(t.remoteBase, '/api/access', { headers: { Cookie: c2 } })).body).spawn).toBe(true);
-    // Without host helper running: 409 with reason.
-    const off = await request(t.remoteBase, '/api/spawn', { method: 'POST', body, headers: { Cookie: c2 } });
-    expect(off.status).toBe(409);
-    expect(off.body).toMatch(/helper isn't running/);
-    expect((await request(t.remoteBase, '/api/host/spawn/poll', { method: 'POST', body: {}, headers: { Cookie: c2 } })).status).toBe(403);
-    // Helper (local port) passes: phone requests, helper polls, opens and confirms.
-    expect(JSON.parse((await request(t.localBase, '/api/host/spawn/poll', { method: 'POST', body: {} })).body)).toEqual({ spawns: [] });
-    const made = await request(t.remoteBase, '/api/spawn', { method: 'POST', body, headers: { Cookie: c2 } });
-    expect(made.status).toBe(201);
-    const { id } = JSON.parse(made.body);
-    expect(JSON.parse((await request(t.localBase, '/api/host/spawn/poll', { method: 'POST', body: {} })).body).spawns).toEqual([{ id, ...body, files: [] }]);
-    expect((await request(t.localBase, '/api/host/spawn/ack', { method: 'POST', body: { results: [{ id, ok: true }] } })).status).toBe(200);
-    expect(JSON.parse((await request(t.remoteBase, `/api/spawn/${id}`, { headers: { Cookie: c2 } })).body).status).toBe('opened');
-    expect((await request(t.localBase, '/api/spawn', { method: 'POST', body: { folder: 'relative', prompt: '' } })).status).toBe(400);
+    expect((await request(s.localBase, '/api/host/spawn/poll', { method: 'POST', body: {} })).status).toBe(404);
+    expect((await request(s.localBase, '/api/spawn', { method: 'POST', body: { folder: 'relative', prompt: '' } })).status).toBe(400);
   });
 
   it('login with partial body does not block anyone else logging in', async () => {
@@ -432,12 +416,10 @@ describe('remote port', () => {
     }
   });
 
-  it('HABBLAUD_REMOTE_ALLOW=spawn enables spawn and "none" leaves the phone view-only', async () => {
-    const withSpawn = await start(['spawn']);
-    const c1 = await login(withSpawn.remoteBase);
-    expect(JSON.parse((await request(withSpawn.remoteBase, '/api/access', { headers: { Cookie: c1 } })).body).spawn).toBe(true);
+  it('HABBLAUD_REMOTE_ALLOW=spawn is ignored and "none" leaves the phone view-only', async () => {
     const viewOnly = await start([]);
     const c2 = await login(viewOnly.remoteBase);
+    expect(JSON.parse((await request(viewOnly.remoteBase, '/api/access', { headers: { Cookie: c2 } })).body).spawn).toBe(false);
     expect((await request(viewOnly.remoteBase, '/api/spawn', { method: 'POST', headers: { Cookie: c2 }, body: {} })).status).toBe(403);
     expect((await request(viewOnly.remoteBase, '/api/snapshot', { headers: { Cookie: c2 } })).status).toBe(200);
   });
