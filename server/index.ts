@@ -68,7 +68,7 @@ const office = new Office({
   ptys: () => (late.ptys ? { status: late.ptys.status(), list: late.ptys.list() } : { status: { enabled: false, reason: late.ptyOff ?? tr('off') }, list: [] }),
 });
 // Claude workers' sessions run in the office's terminals and are shown by server/workers, not as sessions.
-const claude = new ClaudeWatcher({ accounts, office, inDocker: config.inDocker, ignore: (_acc, pid) => !!late.workers?.ownsPid(pid) });
+const claude = new ClaudeWatcher({ accounts, office, inDocker: config.inDocker, home: config.home, ignore: (_acc, pid) => !!late.workers?.ownsPid(pid) });
 const agents = new SourceSet([claude]);
 // Antigravity CLI workers (sources/agy/): every profile in ~/.agy_profiles is an account, the ones registered in the
 // team have characters in the office folder; HABBLAUD_AGY=0 turns it off. Linux only (reads /proc).

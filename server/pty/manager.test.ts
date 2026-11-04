@@ -395,6 +395,24 @@ describe('PtyManager: sign-in terminal (accounts dialog)', () => {
     expect(onExit).toHaveBeenCalledOnce();
   });
 
+  it('a program that ignores SIGHUP gets SIGTERM, then SIGKILL (stop)', async () => {
+    vi.useFakeTimers();
+    try {
+      const sent: string[] = [];
+      const s = setup({ signal: (_pid, sig) => void sent.push(sig) });
+      s.manager.openProgram({ agentId: 'boss:agy', account: 'agy:acc1', file: process.execPath, args: [], cwd: tmpdir() });
+      const proc = (s.manager as unknown as { ptys: Map<string, { proc: FakeProc }> }).ptys.values().next().value!.proc;
+      proc.kill = () => {};
+      await s.manager.stop('boss:agy');
+      vi.advanceTimersByTime(2_000);
+      expect(sent).toEqual(['SIGTERM']);
+      vi.advanceTimersByTime(3_000);
+      expect(sent).toEqual(['SIGTERM', 'SIGKILL']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('rejects a command that does not run', () => {
     const s = setup();
     expect(() => s.manager.openLogin({ account: 'agy:acc7', file: join(tmpdir(), 'no-agy-as'), args: ['acc7'], cwd: tmpdir() })).toThrow(PtyError);

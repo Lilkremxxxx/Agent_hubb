@@ -23,7 +23,7 @@ export interface AccountsRouteDeps {
   /** Antigravity profile root (~/.agy_profiles). */
   agyRoot: string;
   claudeBin: string;
-  /** The agy-as script (~/.local/bin/agy-as). */
+  /** The agy-as script (tools/agy/bin/agy-as in the repo). */
   agyBin: string;
   /** Claude Code accounts watched now: id and config dir. */
   claudeAccounts: () => Array<{ id: string; dir: string; isDefault: boolean }>;

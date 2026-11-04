@@ -13,12 +13,15 @@ class Office(http.server.BaseHTTPRequestHandler):
     bodies = []
 
     def do_POST(self):
-        Office.bodies.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        Office.bodies.append(body)
+        if body["prompt"] == "busy":  # the seat is on another job
+            return self.reply({"error": "BUSY", "message": "W1 is busy"}, 409)
         self.reply({"job": {"id": "j1", "status": "done", "answer": "pong"}})
 
-    def reply(self, obj):
+    def reply(self, obj, status=200):
         data = json.dumps(obj).encode()
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
@@ -53,7 +56,7 @@ class Seats(unittest.TestCase):
         cls.home = os.path.join(cls.tmp, "home")
         cls.data = os.path.join(cls.tmp, "data")
         cls.folder = os.path.join(cls.tmp, "proj")
-        for d in (cls.home, cls.data, cls.folder, os.path.join(cls.home, ".claude-worker")):
+        for d in (cls.home, cls.data, cls.folder, os.path.join(cls.home, ".claude-worker"), os.path.join(cls.home, ".claude")):
             os.makedirs(d)
         cls.bin = os.path.join(cls.tmp, "bin")
         os.makedirs(cls.bin)
@@ -81,13 +84,15 @@ class Seats(unittest.TestCase):
             json.dump({"folder": folder, "boss": {"kind": "claude", "account": "default"},
                        "workers": [{"name": "W1", "kind": "agy", "account": "acc1"},
                                    {"name": "W2", "kind": "agy", "account": "acc1"},
-                                   {"name": "C1", "kind": "claude", "account": "worker"}]}, f)
+                                   {"name": "C1", "kind": "claude", "account": "worker"},
+                                   {"name": "D1", "kind": "claude", "account": "default"}]}, f)
 
-    def ask(self, args, via=None, office=True, tool="agy-ask"):
+    def ask(self, args, via=None, office=True, tool="agy-ask", env=None):
         """(exit code, stdout, stderr) of `<tool> <args>`, started by the fake `via` agent when given."""
         e = {k: v for k, v in os.environ.items() if not k.startswith(("AGY_", "BANG_", "CLAUDE"))}
         e.update(HABBLAUD_DATA_DIR=self.data, HOME=self.home,
                  HABBLAUD_URL=f"http://127.0.0.1:{self.server.server_port if office else 9}")
+        e.update(env or {})
         if not office:
             e["PATH"] = f"{self.bin}:{e['PATH']}"
         cmd = [os.path.join(self.bin, tool)] + args
@@ -111,7 +116,7 @@ class Seats(unittest.TestCase):
     def test_unknown_seat_lists_the_seats(self):
         code, _, err = self.ask(["acc1", "ping"])
         self.assertEqual(code, 1)
-        self.assertIn("no seat acc1 (seats: W1, W2, C1)", err)
+        self.assertIn("no seat acc1 (seats: W1, W2, C1, D1)", err)
 
     def test_headless_agy_runs_in_the_folder_with_the_seat_env(self):
         code, out, err = self.ask(["W2", "ping", "--mode", "plan"], office=False)
@@ -129,6 +134,24 @@ class Seats(unittest.TestCase):
     def test_office_job_is_lean_only_with_the_flag_and_sends_cwd_only_when_given(self):
         self.ask(["C1", "ping", "--lean", "--cwd", self.tmp])
         self.assertEqual((Office.bodies[-1]["lean"], Office.bodies[-1]["cwd"]), (True, self.tmp))
+
+    def test_lean_keeps_the_callers_own_tools(self):
+        r = json.loads(self.ask(["C1", "ping", "--lean", "--tools", "Read"], office=False)[1])
+        self.assertEqual(r["args"].count("--tools"), 1)
+        self.assertEqual(r["args"][r["args"].index("--tools") + 1], "Read")
+
+    def test_default_account_does_not_set_the_config_dir(self):
+        code, out, err = self.ask(["D1", "ping"], office=False, env={"CLAUDE_CONFIG_DIR": "/leaked"})  # an inherited one must not reach the seat
+        self.assertEqual(code, 0, err)
+        self.assertIsNone(json.loads(out)["conf"])
+
+    def test_busy_seat_exits_3(self):
+        code, _, err = self.ask(["W1", "busy"])
+        self.assertEqual(code, 3, err)
+
+    def test_claude_seat_without_lean_sends_no_lean_key(self):
+        self.ask(["C1", "ping"])
+        self.assertNotIn("lean", Office.bodies[-1])
 
     def test_no_folder_no_cwd_fails_before_any_job(self):
         self.write_team("")

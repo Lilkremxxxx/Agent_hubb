@@ -8,7 +8,7 @@ import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import { appendLines, L, tempDir, writeLines } from '../test/fixtures';
-import { ClaudeWatcher, encodeCwd } from './watcher';
+import { ClaudeWatcher, encodeCwd, isObserverSession } from './watcher';
 
 setQuiet(true);
 
@@ -41,7 +41,7 @@ function setup(opts: { tailBytes?: number } = {}) {
   });
   late.office = office;
   const alive = new Set<number>();
-  const watcher = new ClaudeWatcher({ accounts, office, inDocker: false, now, isAlive: (pid) => alive.has(pid), watch: false, tailBytes: opts.tailBytes });
+  const watcher = new ClaudeWatcher({ accounts, office, inDocker: false, home, now, isAlive: (pid) => alive.has(pid), watch: false, tailBytes: opts.tailBytes });
   const notices: Notice[] = [];
 
   const ctx = {
@@ -742,5 +742,15 @@ describe('ClaudeWatcher — shell launched at start of transcript larger than bo
       c.watcher.stop();
       c.tmp.cleanup();
     }
+  });
+
+  it('claude-mem observer sessions are not shown', () => {
+    const ctx = setup();
+    ctx.openSession(301, 'obs', { cwd: join(ctx.tmp.dir, '.claude-mem', 'observer-sessions', '31') });
+    ctx.openSession(302, 'real');
+    ctx.poll();
+    expect(ctx.office.list().map((a) => a.sessionId)).toEqual(['real']);
+    expect(isObserverSession('/h/.claude-mem/observer-sessions/32', '/h')).toBe(true);
+    expect(isObserverSession('/h/.claude-mem', '/h')).toBe(false);
   });
 });

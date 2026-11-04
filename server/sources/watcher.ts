@@ -7,7 +7,7 @@
 // transcripts and those sessions' subagents/ folders (never the archive of old transcripts).
 // fs.watch is only an accelerator (in Docker with macOS bind mounts events may not arrive).
 import { existsSync, readdirSync, readFileSync, statSync, watch, type FSWatcher } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { SPECIAL } from '../../shared/activity';
 import type { Activity, AgentStatus, SourceInfo } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
@@ -58,6 +58,13 @@ export interface WatcherOptions {
   watch?: boolean;
   /** Sessions left to another part of the office (Claude workers' terminals, server/workers): not shown as sessions. */
   ignore?: (accountId: string, pid: number) => boolean;
+  /** The user's home: sessions of claude-mem's observer (under <home>/.claude-mem/observer-sessions/) are not shown. */
+  home?: string;
+}
+
+/** True when cwd is inside <home>/.claude-mem/observer-sessions/ (claude-mem's background observer, not a person's session). */
+export function isObserverSession(cwd: string, home: string): boolean {
+  return cwd.startsWith(`${join(home, '.claude-mem', 'observer-sessions')}${sep}`);
 }
 
 /** cwd -> folder name in projects/ (every non-alphanumeric character becomes "-"). */
@@ -279,6 +286,7 @@ export class ClaudeWatcher implements AgentSource {
       if (res.error) info.error = res.error;
       this.sourceInfo.set(acc.dir, info);
       for (const entry of res.entries) {
+        if (this.opts.home && isObserverSession(entry.cwd, this.opts.home)) continue;
         if (this.opts.ignore?.(acc.id, entry.pid)) continue;
         const key = `${acc.id}:${entry.pid}`;
         seen.add(key);
