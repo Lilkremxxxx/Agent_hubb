@@ -1,6 +1,6 @@
 ---
 name: agy-orchestrator
-description: Give jobs to worker agents with `agy-ask` (Antigravity accounts acc1..acc6) and `claude-ask` (Claude Code accounts), within the team the user set in Habblaud. Use when the user asks to delegate/giao việc/chia việc to other agents, check what a worker returned, or run work in parallel across accounts.
+description: Give jobs to worker agents with `agy-ask` (seats of the office, Antigravity or Claude Code), within the team in team.json. Use when the user asks to delegate/giao việc/chia việc to other agents, check what a worker returned, or run work in parallel across accounts.
 ---
 
 # agy orchestrator
@@ -12,26 +12,26 @@ A bare `agy` uses the machine's real account and can mix tokens. Always go throu
 
 ## Giving jobs
 ```bash
-agy-ask acc2 "<prompt>" --role <label> --mode <plan|accept-edits|default> --effort <low|medium|high> [--cwd DIR] [--max 2000] [--timeout 900]
-claude-ask .claude-work "<prompt>" --role <label> --mode <default|plan|accept-edits> --effort <low..max> [--model sonnet] [--full] [--cwd DIR] [--max 2000] [--timeout 900]
+agy-ask W1 "<prompt>" --role <label> --mode <plan|accept-edits|default> --effort <low|medium|high> [--cwd DIR] [--max 2000] [--timeout 900]
+claude-ask C1 "<prompt>" --role <label> --mode <default|plan|accept-edits> --effort <low..max> [--model sonnet] [--lean] [--cwd DIR] [--max 2000] [--timeout 900]
 ```
-Both print only the worker's final answer (capped at `--max` chars). A Claude Code worker is named by its account (`.claude-work`, `claude:.claude-work` or `work`); it is far more expensive than an Antigravity one, so give it only what Flash cannot do well. Each call blocks until done (30s-3min): run it with `run_in_background`, several in parallel on different workers.
+Both print only the worker's final answer (capped at `--max` chars). Workers are named by seat (`agy-ask team` lists them; the seat decides the agent). A Claude Code seat is far more expensive than an Antigravity one, so give it only what Flash cannot do well. Each call blocks until done (30s-3min): run it with `run_in_background`, several in parallel on different workers.
 
 - With the office running (Habblaud) the job goes into the worker's own terminal as a fresh conversation; never read or type into a worker's terminal. Without it the job runs headless (`agy -p` / `claude -p`): same answer, same exit codes.
 - Killing the command cancels the job; `--timeout` (seconds) cancels it too and exits 1.
-- Always pass `--role` (a short label: `impl`, `qa`, `review`...), `--mode`, `--effort` and `--cwd`. `--cwd` must be the folder the worker writes to.
-- Claude workers start lean (no MCP, skills or slash commands); pass `--full` only when the job needs them. A job costs ~8k tokens of start-up on the worker's account: delegate jobs that read a lot, do tiny lookups yourself.
+- Always pass `--role` (a short label: `impl`, `qa`, `review`...), `--mode` and `--effort`. Pass `--cwd` only when the worker must write outside the office folder.
+- Claude seats run full; pass `--lean` (no MCP, skills or slash commands) for small jobs. Delegate jobs that read a lot, do tiny lookups yourself.
 
 | Exit | Meaning | What you do |
 | --- | --- | --- |
 | 0 | done, answer printed | check it, use it |
 | 1 | failed / timeout / error | read the message; retry once or do it yourself |
-| 2 | refused by the team rule | do not retry, do not work around it |
+| 2 | refused by the office | do not retry, do not work around it |
 | 3 | BUSY: the worker is on another job | ask again later, or use another worker |
 | 4 | the user cancelled the job | do not resend it unasked; tell the user |
 
-## Team rule
-The user sets up offices in Habblaud (`~/.agy_profiles/team.json`): one team per project folder, with a boss and workers. Run `agy-ask team` before delegating: it lists every office and marks yours (`<- you are its boss`). A boss gives jobs only to its office's workers, never to its own account. If you are not a boss, do the work yourself or tell the user. Never set `AGY_ASK_FROM_OFFICE` or `AGY_OFFICE`.
+## Seats
+The office has one folder and named seats in `team.json` (`~/.habblaud/team.json`). Run `agy-ask team` before delegating: it lists the folder, the boss and the seats. Anyone may give jobs to any seat; the job runs in the office folder unless you pass `--cwd`.
 
 ## Mode and effort (you choose per job)
 Antigravity workers run Gemini 3.8 Flash only: never pass `--model`.
@@ -46,7 +46,7 @@ Antigravity workers run Gemini 3.8 Flash only: never pass `--model`.
 `plan` is read-only; `accept-edits` may edit files in `--cwd`; `auto` is not available on these accounts.
 
 ## Pitfalls
-- Preflight an account before real work: `agy-ask accN "Run: echo ok && pwd" --mode accept-edits --cwd DIR --max 200`. A missing `permissions.allow` in its settings makes the worker exit at once with `auto-denied`; give the user the fix, do not edit those settings yourself.
+- Preflight an account before real work: `agy-ask W1 "Run: echo ok && pwd" --mode accept-edits --cwd DIR --max 200`. A missing `permissions.allow` in its settings makes the worker exit at once with `auto-denied`; give the user the fix, do not edit those settings yourself.
 - Never let two workers edit the same file; have each write its own fragment and merge yourself.
 - Verify judgement-heavy output: Flash over-claims on audits. Re-check every high finding before reporting.
 - Name exact files or paste the snippet in the prompt so the worker does not explore (steps, not mode, drive cost).

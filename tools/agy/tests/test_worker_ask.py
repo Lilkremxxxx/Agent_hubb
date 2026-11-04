@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Tests of the team rule in bin/worker-ask (agy-ask / claude-ask) against a fake office.
+"""Tests of bin/worker-ask (agy-ask / claude-ask) against a fake office.
 
-Run: python3 tests/test_worker_ask.py. Nothing real runs: HABBLAUD_AGY_PROFILES is a temp folder, HABBLAUD_URL a
-fake server that answers every job at once, and the boss callers are fake `claude` / `agy` scripts (the rule finds
-the caller by the command name of its ancestors)."""
+Run: python3 tests/test_worker_ask.py. Nothing real runs: HABBLAUD_DATA_DIR is a temp folder holding team.json,
+HABBLAUD_URL a fake server that answers every job at once, and `agy-as` / `claude` are fake scripts."""
 import http.server, json, os, shutil, subprocess, sys, tempfile, threading, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -12,15 +11,10 @@ SRC = os.path.join(HERE, "..", "bin", "worker-ask")
 
 class Office(http.server.BaseHTTPRequestHandler):
     bodies = []
-    snapshot = {"accounts": []}
 
     def do_POST(self):
-        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        Office.bodies.append(body)
-        self.reply({"ok": True} if self.path == "/api/team" else {"job": {"id": "j1", "status": "done", "answer": "pong"}})
-
-    def do_GET(self):
-        self.reply(Office.snapshot)
+        Office.bodies.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+        self.reply({"job": {"id": "j1", "status": "done", "answer": "pong"}})
 
     def reply(self, obj):
         data = json.dumps(obj).encode()
@@ -34,34 +28,41 @@ class Office(http.server.BaseHTTPRequestHandler):
         pass
 
 
-# A fake agent: writes team.json from $TEAM_TEMPLATE with its own PID for __PID__, then runs the command as a child
-# (not exec: it must stay an ancestor).
-# Headless (`claude -p ...`): answers at once with its arguments as the result.
-FAKE = """#!/bin/bash
+# What a headless fake reports: where it ran, its arguments and the environment the seat gave it.
+REPORT = ('json.dumps({"cwd": os.getcwd(), "args": sys.argv[1:], "slot": os.environ.get("BANG_SLOT"), '
+          '"office": os.environ.get("BANG_OFFICE"), "conf": os.environ.get("CLAUDE_CONFIG_DIR")})')
+# Fake `agy-as` (next to the worker-ask copy): the stream-json events agy prints.
+FAKE_AGY_AS = f"""#!/usr/bin/env python3
+import json, os, sys
+print(json.dumps({{"event": "init", "conversation_id": "c1"}}, separators=(",", ":")))
+print(json.dumps({{"event": "result", "result": {{"status": "SUCCESS", "response": {REPORT}}}}}, separators=(",", ":")))
+"""
+# Fake `claude`: `-p` answers at once; anything else runs as a command (a fake ancestor for "anyone may give jobs").
+FAKE_CLAUDE = f"""#!/bin/bash
 if [ "$1" = "-p" ]; then
-  exec python3 -c 'import json, os, sys; print(json.dumps({"subtype": "success", "result": json.dumps({"args": sys.argv[1:], "office": os.environ.get("AGY_OFFICE"), "worker": os.environ.get("AGY_WORKER")}), "usage": {}}))' "$@"
+  exec python3 -c 'import json, os, sys; print(json.dumps({{"subtype": "success", "result": {REPORT}, "usage": {{}}}}))' "$@"
 fi
-if [ -n "${TEAM_TEMPLATE:-}" ]; then printf '%s' "${TEAM_TEMPLATE//__PID__/$$}" > "$HABBLAUD_AGY_PROFILES/team.json"; fi
 "$@"
-exit $?
 """
 
 
-class TeamRule(unittest.TestCase):
+class Seats(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.tmp = tempfile.mkdtemp(prefix="worker-ask-test-")
-        cls.root = os.path.join(cls.tmp, "profiles")
-        for acc in ("acc1", "acc2", "acc5"):
-            os.makedirs(os.path.join(cls.root, acc))
+        cls.tmp = os.path.realpath(tempfile.mkdtemp(prefix="worker-ask-test-"))
+        cls.home = os.path.join(cls.tmp, "home")
+        cls.data = os.path.join(cls.tmp, "data")
+        cls.folder = os.path.join(cls.tmp, "proj")
+        for d in (cls.home, cls.data, cls.folder, os.path.join(cls.home, ".claude-worker")):
+            os.makedirs(d)
         cls.bin = os.path.join(cls.tmp, "bin")
         os.makedirs(cls.bin)
         for name in ("agy-ask", "claude-ask"):
             shutil.copy(SRC, os.path.join(cls.bin, name))
-        for name in ("claude", "agy"):
+        for name, body in (("agy-as", FAKE_AGY_AS), ("claude", FAKE_CLAUDE)):
             path = os.path.join(cls.bin, name)
             with open(path, "w") as f:
-                f.write(FAKE)
+                f.write(body)
             os.chmod(path, 0o755)
         cls.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Office)
         threading.Thread(target=cls.server.serve_forever, daemon=True).start()
@@ -73,187 +74,85 @@ class TeamRule(unittest.TestCase):
 
     def setUp(self):
         Office.bodies.clear()
-        Office.snapshot = {"accounts": []}
-        try:
-            os.remove(os.path.join(self.root, "agy-ask.log.jsonl"))
-        except FileNotFoundError:
-            pass
-        try:
-            os.remove(os.path.join(self.root, "team.json"))
-        except FileNotFoundError:
-            pass
+        self.write_team(self.folder)
 
-    def run_ask(self, args, via=None, team=None, env=None, tool="agy-ask"):
+    def write_team(self, folder):
+        with open(os.path.join(self.data, "team.json"), "w") as f:
+            json.dump({"folder": folder, "boss": {"kind": "claude", "account": "default"},
+                       "workers": [{"name": "W1", "kind": "agy", "account": "acc1"},
+                                   {"name": "W2", "kind": "agy", "account": "acc1"},
+                                   {"name": "C1", "kind": "claude", "account": "worker"}]}, f)
+
+    def ask(self, args, via=None, office=True, tool="agy-ask"):
         """(exit code, stdout, stderr) of `<tool> <args>`, started by the fake `via` agent when given."""
-        e = {k: v for k, v in os.environ.items() if not k.startswith(("AGY_", "TEAM_TEMPLATE"))}
-        e.update(HABBLAUD_AGY_PROFILES=self.root, HABBLAUD_URL=f"http://127.0.0.1:{self.server.server_port}")
-        if team is not None:
-            if via:
-                e["TEAM_TEMPLATE"] = json.dumps(team)
-            else:
-                with open(os.path.join(self.root, "team.json"), "w") as f:
-                    json.dump(team, f)
-        e.update(env or {})
+        e = {k: v for k, v in os.environ.items() if not k.startswith(("AGY_", "BANG_", "CLAUDE"))}
+        e.update(HABBLAUD_DATA_DIR=self.data, HOME=self.home,
+                 HABBLAUD_URL=f"http://127.0.0.1:{self.server.server_port if office else 9}")
+        if not office:
+            e["PATH"] = f"{self.bin}:{e['PATH']}"
         cmd = [os.path.join(self.bin, tool)] + args
         if via:
             cmd = [os.path.join(self.bin, via)] + cmd
         p = subprocess.run(cmd, env=e, capture_output=True, text=True, timeout=30, cwd=self.tmp)
         return p.returncode, p.stdout, p.stderr
 
-    @staticmethod
-    def claude_boss(name="Raul"):
-        return {"kind": "claude", "id": ".claude:1", "account": ".claude", "pid": "__PID__", "name": name}
-
-    def v3(self, boss2=None, boss1=None):
-        # Fake folders: the rules let these offices' workers edit anywhere, so the jobs (cwd: the temp folder) pass.
-        anywhere = {"scope": {"write": ["/"]}}
-        return {"offices": [
-            {"id": "o1", "name": "Habblaud", "folder": "/x/habblaud", "boss": boss1, "workers": ["acc1"], "rules": anywhere},
-            {"id": "o2", "name": "News", "folder": "/x/news", "boss": boss2, "workers": ["acc2", "claude:.claude-w"], "rules": anywhere},
-        ]}
-
-    def ask(self, worker, via=None, team=None, env=None, tool="agy-ask"):
-        if team is not None and via:
-            template = json.dumps(team).replace('"__PID__"', "__PID__")
-            return self.run_ask_raw([worker, "ping"], via, template, env, tool)
-        return self.run_ask([worker, "ping"], via, team, env, tool)
-
-    def run_ask_raw(self, args, via, template, env, tool):
-        return self.run_ask(args, via, None, dict(env or {}, TEAM_TEMPLATE=template), tool)
-
-    # -------------------------------------------------------------- the boss of an office
-
-    def test_boss_gives_jobs_to_its_office_with_the_office_id(self):
-        code, out, err = self.ask("acc2", via="claude", team=self.v3(boss2=self.claude_boss()))
+    def test_seat_job_goes_to_the_office_by_name(self):
+        code, out, err = self.ask(["W2", "ping"])
         self.assertEqual((code, out.strip()), (0, "pong"), err)
-        self.assertEqual(Office.bodies[-1]["office"], "o2")
-        self.assertEqual(Office.bodies[-1]["by"], "boss")
+        body = Office.bodies[-1]
+        self.assertEqual(body["worker"], "W2")
+        for k in ("by", "callerPid", "office", "cwd", "lean"):
+            self.assertNotIn(k, body)
 
-    def test_claude_worker_of_the_office(self):
-        code, out, err = self.ask("w", via="claude", team=self.v3(boss2=self.claude_boss()), tool="claude-ask")
+    def test_any_caller_may_give_jobs(self):  # started under a fake `claude` ancestor: no team rule
+        code, _, err = self.ask(["W1", "ping"], via="claude")
         self.assertEqual(code, 0, err)
-        self.assertEqual(Office.bodies[-1]["worker"], "claude:.claude-w")
-        self.assertEqual(Office.bodies[-1]["office"], "o2")
 
-    def test_boss_refused_for_another_offices_worker(self):
-        code, _, err = self.ask("acc1", via="claude", team=self.v3(boss2=self.claude_boss()))
-        self.assertEqual(code, 2)
-        self.assertIn("not a worker of your office News (o2)", err)
+    def test_unknown_seat_lists_the_seats(self):
+        code, _, err = self.ask(["acc1", "ping"])
+        self.assertEqual(code, 1)
+        self.assertIn("no seat acc1 (seats: W1, W2, C1)", err)
+
+    def test_headless_agy_runs_in_the_folder_with_the_seat_env(self):
+        code, out, err = self.ask(["W2", "ping", "--mode", "plan"], office=False)
+        r = json.loads(out)
+        self.assertEqual((code, r["cwd"], r["slot"], r["office"], r["args"][0]), (0, self.folder, "W2", self.folder, "acc1"), err)
+
+    def test_headless_claude_full_by_default_lean_on_request(self):
+        r = json.loads(self.ask(["C1", "ping", "--max", "500"], office=False)[1])
+        self.assertEqual((r["conf"], r["slot"], r["cwd"]), (os.path.join(self.home, ".claude-worker"), "C1", self.folder))
+        self.assertNotIn("--strict-mcp-config", r["args"])
+        r = json.loads(self.ask(["C1", "ping", "--max", "900", "--lean"], office=False)[1])
+        self.assertIn("--strict-mcp-config", r["args"])
+        self.assertIn("under 900 characters", r["args"][r["args"].index("--append-system-prompt") + 1])
+
+    def test_office_job_is_lean_only_with_the_flag_and_sends_cwd_only_when_given(self):
+        self.ask(["C1", "ping", "--lean", "--cwd", self.tmp])
+        self.assertEqual((Office.bodies[-1]["lean"], Office.bodies[-1]["cwd"]), (True, self.tmp))
+
+    def test_no_folder_no_cwd_fails_before_any_job(self):
+        self.write_team("")
+        code, _, err = self.ask(["W1", "ping"])
+        self.assertEqual(code, 1)
+        self.assertIn("has no folder", err)
         self.assertEqual(Office.bodies, [])
 
-    def test_boss_refused_for_its_own_account(self):
-        team = self.v3(boss2={"kind": "agy", "acc": "acc2", "name": "Ana"})
-        team["offices"][1]["workers"].append("acc2")
-        code, _, err = self.run_ask(["acc2", "ping"], via="agy", team=team, env={"HOME": os.path.join(self.root, "acc2")})
-        self.assertEqual(code, 2)
-        self.assertIn("boss's own account", err)
+    def test_missing_team_file_fails(self):
+        os.remove(os.path.join(self.data, "team.json"))
+        code, _, err = self.ask(["W1", "ping"])
+        self.assertEqual(code, 1)
+        self.assertIn("no team file", err)
 
-    def test_agy_boss_found_by_its_profile_home(self):
-        team = self.v3(boss1={"kind": "agy", "acc": "acc5", "name": "Ana"})
-        env = {"HOME": os.path.join(self.root, "acc5"), "AGY_BOSS": "1", "AGY_OFFICE": "o1"}
-        code, out, err = self.run_ask(["acc1", "ping"], via="agy", team=team, env=env)
-        self.assertEqual((code, out.strip()), (0, "pong"), err)
-        self.assertEqual(Office.bodies[-1]["office"], "o1")
-
-    def test_not_a_boss_refused_while_an_office_has_one(self):
-        code, _, err = self.ask("acc1", team=self.v3(boss2={"kind": "claude", "account": ".claude", "pid": 1, "name": "Raul"}))
-        self.assertEqual(code, 2)
-        self.assertIn("only a boss may give jobs (bosses: Raul", err)
-
-    # -------------------------------------------------------------- no boss anywhere
-
-    def test_no_boss_any_offices_worker_with_its_first_office(self):
-        team = self.v3()
-        team["offices"][0]["workers"].append("acc2")
-        code, _, err = self.ask("acc2", team=team)
+    def test_team_prints_folder_boss_and_seats(self):
+        code, out, err = self.ask(["team"])
         self.assertEqual(code, 0, err)
-        self.assertEqual(Office.bodies[-1]["office"], "o1")
-
-    def test_no_boss_unregistered_worker_refused(self):
-        code, _, err = self.ask("acc5", team=self.v3())
-        self.assertEqual(code, 2)
-        self.assertIn("acc5 is not a registered worker (workers: acc1, acc2, claude:.claude-w", err)
-
-    def test_no_team_file_no_rule_no_office(self):
-        code, _, err = self.ask("acc5")
-        self.assertEqual(code, 0, err)
-        self.assertNotIn("office", Office.bodies[-1])
-
-    # -------------------------------------------------------------- jobs from the office, v2 files
-
-    def test_office_jobs_skip_the_rule_and_carry_the_office(self):
-        env = {"AGY_ASK_FROM_OFFICE": "1", "AGY_OFFICE": "o2"}
-        code, _, err = self.ask("acc5", team=self.v3(boss2=self.claude_boss()), env=env)
-        self.assertEqual(code, 0, err)
-        self.assertEqual((Office.bodies[-1]["office"], Office.bodies[-1]["by"]), ("o2", "you"))
-
-    def test_v2_file_is_office_main(self):
-        team = {"boss": self.claude_boss(), "workers": ["acc1"]}
-        code, _, err = self.ask("acc1", via="claude", team=team)
-        self.assertEqual(code, 0, err)
-        self.assertEqual(Office.bodies[-1]["office"], "main")
-        code, _, err = self.ask("acc2", via="claude", team=team)
-        self.assertEqual(code, 2)
-
-    # -------------------------------------------------------------- agy-ask team
-
-    def test_team_prints_offices_and_marks_yours(self):
-        template = json.dumps(self.v3(boss2=self.claude_boss())).replace('"__PID__"', "__PID__")
-        code, out, err = self.run_ask(["team"], via="claude", env={"TEAM_TEMPLATE": template})
-        self.assertEqual(code, 0, err)
-        self.assertIn("office Habblaud (o1): /x/habblaud\n  boss: none\n  workers: acc1", out)
-        self.assertIn("office News (o2): /x/news  <- you are its boss\n  boss: Raul (Claude Code, account claude:.claude)", out)
-        self.assertNotIn("you: not a boss", out)
-
-    # -------------------------------------------------------------- lean Claude workers
-
-    def headless_args(self, extra=(), env=None):
-        """The arguments a headless claude-ask gives `claude` (no office, no team file)."""
-        os.makedirs(os.path.join(self.tmp, ".claude-w"), exist_ok=True)
-        e = {"HOME": self.tmp, "HABBLAUD_URL": "http://127.0.0.1:9", "PATH": f"{self.bin}:{os.environ['PATH']}", **(env or {})}
-        code, out, err = self.run_ask(["w", "ping", "--max", "500", *extra], env=e, tool="claude-ask")
-        self.assertEqual(code, 0, err)
-        return json.loads(out)["args"], err
-
-    def test_claude_headless_starts_lean_with_the_worker_rule(self):
-        args, _ = self.headless_args()
-        self.assertIn("--strict-mcp-config", args)
-        self.assertIn("--disable-slash-commands", args)
-        self.assertEqual(args[args.index("--tools") + 1], "Bash,Read,Edit,Write,WebFetch,WebSearch")
-        self.assertIn("under 500 characters", args[args.index("--append-system-prompt") + 1])
-
-    def test_claude_full_and_own_tools(self):
-        args, _ = self.headless_args(["--full"])
-        self.assertNotIn("--strict-mcp-config", args)
-        self.assertNotIn("--full", args)
-        args, _ = self.headless_args(["--tools", "Read"])
-        self.assertEqual(args.count("--tools"), 1)
-        self.assertEqual(args[args.index("--tools") + 1], "Read")
-
-    def test_claude_office_job_says_lean(self):
-        code, _, err = self.ask("w", tool="claude-ask")
-        self.assertEqual(code, 0, err)
-        self.assertIs(Office.bodies[-1]["lean"], True)
-        code, _, err = self.run_ask(["w", "ping", "--full"], tool="claude-ask")
-        self.assertNotIn("lean", Office.bodies[-1])
-        self.ask("acc1")
-        self.assertNotIn("lean", Office.bodies[-1])
-
-    def test_claude_same_account_note(self):
-        code, _, err = self.run_ask(["w", "ping"], via="claude", env={"CLAUDE_CONFIG_DIR": os.path.expanduser("~/.claude-w")}, tool="claude-ask")
-        self.assertEqual(code, 0, err)
-        self.assertIn("is the account you run on", err)
-        code, _, err = self.run_ask(["w", "ping"], via="claude", env={"CLAUDE_CONFIG_DIR": "/elsewhere"}, tool="claude-ask")
-        self.assertNotIn("account you run on", err)
+        for line in (f"folder: {self.folder}", "boss: claude (default)", "W1  agy  acc1", "C1  claude  worker"):
+            self.assertIn(line, out)
 
     def test_rules_subcommand_is_gone(self):
-        code, _, err = self.run_ask(["rules", "show"])
+        code, _, err = self.ask(["rules", "show"])
         self.assertEqual(code, 1)
         self.assertIn("rules", err.lower())
-
-    def test_team_not_a_boss(self):
-        code, out, _ = self.run_ask(["team"], team=self.v3(boss2={"kind": "claude", "account": ".claude", "pid": 1}))
-        self.assertIn("you: not a boss\n", out)
 
 
 class BossRulesHook(unittest.TestCase):

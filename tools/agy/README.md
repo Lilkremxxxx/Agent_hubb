@@ -1,6 +1,6 @@
 # Worker scripts for the office
 
-The office shows a boss and its workers; these scripts are how the boss gives them jobs. `agy-ask` and `claude-ask` send a
+The office shows a boss and its seats; these scripts are how anyone gives the seats jobs. `agy-ask` and `claude-ask` send a
 job to an Antigravity (`agy`) or Claude Code account and print only the final answer, so the boss spends no tokens on a
 worker's reasoning. Every job is a new conversation.
 
@@ -37,17 +37,18 @@ any repository.
 ## Using it
 
 ```bash
-agy-ask team    # the offices, their folders, bosses and workers
-agy-ask acc2 "<prompt>" --role impl --mode accept-edits --effort medium --cwd <project>
-claude-ask .claude-work "<prompt>" --role review --mode plan --effort high --cwd <project>
+agy-ask team    # the office folder, the boss and the seats
+agy-ask W2 "<prompt>" --role impl --mode accept-edits --effort medium
+claude-ask C1 "<prompt>" --role review --mode plan --effort high --cwd <project> --lean
 ```
 
-With Habblaud running the job goes to the worker's terminal in the office, which you can watch; otherwise it runs
-headless. Exit codes: 0 done, 1 failed or timed out, 2 refused by the team rule, 3 worker busy, 4 cancelled
-from the office.
+The first argument is a seat name from `team.json` (`~/.habblaud/team.json`, or `$HABBLAUD_DATA_DIR/team.json`); the seat
+says which agent runs (`agy-ask` and `claude-ask` are the same command). Anyone may give jobs. The job runs in the office
+folder, or in `--cwd`. Claude seats run full; `--lean` starts them light (no MCP, skills or slash commands).
 
-Offices live in `~/.agy_profiles/team.json` and are edited in Habblaud. Optional `~/.agy_profiles/names.conf` sets a display name
-(`acc2 Alice`).
+With the office running the job goes to the seat's terminal, which you can watch; otherwise it runs headless (with
+`BANG_SLOT` and `BANG_OFFICE` set). Exit codes: 0 done, 1 failed, timed out, unknown seat or no folder, 2 refused by the
+office, 3 seat busy, 4 cancelled from the office.
 
 ## Tests
 
