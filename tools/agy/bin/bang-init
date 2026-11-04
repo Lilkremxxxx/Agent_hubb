@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# bang-init <folder>: prepare a project folder as an office (templates, agy skill manifest, Claude skill links, GEMINI.md, team.json folder).
+[ -n "$1" ] || { echo "usage: bang-init <folder>" >&2; exit 1; }
+repo=$(readlink -f "$(dirname "$(readlink -f "$0")")/../../..")
+home=$HOME; case $home in */.agy_profiles/*) home=${home%%/.agy_profiles/*};; esac  # as worker-ask: the real home inside agy-as
+mkdir -p "$1" && folder=$(cd "$1" && pwd -P) || exit 1
+skills=$("$repo/tools/agy/bin/skill-dirs" "$home")
+mkdir -p "$folder/.agents" "$folder/.claude/skills"
+for n in giao-viec advisor bang-task; do
+  t=$folder/.claude/skills/$n
+  if [ -L "$t" ] || [ ! -e "$t" ]; then ln -sfn "$repo/skills/$n" "$t"; else echo "left .claude/skills/$n: not a link"; fi
+done
+[ -e "$folder/CLAUDE.md" ] || printf 'Chạy /init để điền\n' > "$folder/CLAUDE.md"
+[ -e "$folder/GEMINI.md" ] || [ -L "$folder/GEMINI.md" ] || ln -s CLAUDE.md "$folder/GEMINI.md"
+rc=0
+SKILLS="$skills" REPO="$repo" FOLDER="$folder" HOME_="$home" DATA="${HABBLAUD_DATA_DIR:-}" python3 - <<'PY' || rc=1
+import json, os, sys
+repo, folder, home = os.environ["REPO"], os.environ["FOLDER"], os.environ["HOME_"]
+name = os.path.basename(folder)
+for f in ("task_board.md", "project_proposal.md"):
+    dst = f"{folder}/{f}"
+    if not os.path.exists(dst):
+        s = open(f"{repo}/templates/{f}", encoding="utf-8").read()
+        open(dst, "w", encoding="utf-8").write(s.replace("<tên dự án>", name).replace("<tên>", name).replace("<folder>", folder))
+entries = [{"path": d} for d in os.environ["SKILLS"].split("\n") if d]
+if os.path.exists(f"{folder}/skills.list"):
+    only = [l.strip() for l in open(f"{folder}/skills.list", encoding="utf-8") if l.strip() and not l.strip().startswith("#")]
+    entries = [dict(e, include_only=only) for e in entries]
+entries.append({"path": f"{repo}/skills"})
+open(f"{folder}/.agents/skills.json", "w", encoding="utf-8").write(json.dumps({"entries": entries}, indent=2) + "\n")
+team = (os.environ["DATA"].strip() or f"{home}/.habblaud") + "/team.json"  # as the server (config.ts) and worker-ask
+if not os.path.exists(team):
+    print(f"no {team} yet: start the office once (it writes team.json), then run bang-init again")
+else:
+    try:
+        t = json.load(open(team, encoding="utf-8"))
+        if not isinstance(t, dict):
+            raise ValueError("not a JSON object")
+    except (OSError, ValueError) as e:
+        print(f"bang-init: {team} could not be read: {e}", file=sys.stderr)
+        sys.exit(1)
+    cur = t.get("folder")
+    if not cur:
+        t["folder"] = folder
+        open(team + ".bang-init.tmp", "w", encoding="utf-8").write(json.dumps(t, indent=2, ensure_ascii=False) + "\n")
+        os.replace(team + ".bang-init.tmp", team)
+        print(f"office folder set in {team}")
+    elif cur == folder:
+        print("already the office folder")
+    else:
+        print(f"the office folder is {cur}: edit {team} to change it")
+print(f"""
+Next:
+  1. Open the boss in {folder} (the + button beside Boss on the page, or: cd {folder} && claude), then run /init.
+     A boss on agy: tell it to write CLAUDE.md the way /init would.
+  2. Fill in {folder}/project_proposal.md.
+  3. Hand out work with the giao-viec skill (worker-ask <seat> "...").""")
+if os.path.isdir(f"{home}/.claude-worker"):
+    print(f"  4. Once: cd {folder} && CLAUDE_CONFIG_DIR={home}/.claude-worker claude  (log in, trust the folder, /exit);\n     without it every job on a Claude seat stops at TRUST_WAIT.")
+PY
+exit $rc

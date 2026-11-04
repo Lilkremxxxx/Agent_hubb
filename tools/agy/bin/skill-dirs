@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# skill-dirs <home>: the skill directories Claude has under <home>, one per line (own skills, then each plugin's newest version).
+h=$1
+[ -d "$h/.claude/skills" ] && echo "$h/.claude/skills"
+for p in $(ls -d "$h"/.claude/plugins/cache/*/*/ 2>/dev/null | sort); do  # shortcut: paths with spaces are skipped
+  v=$(ls "$p" | sort -V | tail -n 1)
+  [ -n "$v" ] && [ -d "$p$v/skills" ] && echo "$p$v/skills"
+done
+exit 0
