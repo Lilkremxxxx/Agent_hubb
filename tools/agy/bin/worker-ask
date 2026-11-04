@@ -19,6 +19,9 @@ the result event, kills the process group, deletes that call's conversation file
 
 The prompt must have the giao-viec headings (the title "# Việc <ID> — <tên>" and the sections Bối cảnh, Input, Skill dùng,
 Cách làm, Output, Tiêu chí review); --raw sends it as is.
+Every prompt starts with the seat preamble (also with --raw): the seat and office, the worker rules and the "Bài học"
+lines of <folder>/task_board.md. The whole prompt may not pass 100000 bytes (one argv string for agy / claude): put
+long parts (diffs, logs) in a file and give its path.
 
 Claude Code seats run full (all tools, MCP and skills); --lean starts them light: no MCP servers, no skills or slash
 commands, only the tools in LEAN_TOOLS, plus a short worker rule (answer only, compact, under --max chars).
@@ -58,6 +61,11 @@ AGY_MODEL = "gemini-3.8-flash"  # the only model Antigravity workers use
 CLAUDE_MODES = {"plan": "plan", "accept-edits": "acceptEdits", "auto": "auto", "default": ""}
 # The giao-viec template (spec §11): the title, then 6 sections; matched at the start of a line.
 HEADINGS = ("# Việc <ID> — <tên>", "## Bối cảnh", "## Input", "## Skill dùng", "## Cách làm", "## Output", "## Tiêu chí review")
+# Spec §12: put before every prompt, office and headless, agy and Claude. {lessons} = the "Bài học" lines of the board.
+PREAMBLE = ("Bạn là ghế {seat} trong office {folder}. Luật: đọc task_board.md trước khi làm; chỉ sửa dòng việc của mình;\n"
+            "kẹt thì đọc Ghi chú kỹ thuật, rồi chạy lệnh `advisor \"<câu hỏi>\"` và chờ trả lời, rồi ghi `blocked:` và dừng; "
+            "xong thì cập nhật dòng việc + báo cáo ≤10 dòng.\n\n## Bài học (từ task_board.md)\n{lessons}\n---\n")
+PROMPT_MAX = 100_000  # bytes, as the office (service.ts PROMPT_MAX_BYTES): the prompt is one argv string (128 KiB each)
 LEAN_TOOLS = "Bash,Read,Edit,Write,WebFetch,WebSearch"
 WORKER_RULE = ("You are a worker: another agent gave you this one job and reads only your final message. Do the job, "
                "then reply with just the result, compact (no preamble, no recap of your steps), under {max} characters. "
@@ -113,6 +121,32 @@ def missing_headings(task):
             if not re.search(r"^#[ \t]+Việc[ \t]+\S" if h[:2] == "# " else rf"^##[ \t]+{re.escape(h[3:])}", text, re.M | re.I)]
 
 
+def lessons(folder):
+    """The lines between "## Bài học…" and the next "## " heading of <folder>/task_board.md, verbatim, blank ends trimmed; "" if none."""
+    try:
+        with open(os.path.join(folder, "task_board.md"), encoding="utf-8", errors="replace") as f:
+            text = f.read(1_000_000)  # a board is a few KB; do not slurp a huge or odd file
+    except OSError:
+        return ""
+    out, on = [], False
+    for ln in unicodedata.normalize("NFC", text).splitlines():
+        if ln.startswith("## "):
+            if on:
+                break
+            on = ln.startswith("## Bài học")
+        elif on:
+            out.append(ln)
+    while out and not out[-1].strip():
+        out.pop()
+    while out and not out[0].strip():
+        out.pop(0)
+    return "\n".join(out)
+
+
+def preamble(seat, folder):
+    return PREAMBLE.format(seat=seat, folder=folder, lessons=lessons(folder) or "(chưa có)")
+
+
 def parse(argv):
     if len(argv) < 2:
         die(f"usage: {USAGE}")
@@ -163,6 +197,10 @@ def parse(argv):
     if not cwd or not os.path.isdir(cwd):
         die(f'the office has no folder yet: set "folder" in {TEAM}' if not a["cwd"] else f"no such directory {cwd}")
     a["cwd"] = os.path.abspath(cwd)
+    a["prompt"] = preamble(a["worker"], a["folder"] or a["cwd"]) + a["task"]  # the one place both paths get it
+    n = len(a["prompt"].encode(errors="replace"))
+    if n > PROMPT_MAX:
+        die(f"the prompt is {n} bytes with the seat preamble, over {PROMPT_MAX}: put long parts (diffs, logs) in a file and give its path")
     return a
 
 
@@ -193,7 +231,7 @@ class NoOffice(Exception):
 
 def http(method, path, body=None, timeout=10):
     """(status, json) from the office; NoOffice when it does not answer."""
-    data = json.dumps(body).encode() if body is not None else None
+    data = json.dumps(body, ensure_ascii=False).encode(errors="replace") if body is not None else None
     req = urllib.request.Request(URL + path, data=data, method=method,
                                  headers={"Content-Type": "application/json"} if data is not None else {})
     try:
@@ -219,7 +257,8 @@ def via_office(a):
     """Runs the job in the seat's terminal and waits for its answer; NoOffice to fall back to headless."""
     # The office takes the agy mode names (plan, accept-edits, auto, default), also for Claude Code workers.
     mode = {v: k for k, v in CLAUDE_MODES.items() if v}.get(a["mode"], a["mode"])
-    body = {"worker": a["worker"], "prompt": a["prompt"], "max": a["max"], "mode": mode}
+    body = {"worker": a["worker"], "prompt": a["prompt"], "max": a["max"], "mode": mode,
+            "task": a["task"][:1000]}  # the board shows 300 characters of it, not the preamble
     if a["given_cwd"]:  # without it the server runs the job in the office folder
         body["cwd"] = a["cwd"]
     for k in ("role", "effort", "model"):

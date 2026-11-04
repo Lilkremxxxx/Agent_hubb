@@ -8,16 +8,22 @@ import http.server, json, os, shutil, subprocess, sys, tempfile, threading, unic
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "bin", "worker-ask")
 # A prompt with the title and the 6 sections of the giao-viec template.
+PRE = ("Bạn là ghế {} trong office {}. Luật: đọc task_board.md trước khi làm; chỉ sửa dòng việc của mình;\n"
+       "kẹt thì đọc Ghi chú kỹ thuật, rồi chạy lệnh `advisor \"<câu hỏi>\"` và chờ trả lời, rồi ghi `blocked:` và dừng; "
+       "xong thì cập nhật dòng việc + báo cáo ≤10 dòng.\n\n## Bài học (từ task_board.md)\n{}\n---\n")
 JOB = "# Việc T1 — đếm\n## Bối cảnh x\n## Input x\n## Skill dùng không\n## Cách làm x\n## Output x\n## Tiêu chí review x\n"
 
 
 class Office(http.server.BaseHTTPRequestHandler):
     bodies = []
+    raw = []  # the bodies as received, bytes
 
     def do_POST(self):
-        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        raw = self.rfile.read(int(self.headers["Content-Length"]))
+        body = json.loads(raw)
+        Office.raw.append(raw)
         Office.bodies.append(body)
-        if body["prompt"] == "busy":  # the seat is on another job
+        if body.get("task") == "busy":  # the seat is on another job
             return self.reply({"error": "BUSY", "message": "W1 is busy"}, 409)
         self.reply({"job": {"id": "j1", "status": "done", "answer": "pong"}})
 
@@ -79,6 +85,7 @@ class Seats(unittest.TestCase):
 
     def setUp(self):
         Office.bodies.clear()
+        Office.raw.clear()
         self.write_team(self.folder)
 
     def write_team(self, folder):
@@ -88,6 +95,15 @@ class Seats(unittest.TestCase):
                                    {"name": "W2", "kind": "agy", "account": "acc1"},
                                    {"name": "C1", "kind": "claude", "account": "worker"},
                                    {"name": "D1", "kind": "claude", "account": "default"}]}, f)
+
+    def board(self, folder, text):
+        """Writes <folder>/task_board.md (None removes it); the file is gone after the test."""
+        path = os.path.join(folder, "task_board.md")
+        self.addCleanup(lambda: os.path.exists(path) and os.remove(path))
+        if text is None:
+            return os.path.exists(path) and os.remove(path)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
 
     def ask(self, args, via=None, office=True, tool="agy-ask", env=None, raw=True):
         """(exit code, stdout, stderr) of `<tool> <args> [--raw]`, started by the fake `via` agent when given."""
@@ -158,12 +174,12 @@ class Seats(unittest.TestCase):
         self.assertEqual((code, r["cwd"], r["slot"], r["office"], r["args"][0]), (0, self.folder, "W2", self.folder, "acc1"), err)
 
     def test_headless_claude_full_by_default_lean_on_request(self):
-        r = json.loads(self.ask(["C1", "ping", "--max", "500"], office=False)[1])
+        r = json.loads(self.ask(["C1", "ping", "--max", "5000"], office=False)[1])
         self.assertEqual((r["conf"], r["slot"], r["cwd"]), (os.path.join(self.home, ".claude-worker"), "C1", self.folder))
         self.assertNotIn("--strict-mcp-config", r["args"])
-        r = json.loads(self.ask(["C1", "ping", "--max", "900", "--lean"], office=False)[1])
+        r = json.loads(self.ask(["C1", "ping", "--max", "5000", "--lean"], office=False)[1])
         self.assertIn("--strict-mcp-config", r["args"])
-        self.assertIn("under 900 characters", r["args"][r["args"].index("--append-system-prompt") + 1])
+        self.assertIn("under 5000 characters", r["args"][r["args"].index("--append-system-prompt") + 1])
 
     def test_office_job_is_lean_only_with_the_flag_and_sends_cwd_only_when_given(self):
         self.ask(["C1", "ping", "--lean", "--cwd", self.tmp])
@@ -178,6 +194,38 @@ class Seats(unittest.TestCase):
         code, out, err = self.ask(["D1", "ping"], office=False, env={"CLAUDE_CONFIG_DIR": "/leaked"})  # an inherited one must not reach the seat
         self.assertEqual(code, 0, err)
         self.assertIsNone(json.loads(out)["conf"])
+
+    def test_every_job_starts_with_the_seat_preamble_and_the_office_lessons(self):
+        self.board(self.folder, "# Task board\n\n## Bài học (chỉ boss ghi)\n\n- Khi A → B (vì C) [T1]\n\n- Khi D → E [T2]\n\n## Hỏi đáp\n| x |\n")
+        code, out, err = self.ask(["W2", JOB], office=False, raw=False)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out)["args"][2], PRE.format("W2", self.folder, "- Khi A → B (vì C) [T1]\n\n- Khi D → E [T2]") + JOB)
+
+    def test_through_the_office_the_task_travels_apart_and_the_body_is_utf8(self):
+        self.ask(["W1", JOB], raw=False)
+        b = Office.bodies[-1]
+        self.assertEqual((b["task"], b["prompt"]), (JOB, PRE.format("W1", self.folder, "(chưa có)") + JOB))
+        self.assertIn("Bạn là ghế".encode(), Office.raw[-1])
+
+    def test_lessons_come_from_the_office_folder_not_from_cwd(self):
+        self.board(self.folder, "## Bài học\n- Khi X → Y [T1]\n")
+        self.board(self.tmp, "## Bài học\n- Khi SAI → SAI [T9]\n")
+        p = json.loads(self.ask(["W2", "ping", "--cwd", self.tmp], office=False)[1])["args"][2]
+        self.assertTrue(p.startswith(f"Bạn là ghế W2 trong office {self.folder}."))
+        self.assertIn("- Khi X → Y [T1]\n---\n", p)
+        self.assertNotIn("SAI", p)
+
+    def test_no_board_no_section_or_an_empty_one_says_none_yet(self):
+        for text in (None, "# Task board\n## Việc đang làm\n", "## Bài học (chỉ boss ghi)\n\n## Hỏi đáp\n- not a lesson\n"):
+            self.board(self.folder, text)
+            p = json.loads(self.ask(["W2", "ping"], office=False)[1])["args"][2]
+            self.assertIn("## Bài học (từ task_board.md)\n(chưa có)\n---\nping", p)
+
+    def test_a_prompt_over_100000_bytes_is_refused_before_any_call(self):
+        code, _, err = self.ask(["W1", "ệ" * 34_000])
+        self.assertEqual(code, 1)
+        self.assertIn("over 100000", err)
+        self.assertEqual(Office.bodies, [])
 
     def test_busy_seat_exits_3(self):
         code, _, err = self.ask(["W1", "busy"])
