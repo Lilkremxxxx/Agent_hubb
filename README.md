@@ -30,8 +30,9 @@ and no Codex.
 The office itself runs on your machine and spends no tokens: it only reads logs, session files and `/usage`.
 
 - **One office.** A building for one project folder, with its own boss and workers.
-- **Workers.** `agy-ask` and `claude-ask` give a job to a worker and print only its final answer, which keeps the boss's
-  context small. Every job is a new conversation, and you can watch it in a read-only terminal.
+- **Seats.** One boss and a few worker seats, listed in `~/.habblaud/team.json`. `worker-ask W1 "…"` gives a job to a
+  seat and prints only its final answer, which keeps the boss's context small. Every job is a new conversation, and you
+  can watch it in a read-only terminal.
 - **Boss overloaded (🥵).** A notice when a boss passes a context or compaction threshold, with a button to start a new
   session.
 - **Energy and ghosts.** A desk mug empties with the 5-hour quota, a character sleeps when it runs out, and a worker that
@@ -41,7 +42,7 @@ The office itself runs on your machine and spends no tokens: it only reads logs,
 ## Contents
 
 - [Install](#install)
-- [Set up your first office](#set-up-your-first-office)
+- [Set up your first office](#seats-set-up-your-office)
 - [Run it every day](#run-it-every-day)
 - [Make it yours](#make-it-yours)
 - [What it looks like](#what-it-looks-like)
@@ -63,21 +64,21 @@ You need:
 - **Linux.** The worker scripts rely on `setsid`, `dbus-daemon` and `gnome-keyring-daemon`.
 - **Node.js 22.12+** and npm.
 - **[Claude Code](https://code.claude.com)**, signed in and used at least once.
-- **Python 3**, for `agy-ask` and `claude-ask`.
+- **Python 3**, for `worker-ask`.
 - The **Antigravity CLI (`agy`)** in `~/.local/bin`, only if you want Antigravity workers.
 
 ```bash
 # clone this repository, then enter its folder
 cd <folder>
 npm install && npm run build && npm run office
-tools/agy/install.sh     # agy-ask, claude-ask, agy-as and the skills
+tools/agy/install.sh     # worker-ask (also as agy-ask and claude-ask), agy-as and the skills
 ```
 
 `npm install` fetches build tools only: the server has no required runtime dependencies. `npm run office` builds and
 starts it in the background. Then open **http://127.0.0.1:4747**. If `~/.local/bin` is not on your PATH, the installer
 says so: add it.
 
-## Set up your first office
+## Seats: set up your office
 
 1. **Sign in the worker accounts.** For each Antigravity account:
 
@@ -89,13 +90,36 @@ says so: add it.
    Never run a bare `agy`: it uses the machine's own account. A Claude Code worker is a second config folder, for example
    `~/.claude-work`; sign in once with `CLAUDE_CONFIG_DIR=~/.claude-work claude`.
 
-2. **Create an office.** Press **＋** on the tab strip, give it a name and a project folder. Use one folder per office:
-   offices cannot share a folder or sit inside each other, so do not use your home folder.
+2. **Write the seats.** Create `~/.habblaud/team.json` (or `$HABBLAUD_DATA_DIR/team.json`; the file is re-read every
+   second, so editing it adds or removes seats). `folder` is the project the whole office works in. A Claude `account`
+   of `default` is `~/.claude`, `x` is `~/.claude-x`.
 
-3. **Add the boss and the workers.** In the sidebar, **＋** next to Boss opens a Claude Code session in the office's folder
-   and makes it the boss. **＋** next to Workers adds an account.
+   ```json
+   {
+     "folder": "/home/you/my-project",
+     "boss": { "kind": "claude", "account": "default" },
+     "workers": [
+       { "name": "W1", "kind": "agy", "account": "acc1" },
+       { "name": "C1", "kind": "claude", "account": "worker" }
+     ]
+   }
+   ```
 
-4. **Talk to the boss** in its terminal on the page.
+   The first time, seats are imported from `~/.agy_profiles/team.json` if it exists; that file is only read, never
+   written. With no `folder`, jobs and "Open the boss" are refused with a message that points at `team.json`.
+
+3. **Open the boss.** In the sidebar, the **＋** next to Boss opens the boss (`boss.kind`) in `folder`. A Claude session
+   you already have open can become the boss with **👑 Make boss** in its drawer.
+
+4. **Give jobs.** Talk to the boss, or run it yourself (`tools/agy/install.sh` links `bin/worker-ask` as `agy-ask` and `claude-ask`; they are the same command):
+
+   ```bash
+   worker-ask W1 "Read src/ and list the TODOs" --mode plan
+   ```
+
+   One job per seat at a time (a busy seat answers exit code 3). Seats on the same Antigravity account start one after
+   another. Every terminal and job runs in `folder` with `BANG_SLOT` and `BANG_OFFICE` set. Anyone may give jobs. Claude
+   seats run full; add `--lean` for a light run. See [`tools/agy/README.md`](tools/agy/README.md).
 
 ## Run it every day
 
@@ -131,7 +155,7 @@ repository, so they stay on your machine.
 
 | To change | Where |
 |---|---|
-| Offices, bosses, workers | The page. Saved in `~/.agy_profiles/team.json` |
+| Folder, boss, workers (seats) | `~/.habblaud/team.json` (edit the file; the page follows) |
 | Overload thresholds, language, sounds | Settings on the page |
 | Default mode and effort of a worker | A worker's drawer › "Defaults for jobs" |
 | Display name of a seat | The seat's name in `team.json` |
@@ -299,7 +323,7 @@ Each character has a name that stays as long as the session exists, and a **colo
 
 ### Interface
 
-- **Top:** the office tabs and the counters (rooms, agents, working, subagents, shells running, need you). The shells
+- **Top:** the counters (rooms, agents, working, subagents, shells running, need you). The shells
   counter only shows up while some command is running; click it to go to whoever is waiting. The 👤 button opens the
   Accounts window with each account's usage.
 - **Side panel:** search and the list of the office's boss, workers and others, with their agents and subagents.
@@ -468,7 +492,6 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_LANG` | system language, otherwise `en` | Language of the texts the server builds (activities, notices, logs): `en` or `vi`. The interface follows the browser or the choice in Settings › Language. See [Languages](#languages). |
 | `HABBLAUD_ACCOUNTS` | — | JSON to customize name, letter or color, matched by the account folder name. E.g. `[{"id":".claude-conta2","name":"Work","short":"T","color":"#5cc97b"}]`. |
 | `HABBLAUD_AGY` | on | `0` turns off the Antigravity workers. |
-| `HABBLAUD_AGY_ROOM` | `~/Workspace/agy-hub` if present, else your home | The folder the workers' room stands for. |
 | `HABBLAUD_AGY_USAGE_MIN` | `15` | Minutes between two reads of each Antigravity account's `/usage`; `0` turns it off. |
 | `HABBLAUD_AGY_PROFILES` | `~/.agy_profiles` | Where the Antigravity profiles and `team.json` live. |
 
@@ -490,8 +513,8 @@ Everything works without configuring anything. If you need to adjust something, 
   stats come from there too.
 - **Subagents:** the transcripts in `<session>/subagents/` (including those from workflows) become characters
   linked to the agent that called them.
-- **Workers:** an Antigravity or Claude Code worker runs in its own terminal in the office; `agy-ask` and `claude-ask`
-  start each job there and read the answer from the conversation file (see [`tools/agy/README.md`](tools/agy/README.md)).
+- **Workers:** an Antigravity or Claude Code worker runs in its own terminal in the office; `worker-ask`
+  starts each job there and read the answer from the conversation file (see [`tools/agy/README.md`](tools/agy/README.md)).
 - **GitHub:** PRs, pushes, CI and releases come from the same transcript lines (the command and its output, or the
   `gitOperation` that Claude Code itself records); nothing is queried on GitHub.
 - **The drawing:** the browser receives the state over SSE and draws everything on a canvas — characters, furniture, floors and walls
@@ -504,7 +527,7 @@ shared/   protocol (types.ts), activities, names
 server/   HTTP + SSE server: accounts and usage, reading sessions and transcripts, office model, workers
 client/   Vite: src/art (procedural pixel art), src/world (office canvas), src/ui (interface)
 scripts/  server build, office.sh, i18n check, phone setup (remote:setup, remote:mdns)
-tools/    agy: worker scripts (agy-ask, claude-ask, agy-as) and the skills
+tools/    agy: worker scripts (worker-ask, agy-as) and the skills
 ```
 
 ## Privacy and security

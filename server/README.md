@@ -73,6 +73,7 @@ turns into a party) or 10 min. Push only notifies. The same CI seen again within
 | `DELETE /api/agents/:id/character` | "Back to random": removes character from room; `200 {ok}` or `404`; local access only |
 | `GET /api/sessions/recent` | `RecentSessionsResponse`: sessions from last 7 days across all accounts (up to 150); same terminal lock |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE of conversation for a historical session (same terminal protocol); same lock |
+| `POST /api/team` | `{openBoss: true}` opens the boss (`boss.kind`) in `folder` (`400` without a folder); `{boss}` appoints an open session; local access only. Seats are edited in `team.json`, not here |
 | `GET /api/health` | `{ok, version, docker, remote, terminal, pty, sources, accounts:[{id, usageStatus}]}` |
 
 The snapshot (SSE and `GET /api/snapshot`) carries only the last 8 activities of each agent in `recent`; history of up
@@ -178,7 +179,7 @@ invented 0%.
 ## Structure
 
 - `config.ts`, `log.ts`, `index.ts` — configuration, short logs (never conversation contents), and entry point.
-- `team.ts` — the office, its boss and its workers (`~/.agy_profiles/team.json`).
+- `team.ts` — the seats: `folder`, boss and workers in `<dataDir>/team.json` (imported once from `~/.agy_profiles/team.json`, never written back; re-read every second).
 - `accounts/` — account detection (`detect.ts`), usage (`usage.ts`), service (`service.ts`).
 - `sources/` — session registry, incremental reading (`tail.ts`), transcript parser (activities in `transcript.ts`;
   terminal conversation in `terminal.ts`; GitHub events in `github.ts`), subagents, session history (`history.ts`),

@@ -39,7 +39,7 @@ export function pickOffice(offices: readonly OfficeInfo[], id: string | null | u
 }
 
 /**
- * The office's boss character: its bossAgentId, else the one opened from it ("＋ Boss", not crowned yet). With a
+ * The office's boss character: its bossAgentId, else the one opened from it (the boss button, not crowned yet). With a
  * single office (or an older server) any crowned agent is its boss.
  */
 export function officeBoss(snap: Pick<OfficeSnapshot, 'agents' | 'team'> | null | undefined, office: OfficeInfo | undefined): AgentInfo | undefined {

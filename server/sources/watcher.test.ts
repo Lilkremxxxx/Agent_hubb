@@ -750,6 +750,7 @@ describe('ClaudeWatcher — shell launched at start of transcript larger than bo
     ctx.openSession(302, 'real');
     ctx.poll();
     expect(ctx.office.list().map((a) => a.sessionId)).toEqual(['real']);
+    expect(ctx.watcher.sources()[0].sessions).toBe(1);
     expect(isObserverSession('/h/.claude-mem/observer-sessions/32', '/h')).toBe(true);
     expect(isObserverSession('/h/.claude-mem', '/h')).toBe(false);
   });

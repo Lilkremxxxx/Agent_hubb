@@ -32,11 +32,10 @@ export interface ServerConfig {
   rootDir: string;
   version: string;
   /**
-   * Antigravity CLI workers (sources/agy/): profiles in ~/.agy_profiles; HABBLAUD_AGY=0 disables it. `room` = their
-   * room directory (HABBLAUD_AGY_ROOM; default ~/Workspace/agy-hub if present, else HOME); `usageMs` = interval for
+   * Antigravity CLI workers (sources/agy/): profiles in ~/.agy_profiles; HABBLAUD_AGY=0 disables it. `usageMs` = interval for
    * each account's `/usage` (HABBLAUD_AGY_USAGE_MIN, in minutes; 0 disables it).
    */
-  agy: { enabled: boolean; room: string; usageMs: number };
+  agy: { enabled: boolean; usageMs: number };
   /** Second port, with login, for mobile on local network (http/remote.ts); missing = disabled. */
   remote?: RemoteConfig;
   /** Why remote access was disabled when variables are incomplete. */
@@ -142,19 +141,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     terminal: terminalOffReason(env, host, inDocker) === undefined,
     rootDir,
     version: pkg.version,
-    agy: parseAgyConfig(env, home),
+    agy: parseAgyConfig(env),
     remote: remote.config,
     remoteWarning: remote.warning,
   };
 }
 
-function parseAgyConfig(env: NodeJS.ProcessEnv, home: string): ServerConfig['agy'] {
-  const hub = join(home, 'Workspace', 'agy-hub');
-  const room = env.HABBLAUD_AGY_ROOM?.trim() ? resolve(env.HABBLAUD_AGY_ROOM.trim()) : existsSync(hub) ? hub : home;
+function parseAgyConfig(env: NodeJS.ProcessEnv): ServerConfig['agy'] {
   const min = Number(env.HABBLAUD_AGY_USAGE_MIN?.trim() || 15);
   return {
     enabled: !env.HABBLAUD_AGY?.trim() || isTruthy(env.HABBLAUD_AGY),
-    room,
     usageMs: Number.isFinite(min) && min > 0 ? min * 60_000 : 0,
   };
 }

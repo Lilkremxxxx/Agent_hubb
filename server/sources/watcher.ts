@@ -282,7 +282,7 @@ export class ClaudeWatcher implements AgentSource {
         this.watchDir(join(acc.dir, 'sessions'));
       }
       const res = reader.poll();
-      const info: SourceInfo = { label: acc.id, path: acc.detected.configDir, sessions: res.entries.length, ok: res.ok };
+      const info: SourceInfo = { label: acc.id, path: acc.detected.configDir, sessions: res.entries.filter((e) => !(this.opts.home && isObserverSession(e.cwd, this.opts.home))).length, ok: res.ok };
       if (res.error) info.error = res.error;
       this.sourceInfo.set(acc.dir, info);
       for (const entry of res.entries) {
