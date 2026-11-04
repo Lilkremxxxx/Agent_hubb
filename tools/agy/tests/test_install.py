@@ -70,11 +70,10 @@ def box(tmp_path):
 def test_links_point_to_this_repo(box):
     h = box.h
     assert box.run()[0] == 0
-    for n in ("worker-ask", "agy-as", "bang-init"):
+    for n in ("worker-ask", "agy-as", "bang-init", "advisor"):
         assert os.readlink(f"{h}/.local/bin/{n}") == f"{REPO}/tools/agy/bin/{n}"
     for n in ("agy-ask", "claude-ask"):
         assert os.path.realpath(f"{h}/.local/bin/{n}") == os.path.realpath(f"{REPO}/tools/agy/bin/worker-ask")
-    assert not os.path.lexists(f"{h}/.local/bin/advisor")
 
 
 def test_vi_habblaud_leftovers_go_and_nothing_else(box):

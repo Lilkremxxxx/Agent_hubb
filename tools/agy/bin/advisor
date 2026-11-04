@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""advisor "<question>"     ask the office's boss from a seat's job and print its answer
+
+The server types the question into the boss's terminal and sends back the boss's reply, word for word. Env: BANG_SLOT
+(required: the seat asking), BANG_OFFICE (the office folder), HABBLAUD_URL (default http://127.0.0.1:4747).
+Exit: 0 answered (stdout); 1 usage or other error; 2 no boss terminal (or the office is not running); 3 the boss is
+waiting for the user; 4 no answer in time; 5 the boss replied without the tag. On any exit but 0, write `blocked:` and stop."""
+import json, os, sys, time, urllib.error, urllib.parse, urllib.request
+
+OK, FAIL, NO_BOSS, BOSS_WAITING, TIMEOUT, UNTAGGED = 0, 1, 2, 3, 4, 5
+EXIT = {"answered": 0, "no-boss": 2, "boss-waiting": 3, "timeout": 4, "untagged": 5}
+WAIT_MAX = 11 * 60  # the server's cap (10 min) + 1 min
+START_MAX = 30      # seconds of retrying while the boss is still starting
+URL = os.environ.get("HABBLAUD_URL", "http://127.0.0.1:4747").rstrip("/")
+
+
+class NoOffice(Exception):
+    pass
+
+
+def die(msg, code):
+    print(f"advisor: {msg}", file=sys.stderr)
+    print("advisor: write blocked: <your question> in your row of task_board.md and stop; do not guess", file=sys.stderr)
+    sys.exit(code)
+
+
+def http(method, path, body=None, timeout=10):
+    """(status, json); NoOffice when the office does not answer."""
+    data = json.dumps(body, ensure_ascii=False).encode(errors="replace") if body is not None else None
+    req = urllib.request.Request(URL + path, data=data, method=method,
+                                 headers={"Content-Type": "application/json"} if data is not None else {})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try:
+            payload = json.loads(e.read() or b"{}")
+        except ValueError:
+            payload = {}
+        return e.code, payload if isinstance(payload, dict) else {}
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise NoOffice(str(e))
+
+
+def main():
+    question = " ".join(sys.argv[1:]).strip()
+    if not question or question.startswith("-"):
+        print(__doc__.split("\n")[0], file=sys.stderr)
+        sys.exit(FAIL)
+    slot = os.environ.get("BANG_SLOT", "")
+    if not slot:
+        die("BANG_SLOT is not set: advisor runs from a seat's job", FAIL)
+    body = {"slot": slot, "question": question}
+    if os.environ.get("BANG_OFFICE"):
+        body["office"] = os.environ["BANG_OFFICE"]
+    start = time.time()
+    while True:
+        try:
+            status, r = http("POST", "/api/advisor", body)
+        except NoOffice:
+            die(f"the office is not running at {URL}: no boss to ask", NO_BOSS)
+        if status == 409 and r.get("code") == "boss-starting" and time.time() - start < START_MAX:
+            time.sleep(3)
+            continue
+        break
+    if status in (404, 503):
+        die(r.get("error") or f"the office has no boss terminal (HTTP {status})", NO_BOSS)
+    if status >= 300:
+        die(r.get("error") or f"HTTP {status}", EXIT.get(r.get("code"), FAIL) if status == 409 else FAIL)
+    q, misses, start = r.get("question") or {}, 0, time.time()
+    while q.get("status") in ("queued", "asking"):
+        if time.time() - start > WAIT_MAX:
+            die("no answer from the boss in time", TIMEOUT)
+        try:
+            status, r = http("GET", f"/api/advisor/{urllib.parse.quote(q['id'], safe='')}?wait=60", timeout=75)
+            misses = 0
+        except NoOffice:
+            misses += 1
+            if misses >= 3:
+                die("lost the office while waiting for the boss", FAIL)
+            time.sleep(2)
+            continue
+        if status >= 300:
+            die(r.get("error") or f"HTTP {status}", FAIL)
+        q = r.get("question") or {}
+    if q.get("status") == "answered":
+        print(q.get("answer", ""))
+        return
+    die(q.get("error") or q.get("status") or "no answer", EXIT.get(q.get("status"), FAIL))
+
+
+if __name__ == "__main__":
+    main()

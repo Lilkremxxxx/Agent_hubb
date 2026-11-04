@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Links worker-ask (also agy-ask, claude-ask), agy-as and bang-init from this repo into ~/.local/bin, and removes what the
+# Links worker-ask (also agy-ask, claude-ask), agy-as, bang-init and advisor from this repo into ~/.local/bin, and removes what the
 # old Vi-Habblaud install left behind (only symlinks whose target is under a Vi-Habblaud folder, never anything else).
 # --worker also fills ~/.claude-worker/skills with the skills of the main Claude account, for the Claude seats.
 # Safe to run again: the second run changes nothing and prints no change. Accounts are not touched: sign in once with `agy-as accN`.
