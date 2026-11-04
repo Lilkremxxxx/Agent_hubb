@@ -114,7 +114,6 @@ describe('TeamService: the file', () => {
     const mtime = statSync(t.oldFile).mtimeMs;
     const svc = t.team();
     svc.start();
-    svc.appoint('.claude:1');
     svc.reload();
     svc.stop();
     expect(t.saved()).toEqual({ folder: '/w/p', boss: { kind: 'claude', account: 'default' }, workers: [{ name: 'acc1', kind: 'agy', account: 'acc1' }] });

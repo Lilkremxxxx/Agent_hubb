@@ -117,7 +117,8 @@ function agySeats(): AgySeat[] {
   return out;
 }
 function syncAgy(): void {
-  agy?.setTeam([...new Set(agySeats().map((x) => x.acc))], team.boss.kind === 'agy' ? [team.boss.account] : [], agySeats());
+  // workers = accounts of agy seats only: the boss account must not count as a worker (full house, board lookups)
+  agy?.setTeam([...new Set(team.seats().filter((x) => x.kind === 'agy').map((x) => x.account))], team.boss.kind === 'agy' ? [team.boss.account] : [], agySeats());
 }
 team.start();
 late.office = office;
