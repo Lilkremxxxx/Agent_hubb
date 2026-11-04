@@ -136,7 +136,7 @@ says so: add it.
    preamble and the board's "Bài học" lines. Antigravity seats are labelled `auto` unless the job or the page's defaults say
    otherwise; on this host file tools run without asking, shell commands may prompt in the seat's terminal, and the user approves them on the page). See [`tools/agy/README.md`](tools/agy/README.md).
 
-   A stuck seat runs `advisor "<question>"`: the office types it into the boss's terminal and prints the reply. It only reaches a boss opened from the page (the + beside Boss) and needs `tools/install.sh` to have linked `advisor`. Antigravity seats ask the user to approve the command in their terminal.
+   A stuck seat runs `advisor "<question>"`: the office types it into the boss's terminal and prints the reply. It only reaches a boss opened from the page (the + beside Boss) or taken over into it and needs `tools/install.sh` to have linked `advisor`. Antigravity seats ask the user to approve the command in their terminal.
 
 ## Start a project: `bang-init <folder>`
 

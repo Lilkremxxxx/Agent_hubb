@@ -9,7 +9,7 @@ import json, os, sys, time, urllib.error, urllib.parse, urllib.request
 
 OK, FAIL, NO_BOSS, BOSS_WAITING, TIMEOUT, UNTAGGED = 0, 1, 2, 3, 4, 5
 EXIT = {"answered": 0, "no-boss": 2, "boss-waiting": 3, "timeout": 4, "untagged": 5}
-WAIT_MAX = 11 * 60  # the server's cap (10 min) + 1 min
+WAIT_MAX = 10 * 60  # the server's cap (9 min) + 1 min
 START_MAX = float(os.environ.get("ADVISOR_START_MAX") or 30)  # seconds of retrying while the boss is still starting
 START_WAIT = float(os.environ.get("ADVISOR_START_WAIT") or 3)  # (both env vars exist for the tests)
 URL = (os.environ.get("HABBLAUD_URL") or "http://127.0.0.1:4747").rstrip("/")
@@ -91,4 +91,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("advisor: interrupted (the question stays with the boss; a late answer is not delivered)", file=sys.stderr)
+        sys.exit(130)

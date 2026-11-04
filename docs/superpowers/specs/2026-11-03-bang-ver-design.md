@@ -251,17 +251,17 @@ Luồng:
 
 1. Worker (loại nào cũng được) chạy lệnh `advisor "<câu hỏi>"` qua công cụ shell. Lời mở đầu §12 nêu thẳng lệnh này nên agy và Claude lean cũng dùng được; skill `/advisor` chỉ là hướng dẫn hỏi cho đúng.
 2. CLI đọc `BANG_SLOT`, `POST /api/advisor {slot, question}`, rồi long-poll `GET /api/advisor/:id?wait=` (như job hiện tại).
-3. Server ghi câu hỏi vào việc đang chạy của ghế, hiện trong feed ("❓ W2 hỏi: …") và trên nhân vật (trạng thái cần boss), rồi gõ vào PTY boss:
+3. Server ghi câu hỏi vào việc đang chạy của ghế, hiện trong feed ("❓ W2 hỏi: …") và trên nhân vật (bong bóng ❓, không đổi trạng thái), rồi gõ vào PTY boss bằng bracketed paste, `\r` gửi riêng:
    ```
    ❓ Ghế W2 hỏi (việc T2): <câu hỏi>
    → Trả lời ngắn, mở đầu đúng bằng thẻ [ADVISOR W2 T2]; đoạn trả lời đó được chuyển nguyên văn cho W2.
    ```
    Server chờ trong transcript boss (fork đã tail: `server/sources/transcript.ts`, `server/turns.ts`) một tin của assistant bắt đầu bằng thẻ `[ADVISOR W2 T2]`, không phải "lượt kế tiếp": boss giao việc chạy nền nên lượt kế tiếp có thể là phản ứng với thông báo việc T1 xong. Lấy tin có thẻ làm câu trả lời, ghi một dòng vào mục Hỏi đáp của `task_board.md`. Đây là cơ chế duy nhất trong thiết kế chưa kiểm trên máy.
-4. CLI in câu trả lời, exit 0. Hết giờ (mặc định 10 phút), hoặc không có terminal boss do server mở hay tiếp quản (§6) → exit 1 kèm lý do.
+4. CLI in câu trả lời, exit 0. Không thì in lý do: exit 2 không có terminal boss do server mở hay tiếp quản (§6; kể cả boss agy hay office không chạy), 3 boss đang chờ người dùng, 4 hết giờ (mặc định 9 phút), 5 boss trả lời không có thẻ; exit 1 cho lỗi cách dùng và lỗi chung. Câu hỏi là chữ của ghế, không phải của người dùng: server gộp thành một đoạn, bỏ ký tự điều khiển và `[ADVISOR`, và chỉ gõ khi boss rảnh (`idle|shell`).
 
 Skill `/advisor` (worker) nói: dùng khi prompt mơ hồ, mâu thuẫn, thiếu input; hỏi một câu cụ thể kèm điều đã thử; exit 1 → ghi `blocked: <câu hỏi>` và dừng.
 
-Lưu ý: nếu boss đang giữa một lượt, câu hỏi vào hàng đợi của Claude Code và được trả lời sau lượt đó; vì §11 bắt boss giao việc chạy nền nên boss thường rảnh. Boss agy: builder xác minh gõ vào PTY giữa lượt. Không dùng mô hình "advisor" headless thay boss trong v1 vì người dùng muốn hỏi lại boss; cân nhắc sau nếu boss hay vắng.
+Lưu ý: nếu boss đang giữa một lượt, câu hỏi chờ ở server (`queued`) tới khi boss rảnh rồi mới được gõ; vì §11 bắt boss giao việc chạy nền nên boss thường rảnh. Boss agy: builder xác minh gõ vào PTY giữa lượt. Không dùng mô hình "advisor" headless thay boss trong v1 vì người dùng muốn hỏi lại boss; cân nhắc sau nếu boss hay vắng.
 
 ## 14. Chế độ worker
 

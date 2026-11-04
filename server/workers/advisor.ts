@@ -3,7 +3,7 @@
 // [ADVISOR <seat> <ref>]) and hands it verbatim to the CLI. Source: spec §13 and the advisor spike.
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { truncate } from '../../shared/activity';
+import { maskSecrets, truncate } from '../../shared/activity';
 import { tr } from '../../shared/i18n';
 import type { Activity, AgentStatus } from '../../shared/types';
 import { log } from '../log';
@@ -14,9 +14,14 @@ export const QUESTION_MAX = 1500;
 const CELL_MAX = 300;
 
 // Control characters (ESC, C1 such as 0x9b CSI) must never reach the boss's terminal or end the paste early.
-// Plain slice, not truncate(): the question keeps its line breaks.
+// The question becomes the boss's user turn, so it is one paragraph of plain text: no line breaks, no bidi or
+// zero-width characters, and no way to carry a tag (`[ADVISOR` is broken up). Plain slice, not truncate().
 export function sanitizeQuestion(s: string): string {
-  const t = s.replace(/\r\n?/g, '\n').replace(/\t/g, ' ').replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '');
+  const t = s
+    .replace(/[\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g, '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+    .replace(/\[\s*ADVISOR/gi, '[ ADVISOR');
   const u = t.trim();
   if (u.length <= QUESTION_MAX) return u;
   const cut = u.slice(0, QUESTION_MAX - 1);
@@ -72,8 +77,10 @@ export function withQaRow(board: string, row: string): string | undefined {
   return lines.join('\n');
 }
 
+/** The only states in which the boss's prompt is free: pasting or Enter at a dialog would answer it. */
+const isIdle = (s: AgentStatus) => s === 'idle' || s === 'shell';
 const TYPEABLE = new Set<AgentStatus>(['idle', 'working', 'shell', 'waiting']);
-export const ADVISOR_TIMING = { pollMs: 500, timeoutMs: 10 * 60_000, idleGraceMs: 5_000, unstartedMs: 20_000, retryWaitMs: 60_000 };
+export const ADVISOR_TIMING = { pollMs: 500, timeoutMs: 9 * 60_000, idleGraceMs: 5_000, unstartedMs: 20_000, retryWaitMs: 60_000 };
 export interface AdvisorBoss { agentId: string; status: AgentStatus; waitingFor?: string; transcript: string }
 export type AdvisorStatus = 'queued' | 'asking' | 'answered' | 'no-boss' | 'timeout' | 'untagged';
 export interface AdvisorQuestion { id: string; slot: string; ref: string; question: string; status: AdvisorStatus; askedAt: number; endedAt?: number; answer?: string; error?: string }
@@ -156,7 +163,7 @@ export class Advisor {
     const id = `a${at.toString(36)}${(this.seq++).toString(36)}`;
     const q: AdvisorQuestion = { id, slot, ref, question, status: 'queued', askedAt: at };
     const o: Open = { q, agentId: seat.agentId, baseRef: seat.ref, bossId: boss.agentId, tail: new FileTail(boss.transcript), tag: advisorTag(slot, ref), armed: false, retried: false };
-    if (!this.pendingPaste(o)) {
+    if (isIdle(boss.status) && !this.pendingPaste(o)) {
       try {
         if (!this.paste(o)) return { ok: false, status: 409, error: tr('the boss terminal closed'), code: 'no-boss' };
       } catch (e) {
@@ -165,7 +172,7 @@ export class Advisor {
     }
     this.counts.set(key, n);
     this.d.note(slot, question);
-    this.d.activity(seat.agentId, { id: `${id}:ask`, at, kind: 'wait', icon: '❓', text: tr('Asks the boss: {0}', [truncate(question, 30)]), detail: truncate(question, 300) });
+    this.d.activity(seat.agentId, { id: `${id}:ask`, at, kind: 'wait', icon: '❓', text: tr('Asks the boss: {0}', [truncate(question, 30)]), detail: truncate(maskSecrets(question), 300) });
     this.all.set(q.id, o);
     // shortcut: the 50-question trim may drop a question that is still open (its CLI then gets 404); fine for one office, raise if seats ever exceed it
     for (const id of [...this.all.keys()].slice(0, -50)) this.all.delete(id);
@@ -223,7 +230,9 @@ export class Advisor {
     const boss = found;
     if (o.q.status === 'queued') {
       if (now - o.q.askedAt >= this.t.timeoutMs) return this.end(o, 'timeout', tr('no answer after {0} min', [Math.round(this.t.timeoutMs / 60_000)]));
-      if (boss.status !== 'waiting' && !this.pendingPaste(o) && !this.paste(o)) this.end(o, 'no-boss', tr('the boss terminal closed'));
+      const seat = this.d.seat(o.q.slot);
+      if (!seat || seat.agentId !== o.agentId || seat.ref !== o.baseRef) return this.end(o, 'no-boss', tr('the job of {0} changed before the boss could be asked', [o.q.slot]));
+      if (isIdle(boss.status) && !this.pendingPaste(o) && !this.paste(o)) this.end(o, 'no-boss', tr('the boss terminal closed'));
       return;
     }
     for (let r = o.tail.read(); ; r = o.tail.read()) {
@@ -233,7 +242,7 @@ export class Advisor {
     }
     if (now - o.q.askedAt >= this.t.timeoutMs) return this.end(o, 'timeout', tr('no answer after {0} min', [Math.round(this.t.timeoutMs / 60_000)]));
     if (o.enterAt === undefined) {
-      if (boss.status !== 'waiting' && this.d.typeTo(o.bossId, '\r')) o.enterAt = now;
+      if (isIdle(boss.status) && this.d.typeTo(o.bossId, '\r')) o.enterAt = now;
       return;
     }
     if (boss.status === 'working') {
@@ -273,7 +282,7 @@ export class Advisor {
     if (!folder) return;
     const file = join(folder, 'task_board.md');
     try {
-      const next = withQaRow(readFileSync(file, 'utf8'), qaRow(q.endedAt!, q.ref === '-' ? q.slot : `${q.slot} (${q.ref})`, q.question, q.answer!));
+      const next = withQaRow(readFileSync(file, 'utf8'), qaRow(q.endedAt!, q.ref === '-' ? q.slot : `${q.slot} (${q.ref})`, maskSecrets(q.question), maskSecrets(q.answer!)));
       if (next === undefined) return log.warnOnce(`advisor-board:${file}`, tr('{0} has no "## Hỏi đáp" table: the answer is not recorded', [file]));
       writeFileSync(`${file}.tmp`, next);
       renameSync(`${file}.tmp`, file);
