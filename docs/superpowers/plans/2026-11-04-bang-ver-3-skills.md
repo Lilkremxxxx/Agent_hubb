@@ -623,7 +623,16 @@ Backlog Kế hoạch 2: M4 Task 6; M7 Task 5 (Quyết định 11); M8 Task 5; M9
 
 ## Kết quả
 
-_(Task 8 và Task 9 ghi vào đây.)_
+### Task 9 — cài thật
+
+Chạy `tools/install.sh --worker` từ `/home/nhatbang/Agent_4_me/Agent_Hub/Bang_ver` đúng một lần: `exit=0`, không có dòng `left`. Ảnh trước/sau ở `~/.bang-test-data/install/` (`*.before`, `*.after`, `install.out`, `step4.out`). Cổng 4747: 1 listener trước và sau, không đụng tới.
+
+- `~/.local/bin`, đổi đích sang Bang_ver: `agy-as`; `agy-ask` và `claude-ask` → `worker-ask` (link tương đối). Thêm: `worker-ask`, `bang-init`. Mất: `agy-mode`, `agy-sync`, `agy-up`, `office_rules.py`, `rules-hook`. Phần còn lại y nguyên. Không có link treo.
+- `~/.claude/skills`: mất `agy-orchestrator`, `office-rules`; các mục khác y nguyên.
+- 8 profile `acc1..8`: gỡ 3 link (`hooks.json`, `plugin.json`, `rules-hook`) rồi `rmdir` thư mục `config/plugins/office-rules`; `md5sum -c` 8/8 `OK` (GEMINI.md không đổi).
+- `~/.claude-worker/skills`: 389 link, 0 link treo.
+- Step 4: `command -v` → `~/.local/bin/worker-ask`, `~/.local/bin/bang-init`; `agy-ask` → `.../Bang_ver/tools/agy/bin/worker-ask`; `worker-ask W1 "Trả lời đúng một dòng: I-OK" --mode plan --timeout 300` (HABBLAUD_URL chết) in `I-OK`, `exit=0`.
+- Đích cũ của mọi link đã gỡ/đổi (đều dưới `Vi-Habblaud/tools/agy/`) nằm trong `task-9-report.md` và `bin.before`/`skills.before`/`plugins.before`.
 
 ## Để lại cho kế hoạch sau
 
