@@ -22,8 +22,8 @@ middle one (0.**3**.0).
 ### Changed
 
 - **Antigravity seats run `auto` when no `--mode` is given** (it was `plan`); the page's "Defaults for jobs" table has Automatic.
-- **The prompt cap is 100 kB of UTF-8** (it was 20,000 characters), and `worker-ask` reports at once when a job goes over. Known edge: a page "Send a job" prompt close to 100 kB plus the preamble can exceed the cap, and the page ignores `worker-ask`'s exit 1.
-- **The job board and the feed show the boss's own text**, not the preamble. A job sent from the page to a seat without a terminal runs `--raw`.
+- **The prompt cap is 100 kB of UTF-8** (it was 20,000 characters), and `worker-ask` reports at once when a job goes over. Known edge: a page "Send a job" prompt (20,000 characters at most) plus a very large "Bài học" block can exceed the cap, and the page ignores `worker-ask`'s exit 1.
+- **The job board and the feed show the boss's own text**, not the preamble. A job sent from the page always runs `--raw`.
 - **`bang-init` writes a `task_board.md` with the real boss and seats and no example rows**, and warns when an older board still has the example rows.
 - **A typo in `boss` in `team.json` keeps the boss it had** (logged once), so a live Antigravity boss terminal is no longer closed; leaving `boss` out is still the Claude default.
 - **Trust check, `bang-init`, `install.sh`, `office.sh` fixes**: an agy trust list in a layout we do not know (not only absolute paths) no longer refuses jobs; `CDPATH` cannot redirect `bang-init` or `office.sh`; `bang-init` mentions `skills.list` and ignores a comments-only list; `install.sh` keeps its own links when the repo sits under a `Vi-Habblaud` path; `skill-dirs` takes the newest version that has `skills/`.
