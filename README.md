@@ -133,11 +133,12 @@ says so: add it.
 bang-init ~/projects/my-app
 ```
 
-It makes `<folder>` an office folder and is safe to run again (it keeps files you edited). It writes:
+It makes `<folder>` an office folder and is safe to run again: the templates and `CLAUDE.md` are never overwritten, `.agents/skills.json` is regenerated each time. It writes:
 
 - `task_board.md` and `project_proposal.md` from `templates/`, with the project name and folder filled in;
 - `.agents/skills.json` for Antigravity, with absolute paths to the skill folders it finds and this repo's `skills/`;
 - `.claude/skills/` with three links (`giao-viec`, `advisor`, `bang-task`) and `GEMINI.md` as a link to `CLAUDE.md`;
+- a placeholder `CLAUDE.md` ("Chạy /init để điền") when there is none;
 - `folder` in `team.json`, only when it is empty (another folder is kept and reported). It does not create `team.json`:
   start the office once first.
 
@@ -637,7 +638,7 @@ account, the numbers come from its own `/usage`, read every few minutes.
 <details>
 <summary><b>"Port 4747 is already in use"</b></summary>
 
-Another Habblaud is already running. Stop it (Ctrl+C in the `npm start` terminal, or `npm run office -- stop`, see
+Another Habblaud is already running. Stop it (Ctrl+C in the `npm start` terminal, or `npm run office -- stop` run from that server's own folder: it refuses a server started from another folder; see
 [Run it every day](#run-it-every-day)) or use another port: `HABBLAUD_PORT=4848 npm run office`.
 
 </details>
