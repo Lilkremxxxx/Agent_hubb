@@ -5,7 +5,8 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { discoverClaudeDirs } from './accounts/detect';
-import { parseAllowedHosts } from './http/guard';
+import { isLoopbackBind, parseAllowedHosts } from './http/guard';
+export { isLoopbackBind };
 import { parseRemoteConfig, type RemoteConfig } from './http/remote';
 import { tr } from '../shared/i18n';
 
@@ -71,25 +72,6 @@ function readPackage(rootDir: string): { version: string } {
     return { version: typeof pkg.version === 'string' ? pkg.version : '0.0.0' };
   } catch {
     return { version: '0.0.0' };
-  }
-}
-
-/**
- * Listen address reachable only by the computer itself: 127.0.0.0/8, `::1` (with or without brackets),
- * or `localhost`. `0.0.0.0`, `::`, network IPs, and arbitrary names do not count.
- */
-export function isLoopbackBind(value: string | undefined): boolean {
-  let v = value?.trim().toLowerCase() ?? '';
-  if (v.startsWith('[') && v.endsWith(']')) v = v.slice(1, -1);
-  if (v === 'localhost') return true;
-  const family = isIP(v);
-  if (family === 4) return v.startsWith('127.');
-  if (family !== 6) return false;
-  try {
-    // Canonical form (0:0:0:0:0:0:0:1 -> [::1]).
-    return new URL(`http://[${v}]/`).hostname === '[::1]';
-  } catch {
-    return false;
   }
 }
 

@@ -15,8 +15,12 @@
 //                           does not start unless HABBLAUD_REMOTE_INSECURE_HTTP=1 (plain HTTP: password and cookie
 //                           exposed on LAN).
 //   HABBLAUD_REMOTE_PORT / HABBLAUD_REMOTE_HOST  default 0.0.0.0:4748.
+//   HABBLAUD_REMOTE_DOMAIN  behind a proxy (Cloudflare Tunnel): plain HTTP on loopback only (any certificate on
+//                           disk is ignored), Secure cookie, every POST needs Origin https://<domain>, client IP
+//                           from CF-Connecting-IP (only on a loopback connection).
+//   HABBLAUD_REMOTE_PASSWORD_LOGIN  allow password sign-in even when passkeys exist (later plan).
 //
-// Session: HttpOnly + SameSite=Strict cookie (+ Secure with HTTPS) signed with HMAC; key = random secret in
+// Session: HttpOnly + SameSite=Lax cookie (+ Secure with HTTPS) signed with HMAC; key = random secret in
 // <dataDir>/remote-secret mixed with user and password hash: changing password revokes all sessions.
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
@@ -26,7 +30,8 @@ import net from 'node:net';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parsePasswordHash, verifyPassword, type PasswordHash } from '../remote/password';
-import { hostAllowed } from './guard';
+import { hostAllowed, isLoopbackBind } from './guard';
+import { isValidDomain } from '../remote/tls';
 import { getLocale, tr } from '../../shared/i18n';
 
 export type RemoteFeature = 'terminal';
@@ -48,13 +53,16 @@ export interface RemoteConfig {
   /** Hash text as it came from environment (used in session key). */
   passwordHashText: string;
   allow: ReadonlySet<RemoteFeature>;
-  /** Missing = plain HTTP (only with HABBLAUD_REMOTE_INSECURE_HTTP=1). */
+  /** Missing = plain HTTP (only with HABBLAUD_REMOTE_INSECURE_HTTP=1, or behind a proxy). */
   tls?: RemoteTls;
+  /** Lower-case public domain; present = behind a proxy. */
+  domain?: string;
+  passwordLogin: boolean;
 }
 
 export const DEFAULT_REMOTE_PORT = 4748;
 export const COOKIE = 'habblaud_remote';
-export const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+export const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 /** Timeout for first byte of a connection on remote port (before knowing if HTTPS). */
 const FIRST_BYTE_MS = 15_000;
 
@@ -80,16 +88,24 @@ export function parseRemoteConfig(
   if (!user || !hashText) return { warning: tr('remote access off: HABBLAUD_REMOTE_USER and HABBLAUD_REMOTE_PASSWORD_HASH are missing; run npm run remote:setup') };
   const passwordHash = parsePasswordHash(hashText);
   if (!passwordHash) return { warning: tr('remote access off: invalid HABBLAUD_REMOTE_PASSWORD_HASH; run npm run remote:setup') };
+  const passwordLogin = truthy(env.HABBLAUD_REMOTE_PASSWORD_LOGIN);
+  const rawPort = Number.parseInt(env.HABBLAUD_REMOTE_PORT ?? '', 10);
+  const port = Number.isInteger(rawPort) && rawPort > 0 && rawPort < 65536 ? rawPort : DEFAULT_REMOTE_PORT;
+  const rawDomain = env.HABBLAUD_REMOTE_DOMAIN?.trim().toLowerCase();
+  if (rawDomain) {
+    if (!isValidDomain(rawDomain)) return { warning: tr('remote access off: invalid HABBLAUD_REMOTE_DOMAIN "{0}"', [rawDomain]) };
+    const host = env.HABBLAUD_REMOTE_HOST?.trim() || '127.0.0.1';
+    if (!isLoopbackBind(host)) return { warning: tr('remote access off: behind a proxy (HABBLAUD_REMOTE_DOMAIN) the remote port listens on loopback only; HABBLAUD_REMOTE_HOST={0}', [host]) };
+    return { config: { port, host, user, passwordHash, passwordHashText: hashText, allow: parseAllow(env.HABBLAUD_REMOTE_ALLOW), domain: rawDomain, passwordLogin } };
+  }
   const dir = defaultTlsDir(env);
   const tls: RemoteTls = { dir, keyFile: join(dir, 'server.key'), certFile: join(dir, 'server.crt'), caFile: join(dir, 'ca.crt') };
   const hasTls = exists(tls.keyFile) && exists(tls.certFile);
   const insecure = truthy(env.HABBLAUD_REMOTE_INSECURE_HTTP);
   if (!hasTls && !insecure) return { warning: tr('remote access off: no certificate in {0} (HTTPS is required); run npm run remote:setup', [dir]) };
-  const rawPort = Number.parseInt(env.HABBLAUD_REMOTE_PORT ?? '', 10);
-  const port = Number.isInteger(rawPort) && rawPort > 0 && rawPort < 65536 ? rawPort : DEFAULT_REMOTE_PORT;
   const host = env.HABBLAUD_REMOTE_HOST?.trim() || '0.0.0.0';
   return {
-    config: { port, host, user, passwordHash, passwordHashText: hashText, allow: parseAllow(env.HABBLAUD_REMOTE_ALLOW), tls: hasTls ? tls : undefined },
+    config: { port, host, user, passwordHash, passwordHashText: hashText, allow: parseAllow(env.HABBLAUD_REMOTE_ALLOW), tls: hasTls ? tls : undefined, passwordLogin },
   };
 }
 
@@ -262,6 +278,54 @@ export class LoginThrottle {
   }
 }
 
+/** Sign-in failures per client IP: `limit` failures within `windowMs` block that IP (max 1000 keys tracked). */
+export class FailureWindow {
+  private readonly hits = new Map<string, number[]>();
+
+  constructor(
+    private readonly limit = 5,
+    private readonly windowMs = 10 * 60_000,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  private live(key: string): number[] {
+    const t = this.now() - this.windowMs;
+    const list = (this.hits.get(key) ?? []).filter((x) => x > t);
+    if (list.length) this.hits.set(key, list);
+    else this.hits.delete(key);
+    return list;
+  }
+
+  /** Seconds until `key` may try again (0 = free). */
+  retryAfter(key: string): number {
+    const list = this.live(key);
+    return list.length < this.limit ? 0 : Math.max(1, Math.ceil((list[0] + this.windowMs - this.now()) / 1000));
+  }
+
+  fail(key: string): void {
+    const list = this.live(key);
+    list.push(this.now());
+    this.hits.delete(key); // re-insert: Map order = least recently failed first
+    if (this.hits.size >= 1000) this.hits.delete(this.hits.keys().next().value as string);
+    this.hits.set(key, list);
+  }
+
+  clear(key: string): void {
+    this.hits.delete(key);
+  }
+}
+
+/**
+ * Client address for rate limiting and logs. CF-Connecting-IP is believed only behind a proxy AND when the
+ * connection itself is loopback (cloudflared on this machine); anywhere else the header is forgeable and ignored.
+ */
+export function clientIp(req: IncomingMessage, behindProxy: boolean): string {
+  const peer = req.socket.remoteAddress ?? '-';
+  const h = req.headers['cf-connecting-ip'];
+  if (behindProxy && typeof h === 'string' && h.trim() && isLoopbackBind(peer.replace(/^::ffff:/i, ''))) return h.trim().slice(0, 64);
+  return peer;
+}
+
 /** Requests that arrived on remote port and passed login. */
 const remoteRequests = new WeakSet<IncomingMessage>();
 /** Files served by remote port without login: manifest and icons (mobile fetches them before login, without
@@ -388,7 +452,7 @@ function sendHtml(res: ServerResponse, html: string): void {
 }
 
 function cookieHeader(value: string, maxAgeS: number, secure: boolean): string {
-  return `${COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeS}${secure ? '; Secure' : ''}`;
+  return `${COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeS}${secure ? '; Secure' : ''}`;
 }
 
 export interface RemoteGateDeps {
@@ -399,6 +463,11 @@ export interface RemoteGateDeps {
   /** Public CA file served at /remote/ca.crt (missing = no download). */
   caFile?: string;
   throttle?: LoginThrottle;
+  /** Public domain when behind a proxy: enables the Origin check and CF-Connecting-IP. */
+  domain?: string;
+  /** Per-IP sign-in failure window (default: 5 in 10 minutes). */
+  failures?: FailureWindow;
+  log?: { info(m: string): void; warn(m: string): void };
   /** Password check (injectable in tests; default: scrypt). */
   verify?: (password: string, hash: PasswordHash) => Promise<boolean>;
 }
@@ -409,11 +478,17 @@ export interface RemoteGateDeps {
  */
 export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, res: ServerResponse, url: URL) => boolean {
   const throttle = deps.throttle ?? new LoginThrottle();
+  const failures = deps.failures ?? new FailureWindow();
   const verify = deps.verify ?? verifyPassword;
   const caAvailable = () => !!deps.caFile && existsSync(deps.caFile);
   return (req, res, url) => {
     const path = url.pathname;
     const method = req.method ?? 'GET';
+    if (deps.domain && method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS' && req.headers.origin !== `https://${deps.domain}`) {
+      req.resume();
+      sendJson(res, 403, { error: tr('cross-site request refused') });
+      return true;
+    }
     const authed = deps.sessions.verify(readCookie(req.headers.cookie, COOKIE));
 
     if (path === '/api/remote/login') {
@@ -425,9 +500,13 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
         const wait = Math.max(1, throttle.retryAfter());
         sendJson(res, 429, { error: tr('Too many attempts. Try again in {0} s.', [wait]) }, { 'Retry-After': String(wait) });
       };
-      if (throttle.retryAfter() > 0) {
+      const ip = clientIp(req, !!deps.domain);
+      const ua = (req.headers['user-agent'] ?? '-').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 80) || '-';
+      const ipWait = failures.retryAfter(ip);
+      if (ipWait > 0 || throttle.retryAfter() > 0) {
         req.resume();
-        tooMany();
+        if (ipWait > 0) sendJson(res, 429, { error: tr('Too many attempts. Try again in {0} s.', [ipWait]) }, { 'Retry-After': String(ipWait) });
+        else tooMany();
         return true;
       }
       // The attempt only begins (and holds the throttle) with full body in hand: an endless body will not block
@@ -449,8 +528,14 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
           // scrypt always runs (no shortcut revealing whether username or password failed).
           const okPassword = await verify(password, deps.config.passwordHash);
           const okUser = safeEqual(user.trim(), deps.config.user);
-          if (!(okUser && okPassword)) return sendJson(res, 401, { error: tr('Incorrect username or password.') });
+          if (!(okUser && okPassword)) {
+            failures.fail(ip);
+            deps.log?.warn(tr('Remote sign-in failed ({0}) from {1}, {2}', ['password', ip, ua]));
+            return sendJson(res, 401, { error: tr('Incorrect username or password.') });
+          }
           ok = true;
+          failures.clear(ip);
+          deps.log?.info(tr('Remote sign-in ok ({0}) from {1}, {2}', ['password', ip, ua]));
           const { token, maxAgeS } = deps.sessions.issue();
           sendJson(res, 200, { ok: true }, { 'Set-Cookie': cookieHeader(token, maxAgeS, deps.secure) });
         })

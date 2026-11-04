@@ -57,6 +57,25 @@ export function isLoopbackHost(host: string | undefined): boolean {
 }
 
 /**
+ * Listen address reachable only by the computer itself: 127.0.0.0/8, `::1` (with or without brackets),
+ * or `localhost`. `0.0.0.0`, `::`, network IPs, and arbitrary names do not count.
+ */
+export function isLoopbackBind(value: string | undefined): boolean {
+  let v = value?.trim().toLowerCase() ?? '';
+  if (v.startsWith('[') && v.endsWith(']')) v = v.slice(1, -1);
+  if (v === 'localhost') return true;
+  const family = isIP(v);
+  if (family === 4) return v.startsWith('127.');
+  if (family !== 6) return false;
+  try {
+    // Canonical form (0:0:0:0:0:0:0:1 -> [::1]).
+    return new URL(`http://[${v}]/`).hostname === '[::1]';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Host accepted? Literal IP (no DNS involved, hence no rebinding), `localhost`/`*.localhost`
  * (browsers always resolve to loopback), or a name in HABBLAUD_ALLOWED_HOSTS.
  * Without Host header (HTTP/1.0, CLI tools): accepted — browsers always send it.
