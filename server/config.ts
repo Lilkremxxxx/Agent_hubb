@@ -14,7 +14,6 @@ export interface ServerConfig {
   host: string;
   /** `--dev`: Vite in middleware mode (HMR) on the same server. */
   dev: boolean;
-  /** Running inside a container (registry PIDs are from host: cannot check them). */
   home: string;
   /** Observed Claude Code config dirs (one per account). */
   claudeDirs: string[];

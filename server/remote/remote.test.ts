@@ -142,7 +142,7 @@ describe.skipIf(!HAS_OPENSSL)('certificates (openssl)', () => {
     const evil = spawnSync('openssl', ['verify', '-CAfile', paths.caCert, crt], { encoding: 'utf8' });
     expect(evil.status).not.toBe(0);
     expect(`${evil.stdout}${evil.stderr}`).toMatch(/subtree/i);
-    // New own address does not fit in this CA: docker:up requests setup; setup (newCa) creates another.
+    // New own address does not fit in this CA: remote:setup requests it; setup (newCa) creates another.
     const other = remoteTargets({ name: 'myclaude', domain: 'other.lan' }, { dns: ['localhost'], ips: ['127.0.0.1'] });
     expect(caCovers(paths, other)).toBe(false);
     expect(() => ensureServerCert(paths, other)).toThrow(/remote:setup/);

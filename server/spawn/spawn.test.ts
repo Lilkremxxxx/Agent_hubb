@@ -67,6 +67,18 @@ describe('SpawnService', () => {
     expect(s.get('id1')).toMatchObject({ status: 'failed', error: "the app didn't open in time" });
   });
 
+  it('a late opener result does not flip a request the timeout already failed', async () => {
+    let now = 1_000_000;
+    let done!: (r: { ok: true }) => void;
+    const s = new SpawnService({ opener: () => new Promise((ok) => (done = ok)), folderProblem: () => undefined, now: () => now, newId: () => 'id1' });
+    s.submit({ folder: '/p', prompt: '' });
+    now += SENT_TIMEOUT_MS + 1;
+    expect(s.get('id1')?.status).toBe('failed');
+    done({ ok: true });
+    await new Promise((ok) => setTimeout(ok, 0));
+    expect(s.get('id1')?.status).toBe('failed');
+  });
+
   it('at most 5 opening at the same time', () => {
     const s = new SpawnService({ opener: () => new Promise(() => {}), folderProblem: () => undefined });
     for (let i = 0; i < 5; i++) expect(s.submit({ folder: '/p', prompt: '' })).toHaveProperty('spawn');

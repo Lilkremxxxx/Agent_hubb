@@ -229,6 +229,7 @@ export class SpawnService {
   }
 
   private resolve(e: Entry, r: OpenResult | LaunchResult): void {
+    if (e.info.status !== 'sent') return; // already failed by the timeout: a late opener must not flip it
     this.dropFiles(e);
     e.info.status = r.ok ? 'opened' : 'failed';
     if (!r.ok) e.info.error = r.error;

@@ -5,7 +5,7 @@
 // Directories (default ~/.habblaud/remote-tls, permissions 700):
 //   ca/ca.key, ca/ca.crt            the CA: private key NEVER leaves here (does not go into container)
 //   ca/constraints.json             the names that CA can sign (see below)
-//   server/server.key, server.crt   the server certificate (docker-up mounts ONLY this directory, read-only)
+//   server/server.key, server.crt   the server certificate (the only directory the server reads)
 //   server/ca.crt                   public copy of CA, served at /remote/ca.crt to install on phone
 //
 // Server certificate is valid for 397 days (Apple limit) and covers localhost, <name>.local and local network IPs;

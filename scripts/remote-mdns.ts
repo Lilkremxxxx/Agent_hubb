@@ -1,6 +1,5 @@
 // npm run remote:mdns — announces <HABBLAUD_REMOTE_NAME>.local on the local network (mDNS), pointing to this
-// computer's IP, so the phone can open https://<name>.local without remembering an IP. The container cannot do this
-// (in Docker Desktop it is not on the Wi-Fi network), so this runs on the host — `npm run remote:setup` leaves it
+// computer's IP, so the phone can open https://<name>.local without remembering an IP. `npm run remote:setup` leaves it
 // as a service (LaunchAgent on macOS, systemd user service on Linux).
 //
 // macOS: `dns-sd -P` (built into the system). Linux: `avahi-publish -a -R` (avahi-utils package). Checks the IP

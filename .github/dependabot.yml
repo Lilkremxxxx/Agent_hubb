@@ -12,19 +12,3 @@ updates:
       # version, typecheck would allow APIs that do not exist in it. Bump manually, along with engines and CI.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
-
-  # Base Dockerfile images (node:24-alpine)
-  - package-ecosystem: "docker"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    ignore:
-      # The image stays on an LTS Node version. Major version upgrades (e.g. 24 -> 26 when 26 becomes LTS) are manual.
-      - dependency-name: "node"
-        update-types: ["version-update:semver-major"]
-
-  # Actions used in .github/workflows/ci.yml (actions/checkout, actions/setup-node)
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"

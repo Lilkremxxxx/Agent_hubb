@@ -57,7 +57,7 @@ Turns on phone access (https://<name>.local) with username, password and HTTPS.
   --name <name>        address <name>.local (default: habblaud)
   --domain <address>   own address, e.g. myclaude.home (needs an entry in the router's DNS)
   --port <n>           port on the computer (default: 443 if free, otherwise 4748)
-  --allow <list>       what the phone can do: terminal, spawn, none (default: none, view only)
+  --allow <list>       what the phone can do: terminal, none (default: none, view only)
   --password-stdin     reads the password from standard input (automation) instead of asking
   --no-service         doesn't install the <name>.local announcement service (run npm run remote:mdns yourself)
   --off                turns off phone access (removes the lines from .env and the service; keeps the CA)`);
@@ -324,6 +324,7 @@ async function main(): Promise<void> {
   const paths = tlsPaths(remoteTlsBase(HOME));
   const hadCa = caFingerprint(paths);
   const cert = ensureServerCert(paths, remoteTargets({ name, domain }), { force: true, newCa: true });
+  if (/\bspawn\b/i.test(args.allow ?? '')) console.error('warning: "spawn" is no longer a remote feature and is ignored (only "terminal" or "none").');
   writeEnv(remoteEnv(current, { user, hash, name, domain, port, httpPort, allow: args.allow }));
   const service = args.service ? installService() : tr('service not installed (--no-service): run npm run remote:mdns');
 

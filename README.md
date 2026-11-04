@@ -331,7 +331,7 @@ certificate), checking the fingerprint the setup showed.
 - **Own address** (e.g. `myclaude.home`): goes into the certificate, but the phone only finds it with an entry in the
   router's DNS pointing to the computer's IP. `<name>.local` works without configuring anything.
 - **What the phone can do:** by default, view only. `HABBLAUD_REMOTE_ALLOW` in `.env` accepts
-  `terminal` and `spawn`, separated by commas, or `none` (view only). The interactive terminal never works from the
+  `terminal` or `none` (view only); `spawn` is no longer a remote feature and is ignored. The interactive terminal never works from the
   phone.
 - **Session:** 30 days; changing the password (running the setup again) ends all of them, and **Settings › Phone
   access › Sign out** ends the one on that device. After 5 wrong passwords in a row, each new attempt waits from 1 s up to 5 min.
@@ -533,7 +533,7 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_TERMINAL` | on (local access only) | `0` turns off the terminal and the character editor. With the port exposed they're already off, with no way to turn them on. |
 | `HABBLAUD_PTY` | on under `npm run office`, off otherwise | `1` turns on the interactive terminal (open, take over and end Claude Code sessions from the office; local access only). |
 | `HABBLAUD_CLAUDE_BIN` | `claude` from PATH | The Claude Code executable that the interactive terminal runs. |
-| `HABBLAUD_REMOTE_ALLOW` | `none` (view only) | What the [phone with login](#phone-with-login-and-https) can do: `terminal`, `spawn` (comma-separated) or `none`. The other `HABBLAUD_REMOTE_*` are in that section. |
+| `HABBLAUD_REMOTE_ALLOW` | `none` (view only) | What the [phone with login](#phone-with-login-and-https) can do: `terminal` or `none` (`spawn` is ignored). The other `HABBLAUD_REMOTE_*` are in that section. |
 | `HABBLAUD_LANG` | system language, otherwise `en` | Language of the texts the server builds (activities, notices, logs): `en` or `vi`. The interface follows the browser or the choice in Settings › Language. See [Languages](#languages). |
 | `HABBLAUD_ACCOUNTS` | — | JSON to customize name, letter or color, matched by the account folder name. E.g. `[{"id":".claude-conta2","name":"Work","short":"T","color":"#5cc97b"}]`. |
 | `HABBLAUD_AGY` | on | `0` turns off the Antigravity workers. |

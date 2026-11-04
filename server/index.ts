@@ -430,6 +430,7 @@ if (config.remote) {
   remoteListener.server.once('listening', () => {
     const allow = [...remote.allow].join(', ') || tr('view only');
     const scheme = remote.tls ? 'HTTPS' : tr('HTTP WITHOUT encryption (HABBLAUD_REMOTE_INSECURE_HTTP)');
+    if (/\bspawn\b/i.test(process.env.HABBLAUD_REMOTE_ALLOW ?? '')) log.warn(tr('   Remote access: "spawn" is no longer a remote feature and is ignored (only "terminal").'));
     log.info(tr('   Remote access: on at port {0} ({1}), {2}, with login; allows: {3}.', [remote.port, remote.host, scheme, allow]));
   });
 } else if (config.remoteWarning) {
