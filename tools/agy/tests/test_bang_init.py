@@ -132,6 +132,15 @@ def test_broken_team_json_is_left_alone(env):
     assert os.path.exists(f"{env.proj}/.agents/skills.json")
 
 
+def test_next_steps_say_each_agy_account_trusts_the_folder_once(env):
+    env.team({"folder": "", "workers": [{"name": "W1", "kind": "agy", "account": "acc2"}, {"name": "W2", "kind": "agy", "account": "acc1"},
+                                        {"name": "W3", "kind": "agy", "account": "acc2"}, {"name": "C1", "kind": "claude", "account": ".claude-w"}]})
+    _, out, _ = env.run([env.proj])
+    assert f"Antigravity seats: once per account (acc1, acc2): cd {env.real(env.proj)} && agy-as <acc>" in out and ".claude-w" not in out
+    _, out, _ = env.run([env.proj], data=env.tmp + "/none")  # no team.json: generic wording
+    assert "every agy account in team.json" in out
+
+
 def test_blank_data_dir_means_home_habblaud(env):
     touch(f"{env.h}/.habblaud/team.json", json.dumps({"folder": ""}))
     code, _, err = env.run([env.proj], data="   ")

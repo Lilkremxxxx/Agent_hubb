@@ -77,6 +77,7 @@ describe('turns', () => {
 function fakePtys() {
   const open = new Map<string, PtyInfo & { args: string[]; env?: Record<string, string>; file: string }>();
   const typed: Array<[string, string]> = [];
+  const screens = new Map<string, string>();
   let pid = 100;
   const ptys: WorkerPtys = {
     openProgram: (p) => {
@@ -90,8 +91,9 @@ function fakePtys() {
       return open.has(id);
     },
     closeAgent: (id) => void open.delete(id),
+    screenText: (id) => (open.has(id) ? screens.get(id) ?? '' : undefined),
   };
-  return { ptys, open, typed };
+  return { ptys, open, typed, screens };
 }
 
 function setup(workers = ['W1', 'W2', 'C1']) {
@@ -336,6 +338,46 @@ describe('WorkerService', () => {
     t.advance(TRUST_WAIT_MS + 1000);
     t.svc.tick();
     expect(t.svc.jobs()[0].status).toBe('working');
+  });
+
+  describe('agy job at the folder-trust prompt', () => {
+    const TRUST_SCREEN = '\x1b[1mDo you trust the contents\x1b[0m of\r\n this project?\r\n > Yes, I trust this folder';
+
+    it('no conversation after TRUST_WAIT_MS and the screen asks about trust: the terminal closes, nothing is typed, the job fails saying what to do', async () => {
+      const t = setup();
+      await t.svc.ask({ worker: 'W1', prompt: 'Say pong', cwd: t.root });
+      t.screens.set('agy:acc2', TRUST_SCREEN);
+      t.advance(TRUST_WAIT_MS - 1000);
+      t.svc.tick();
+      expect(t.svc.jobs()[0].status).toBe('working');
+      t.advance(2000);
+      t.svc.tick();
+      expect(t.svc.jobs()[0]).toMatchObject({ status: 'failed', error: expect.stringContaining(`Antigravity account acc2 does not trust the folder ${t.root}: run "agy-as acc2"`) });
+      expect(t.open.has('agy:acc2')).toBe(false);
+      expect(t.typed).toEqual([]);
+    });
+
+    it('the conversation appeared before the wait: no failure', async () => {
+      const t = setup();
+      await t.svc.ask({ worker: 'W1', prompt: 'Say pong', cwd: t.root });
+      t.screens.set('agy:acc2', TRUST_SCREEN);
+      t.agyWrites([{ type: 'USER_INPUT', status: 'DONE', content: 'q' }]);
+      t.advance(TRUST_WAIT_MS + 1000);
+      t.svc.tick();
+      expect(t.svc.jobs()[0].status).toBe('working');
+      expect(t.open.has('agy:acc2')).toBe(true);
+    });
+
+    it('a screen without the question after the wait: keeps waiting', async () => {
+      const t = setup();
+      await t.svc.ask({ worker: 'W1', prompt: 'Say pong', cwd: t.root });
+      t.screens.set('agy:acc2', 'Antigravity CLI\r\n> thinking...');
+      t.advance(TRUST_WAIT_MS + 1000);
+      t.svc.tick();
+      expect(t.svc.jobs()[0].status).toBe('working');
+      expect(t.open.has('agy:acc2')).toBe(true);
+      expect(t.typed).toEqual([]);
+    });
   });
 
   it('Claude worker, lean job (claude-ask): no MCP, skills or slash commands, few tools, the worker rule with the cap', async () => {

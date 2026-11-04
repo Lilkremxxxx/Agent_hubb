@@ -12,6 +12,7 @@ middle one (0.**3**.0).
 
 - **`skills/`** with `giao-viec` (for now the old `agy-orchestrator` guide, rewritten in a later plan), `advisor` (a placeholder until the command exists) and `bang-task` (the `task_board.md` rules), and **`templates/`** with `task_board.md` and `project_proposal.md`.
 - **`bang-init <folder>`** prepares a project folder: the two templates with the name and folder filled in, `.agents/skills.json` for Antigravity (absolute paths plus this repo's `skills/`), `include_only` from `skills.list`, three links in `.claude/skills/`, `GEMINI.md` linked to `CLAUDE.md`, a placeholder `CLAUDE.md` when there is none, and `folder` in `team.json` when it is empty. It does not create `team.json` and keeps another folder.
+- **An Antigravity seat job stopped at the folder-trust question** (an account's first interactive run in a folder) now fails after 15 s with what to do, as a Claude seat does; the terminal is closed, trust is never answered for the user. `bang-init` prints the one-time `agy-as <acc>` step.
 - **`tools/install.sh --worker`** links the skills into `~/.claude-worker/skills` and prints the login command.
 - **`npm run office -- stop|restart`**; they only stop this repo's own server on the port (exact command and folder check).
 

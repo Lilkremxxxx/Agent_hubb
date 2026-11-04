@@ -99,6 +99,8 @@ export interface WorkerPtys {
   ofAgent(agentId: string): PtyInfo | undefined;
   typeTo(agentId: string, data: string): boolean;
   closeAgent(agentId: string): void;
+  /** What the agent's terminal shows now (escape sequences included); undefined when it has none. */
+  screenText(agentId: string): string | undefined;
 }
 
 export interface WorkerServiceOptions {
@@ -130,7 +132,7 @@ interface Job extends WorkerJob {
   model?: string;
   max: number;
   lean?: boolean;
-  /** Claude: the folder's trust was checked (TRUST_WAIT_MS after the start, no conversation yet). */
+  /** The folder's trust was checked (TRUST_WAIT_MS after the start, no conversation yet). */
   trustChecked?: boolean;
   cwd: string;
   /** Agent id of the worker's character. */
@@ -429,7 +431,10 @@ export class WorkerService {
   /** Reads the job's conversation and ends the job if its turn is over. */
   private check(s: Session, j: Job): void {
     const path = this.transcriptOf(s, j);
-    if (!path) return;
+    if (!path) {
+      this.checkTrust(s, j);
+      return;
+    }
     let size: number;
     try {
       size = statSync(path).size;
@@ -449,14 +454,23 @@ export class WorkerService {
   }
 
   /**
-   * A Claude job that has not started its conversation yet: if the account does not trust the folder, claude is
-   * waiting at the trust dialog (it would wait until the timeout). Esc closes it; the job fails saying what to do.
-   * Trust is never given for the user.
+   * A job that has not started its conversation yet, TRUST_WAIT_MS after its terminal opened, may be waiting at the
+   * folder-trust dialog (it would wait until the timeout). Claude: the account's config says whether it trusts the
+   * folder; Esc closes it. agy: its screen shows the question; the terminal is closed without typing (Esc quits agy).
+   * Either way the job fails saying what to do. Trust is never given for the user.
    */
   private checkTrust(s: Session, j: Job): void {
-    if (s.t.kind !== 'claude' || j.trustChecked || this.now() - (j.launchedAt ?? j.startedAt) < TRUST_WAIT_MS) return;
+    if (j.trustChecked || this.now() - (j.launchedAt ?? j.startedAt) < TRUST_WAIT_MS) return;
     j.trustChecked = true;
-    if (claudeTrusts(s.t.configDir!, !!s.t.isDefault, j.cwd) !== false) return;
+    if (s.t.kind === 'agy') {
+      // Escape sequences become spaces and any non-letters may sit between the words (box borders, line breaks).
+      const screen = (this.opts.ptys.screenText(s.t.agentId) ?? '').replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[\]P][^\x07\x1b]*(?:\x07|\x1b\\)?/g, ' ');
+      if (!/trust[^a-z]+the[^a-z]+contents[^a-z]+of[^a-z]+this[^a-z]+project/i.test(screen)) return;
+      this.opts.ptys.closeAgent(s.t.agentId);
+      this.finish(j, 'failed', 'ERROR', tr('Antigravity account {0} does not trust the folder {1}: run "agy-as {0}" there once, answer yes, then give the job again', [s.t.acc, j.cwd]));
+      return;
+    }
+    if (s.t.kind !== 'claude' || claudeTrusts(s.t.configDir!, !!s.t.isDefault, j.cwd) !== false) return;
     this.opts.ptys.typeTo(s.t.agentId, ESC);
     this.finish(j, 'failed', 'ERROR', tr('{0} does not trust the folder {1}: open claude there once with this account and answer yes, or give the job another folder', [s.t.name, j.cwd]));
   }

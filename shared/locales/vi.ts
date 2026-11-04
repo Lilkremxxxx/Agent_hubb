@@ -1187,6 +1187,8 @@ export const VI: Readonly<Record<string, string>> = {
   "{0}: reset since the last reading": "{0}: đã làm mới kể từ lần đọc trước",
   "{0} does not trust the folder {1}: open claude there once with this account and answer yes, or give the job another folder":
     "{0} chưa tin thư mục {1}: mở claude ở đó một lần bằng tài khoản này và trả lời đồng ý, hoặc giao việc ở thư mục khác",
+  'Antigravity account {0} does not trust the folder {1}: run "agy-as {0}" there once, answer yes, then give the job again':
+    'Tài khoản Antigravity {0} chưa tin thư mục {1}: chạy "agy-as {0}" ở đó một lần, trả lời đồng ý, rồi giao lại việc',
   "Shows what the worker is doing; its terminal is read-only": "Xem worker đang làm gì; terminal của nó chỉ để đọc",
   "⏳ Working on a job: “{0}”": "⏳ Đang làm việc: “{0}”",
   "🖥 Terminal": "🖥 Terminal",

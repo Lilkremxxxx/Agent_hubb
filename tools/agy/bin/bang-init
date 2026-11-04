@@ -29,6 +29,7 @@ if os.path.exists(f"{folder}/skills.list"):
 entries.append({"path": f"{repo}/skills"})
 open(f"{folder}/.agents/skills.json", "w", encoding="utf-8").write(json.dumps({"entries": entries}, indent=2) + "\n")
 team = (os.environ["DATA"].strip() or f"{home}/.habblaud") + "/team.json"  # as the server (config.ts) and worker-ask
+accs = []
 if not os.path.exists(team):
     print(f"no {team} yet: start the office once (it writes team.json), then run bang-init again")
 else:
@@ -39,6 +40,8 @@ else:
     except (OSError, ValueError) as e:
         print(f"bang-init: {team} could not be read: {e}", file=sys.stderr)
         sys.exit(1)
+    ws = t.get("workers")
+    accs = sorted({w["account"] for w in ws if isinstance(w, dict) and w.get("kind") == "agy" and isinstance(w.get("account"), str)}) if isinstance(ws, list) else []
     cur = t.get("folder")
     if not cur:
         t["folder"] = folder
@@ -57,5 +60,6 @@ Next:
   3. Hand out work with the giao-viec skill (worker-ask <seat> "...").""")
 if os.path.isdir(f"{home}/.claude-worker"):
     print(f"  4. Once: cd {folder} && CLAUDE_CONFIG_DIR={home}/.claude-worker claude  (log in, trust the folder, /exit);\n     without it every job on a Claude seat stops at TRUST_WAIT.")
+print(f"  Antigravity seats: once per account ({', '.join(accs) if accs else 'every agy account in team.json'}): cd {folder} && agy-as <acc>\n     (answer yes to the trust question, then /exit); without it a job there stops at the trust question.")
 PY
 exit $rc
