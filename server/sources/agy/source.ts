@@ -26,6 +26,7 @@ import { formatDuration, maskSecrets, truncate } from '../../../shared/activity'
 import type { AccountsService } from '../../accounts/service';
 import { errMsg, log } from '../../log';
 import type { Office, TranscriptSummary } from '../../model/office';
+import { normalizeCwd } from '../../model/rooms';
 import type { AgentSource } from '../source';
 import { FileTail } from '../tail';
 import { agyDetected, discoverAgyProfiles, workerLabel, workerName, type AgyProfile } from './profiles';
@@ -453,8 +454,9 @@ export class AgySource implements AgentSource {
    * transcript shows, as a 'prompt' activity).
    */
   private publishBoard(): void {
+    const folder = this.opts.folder();
     const first = this.shown.keys().next().value;
-    const roomId = first ? this.opts.office.get(first)?.roomId : undefined;
+    const roomId = (folder ? this.opts.office.roomList().find((r) => normalizeCwd(r.path) === folder)?.id : undefined) ?? (first ? this.opts.office.get(first)?.roomId : undefined);
     if (!roomId) return;
     if (this.boardRoom && this.boardRoom !== roomId) this.opts.office.setBoard(this.boardRoom, undefined);
     this.boardRoom = roomId;

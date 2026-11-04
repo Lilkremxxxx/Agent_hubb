@@ -1152,6 +1152,7 @@ export const VI: Readonly<Record<string, string>> = {
   "Sign-in terminal {0} opened (account {1}).": "Đã mở terminal đăng nhập {0} (tài khoản {1}).",
   "job not found": "không tìm thấy việc",
   "{0} is not a seat in team.json, or its account is not signed in": "{0} không phải ghế trong team.json, hoặc tài khoản của nó chưa đăng nhập",
+  "{0} was removed from team.json while this job ran": "{0} đã bị xoá khỏi team.json khi việc này đang chạy",
   "{0} changed in team.json while this job ran": "{0} đã đổi trong team.json khi việc này đang chạy",
   "expected {worker, prompt}": "cần {worker, prompt}",
   "expected {job}, {worker} or {all: true}": "cần {job}, {worker} hoặc {all: true}",

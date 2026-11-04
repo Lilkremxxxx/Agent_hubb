@@ -490,6 +490,15 @@ describe('WorkerService', () => {
     expect(t.svc.jobs()[0].error).not.toContain('cancelled by you');
     expect([...t.open.keys()]).toEqual([]);
   });
+  it('removing a seat in team.json ends its job naming team.json, not "cancelled by you"', async () => {
+    const t = setup(['W1', 'W2']);
+    await t.svc.ask({ worker: 'W2', prompt: 'two' });
+    t.retarget(() => [{ id: 'W1', kind: 'agy', agentId: 'agy:acc2', account: 'agy:acc2', name: 'W1', acc: 'acc2', stateDir: t.stateDir }]);
+    t.svc.sync();
+    expect(t.svc.jobs()[0].error).toContain('team.json');
+    expect(t.svc.jobs()[0].error).not.toContain('cancelled by you');
+    expect([...t.open.keys()]).toEqual([]);
+  });
   it('a Claude seat character follows a folder set after start and a rename', () => {
     const t = setup(['C1']);
     t.setFolder('/w/proj');

@@ -315,14 +315,14 @@ export class WorkerService {
   }
 
   /** Cancels a job, every job of a worker, or every job. Returns how many were running. */
-  cancel(p: { job?: string; worker?: string; all?: boolean }): number {
+  cancel(p: { job?: string; worker?: string; all?: boolean }, reason: string = tr('cancelled by you')): number {
     let n = 0;
     for (const j of this.jobList) {
       if (!live(j)) continue;
       if (!(p.all || (p.job && j.id === p.job) || (p.worker && j.worker === p.worker))) continue;
       const s = this.sessions.get(j.worker);
-      if (s) this.interrupt(s, j, 'cancelled', 'CANCELLED', tr('cancelled by you'));
-      else this.finish(j, 'cancelled', 'CANCELLED', tr('cancelled by you'));
+      if (s) this.interrupt(s, j, 'cancelled', 'CANCELLED', reason);
+      else this.finish(j, 'cancelled', 'CANCELLED', reason);
       n++;
     }
     return n;
@@ -352,7 +352,7 @@ export class WorkerService {
     }
     for (const [id, s] of [...this.sessions]) {
       if (targets.some((t) => t.id === id)) continue;
-      this.cancel({ worker: id });
+      this.cancel({ worker: id }, tr('{0} was removed from team.json while this job ran', [s.t.name]));
       this.opts.ptys.closeAgent(s.t.agentId);
       this.sessions.delete(id);
     }

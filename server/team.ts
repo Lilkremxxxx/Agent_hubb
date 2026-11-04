@@ -42,6 +42,12 @@ const ACCOUNT = /^[\w.-]+$/;
 
 export const agyBossId = (acc: string): string => `agy-boss:${acc}`;
 
+/** Open agy boss terminals that no longer match team.json's boss (kind or account switched). */
+export function staleAgyBosses(open: readonly { agentId: string; exitedAt?: number }[], boss: TeamFile['boss']): string[] {
+  const keep = boss.kind === 'agy' ? agyBossId(boss.account) : '';
+  return open.filter((p) => p.agentId.startsWith('agy-boss:') && !p.exitedAt && p.agentId !== keep).map((p) => p.agentId);
+}
+
 /** The boss as the sync loop sees it (an Antigravity one is derived from the file, a Claude one lives in memory). */
 export interface BossRecord {
   kind: WorkerKind;

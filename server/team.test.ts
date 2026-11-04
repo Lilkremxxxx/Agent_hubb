@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { claudeConfigDir, importTeam, parseTeam, teamSeats, TeamService } from './team';
+import { claudeConfigDir, importTeam, parseTeam, staleAgyBosses, teamSeats, TeamService } from './team';
 import { NameStore } from './model/names';
 import { Office } from './model/office';
 
@@ -250,4 +250,11 @@ describe('TeamService: the boss', () => {
       offices: [{ id: 'main', name: 'p', folder: '/w/p', workers: ['W1', 'C1'], bossAgentId: '.claude:1' }],
     });
   });
+});
+
+it('staleAgyBosses: the old agy boss terminal goes when boss.kind or boss.account changes', () => {
+  const open = [{ agentId: 'agy-boss:acc1' }, { agentId: 'agy-boss:acc2', exitedAt: 5 }, { agentId: 'claude-worker:C1' }];
+  expect(staleAgyBosses(open, { kind: 'claude', account: 'default' })).toEqual(['agy-boss:acc1']);
+  expect(staleAgyBosses(open, { kind: 'agy', account: 'acc1' })).toEqual([]);
+  expect(staleAgyBosses(open, { kind: 'agy', account: 'acc3' })).toEqual(['agy-boss:acc1']);
 });

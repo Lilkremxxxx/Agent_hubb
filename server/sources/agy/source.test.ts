@@ -632,4 +632,11 @@ describe('AgySource', () => {
     const none = setup(['acc2']);
     expect(none.source.assign('agy:acc2', { prompt: 'x' })).toMatchObject({ ok: false, status: 400 });
   });
+  it('a Claude-only team: a terminal job shows on the board of the folder room', () => {
+    const t = setup([], { folder: '/w/ocr' });
+    t.source.setTeam([]);
+    t.office.addMain({ id: 'claude-worker:C1', account: '.claude-w', sessionId: 'claude-worker:C1', cwd: '/w/ocr', role: 'Worker', name: 'C1', startedAt: 1, status: 'idle' });
+    t.source.upsertJob({ id: 'claude-worker:C1#j1', agentId: 'claude-worker:C1', worker: 'C1', text: 'one', status: 'working', at: 1 });
+    expect(t.office.commit().snapshot.rooms.find((r) => r.id === '/w/ocr')?.board?.items.map((i) => i.worker)).toEqual(['C1']);
+  });
 });

@@ -26,7 +26,7 @@ import { openMainAgent, SessionHistory } from './sources/history';
 import { HistorySet, SourceSet } from './sources/source';
 import { ClaudeWatcher } from './sources/watcher';
 import { AgySource, type AgySeat } from './sources/agy/source';
-import { agyBossId, claudeConfigDir, TeamService } from './team';
+import { agyBossId, claudeConfigDir, staleAgyBosses, TeamService } from './team';
 import { GhostWatch } from './workers/ghosts';
 import { WorkerService, type WorkerTarget } from './workers/service';
 import { agyProfilesRoot } from './sources/agy/profiles';
@@ -97,6 +97,7 @@ const team = new TeamService({
   onChange: () => {
     syncAgy();
     late.workers?.sync();
+    for (const id of staleAgyBosses(late.ptys?.list() ?? [], team.boss)) late.ptys?.closeAgent(id);
   },
   extra: () => (late.workers ? { sessions: late.workers.sessionList(), jobs: late.workers.jobs() } : {}),
 });
