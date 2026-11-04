@@ -29,7 +29,7 @@ worker-ask refuses a prompt without the title or any of the six headings (exit 1
 ```
 
 - Paths are relative to the office folder. Name the exact files, paste one real sample, say what must not be touched.
-- "Skill dùng": the skill's name. Seats load skills by name (Antigravity through `.agents/skills.json`, Claude through `.claude/skills` and its plugins); there is no `.agents/skills/` folder. "không" if none.
+- "Skill dùng": the skill's name only; ignore the `.agents/skills/` path in the template line. Seats load skills by name (Antigravity through `.agents/skills.json`, Claude through `.claude/skills` and its plugins); there is no `.agents/skills/` folder. "không" if none.
 - "Tiêu chí review": every line is a command you will run yourself, with the output you expect.
 - `--raw` sends a prompt without the headings: only for a one-line question, never for project work.
 - The prompt, with the seat rules in front, must stay under 100 kB: put long diffs or logs in a file and give its path.
@@ -43,7 +43,7 @@ EOF
 )" --role impl --effort medium [--mode plan] [--timeout 1800]
 ```
 - Always in the background, so you stay free for `advisor` questions: Claude Code with `run_in_background`; an Antigravity boss appends `> /tmp/T3.out 2>&1 &` and reads the file when it is done. Several seats in parallel are fine; never two seats on one file.
-- `--mode auto` is the default in the office folder. Pass `--mode plan` when the job deletes, writes outside its output folder, touches the source data, or installs anything. With the office running the user approves the plan in the seat's terminal on the page; headless (office off) a plan job returns its plan and ends: read it, and if you agree give the same job again with `--mode auto`.
+- `--mode auto` is the default for Antigravity seats; Claude seats keep their own default mode unless you pass `--mode`. Pass `--mode plan` when the job deletes, writes outside its output folder, touches the source data, or installs anything. With the office running the user approves the plan in the seat's terminal on the page; headless (office off) a plan job returns its plan and ends: read it, and if you agree give the same job again with `--mode auto`.
 - `--effort low|medium|high` (Claude seats also take `xhigh|max`); `--model` only for Claude seats. Claude seats run full; `--lean` (no MCP, skills or slash commands) for small jobs.
 - `--cwd` only when the worker must write outside the office folder. Killing the command, or `--timeout` (seconds), cancels the job.
 
