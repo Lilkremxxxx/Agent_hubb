@@ -646,3 +646,11 @@ Deploy spec:
 3. **Đường node trong unit**: `%h/.nvm/versions/node/v25.7.0/bin/node` (phải sửa khi nâng node) hay một symlink ổn định do người dùng tạo (vd `~/.local/bin/node`)?
 4. **Chế độ LAN cũ** (mDNS `scripts/remote-mdns.ts`, dịch vụ announce, cert tự ký, ~600 dòng): giữ như spec §4 nói, hay cắt trong một kế hoạch sau khi hub chạy ổn?
 5. **`POST /api/spawn` local** không có UI gọi: giữ (Kế hoạch 6 chỉ bỏ quyền remote và hàng đợi helper) hay xoá cả hệ con spawn sau?
+
+## Notas de revisão (Task 2, commit 4a86f66 và commit sửa tiếp theo)
+
+- **Cookie không có tiền tố `__Host-`**: `pp.ua` là public suffix, một subdomain anh em bị XSS có thể ghi đè cookie. Task 4/5 quyết định có dùng `__Host-habblaud_remote` hay không (cần `Secure`, `Path=/`, không `Domain`; cookie hiện đã thoả ba điều đó, chỉ cần đổi tên và chấp nhận mọi phiên cũ mất).
+- **`HABBLAUD_ALLOWED_HOSTS` dùng chung với cổng cục bộ 4747**: thêm `hub.finstar.pp.ua` vào đó cũng làm cổng 4747 chấp nhận Host này (rủi ro thấp vì 4747 nghe loopback; ghi vào runbook). Task 6 có thể tách một biến riêng cho cổng remote.
+- **Route passkey KHÔNG dùng chung `LoginThrottle`**: chỉ dùng `FailureWindow` theo IP, để kẻ tấn công không khoá chủ nhà qua passkey. Ở chế độ sau proxy `LoginThrottle` bị chặn trần 30 s; khoá cứng do `FailureWindow` (5 lần/10 phút/IP; IPv6 tính theo /64) đảm nhiệm.
+- **`proxyEnv` mặc định `allow=terminal`**: người giữ mật khẩu đọc được transcript qua Internet. Runbook phải nói rõ và đưa lựa chọn `allow=none` (chỉ xem office).
+- **cloudflared phải gửi `CF-Connecting-IP`** (mặc định có); nếu không, mọi khách dùng chung khoá `127.0.0.1` và `FailureWindow` thành khoá toàn cục. `clientIp` chỉ tin header khi kết nối là loopback và giá trị là một IP hợp lệ.

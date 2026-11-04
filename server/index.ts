@@ -10,7 +10,7 @@ import { AccountsService } from './accounts/service';
 import { isTruthy, loadConfig, terminalOffReason } from './config';
 import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard } from './http/guard';
-import { createRemoteGate, FailureWindow, isRemoteRequest, loadSecret, RemoteSessions, startRemoteListener, type RemoteListener } from './http/remote';
+import { createRemoteGate, FailureWindow, isRemoteRequest, isSecureRemote, loadSecret, RemoteSessions, startRemoteListener, type RemoteListener } from './http/remote';
 import { Hub } from './http/sse';
 import { createStaticHandler } from './http/static';
 import { TerminalStreams } from './http/terminal';
@@ -407,7 +407,7 @@ if (config.remote) {
   const gate = createRemoteGate({
     config: remote,
     sessions: new RemoteSessions(loadSecret(join(config.dataDir, 'remote-secret')), remote, Date.now, join(config.dataDir, 'remote-revoked.json')),
-    secure: !!remote.tls || !!remote.domain,
+    secure: isSecureRemote(remote),
     domain: remote.domain,
     failures: new FailureWindow(),
     log,

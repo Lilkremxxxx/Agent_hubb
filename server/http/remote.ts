@@ -26,7 +26,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import https from 'node:https';
-import net from 'node:net';
+import net, { isIP } from 'node:net';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parsePasswordHash, verifyPassword, type PasswordHash } from '../remote/password';
@@ -58,6 +58,11 @@ export interface RemoteConfig {
   /** Lower-case public domain; present = behind a proxy. */
   domain?: string;
   passwordLogin: boolean;
+}
+
+/** Cookie gets `Secure` when the port speaks HTTPS itself or sits behind an HTTPS proxy. */
+export function isSecureRemote(cfg: Pick<RemoteConfig, 'tls' | 'domain'>): boolean {
+  return !!cfg.tls || !!cfg.domain;
 }
 
 export const DEFAULT_REMOTE_PORT = 4748;
@@ -194,7 +199,7 @@ export class RemoteSessions {
     const m = /^v1\.(\d{10,16})\.([A-Za-z0-9_-]{43})$/.exec(token);
     if (!m) return undefined;
     const exp = Number(m[1]);
-    if (exp <= this.now()) return undefined;
+    if (exp <= this.now() || exp > this.now() + SESSION_MS) return undefined; // expired, or older/longer than a session
     const expected = Buffer.from(this.sign(`v1.${m[1]}`));
     const got = Buffer.from(m[2]);
     return expected.length === got.length && timingSafeEqual(expected, got) ? { exp, sig: m[2] } : undefined;
@@ -246,7 +251,11 @@ export class LoginThrottle {
   private blockedUntil = 0;
   private busy = false;
 
-  constructor(private readonly now: () => number = Date.now) {}
+  /** `maxBackoffS` lowers the 5-minute ceiling (behind a proxy the per-IP window does the hard blocking). */
+  constructor(
+    private readonly now: () => number = Date.now,
+    private readonly maxBackoffS = 300,
+  ) {}
 
   /** Seconds until another attempt can be made (0 = ready; 1 while another attempt is in progress). */
   retryAfter(): number {
@@ -269,7 +278,7 @@ export class LoginThrottle {
 
   fail(): void {
     this.failures++;
-    if (this.failures >= 5) this.blockedUntil = this.now() + Math.min(300, 2 ** (this.failures - 5)) * 1000;
+    if (this.failures >= 5) this.blockedUntil = this.now() + Math.min(this.maxBackoffS, 2 ** (this.failures - 5)) * 1000;
   }
 
   succeed(): void {
@@ -281,6 +290,7 @@ export class LoginThrottle {
 /** Sign-in failures per client IP: `limit` failures within `windowMs` block that IP (max 1000 keys tracked). */
 export class FailureWindow {
   private readonly hits = new Map<string, number[]>();
+  private readonly noted = new Map<string, number>();
 
   constructor(
     private readonly limit = 5,
@@ -288,7 +298,18 @@ export class FailureWindow {
     private readonly now: () => number = Date.now,
   ) {}
 
-  private live(key: string): number[] {
+  /** IPv6 clients own a whole /64: key by its first four groups so rotating the host part buys nothing. */
+  private norm(key: string): string {
+    if (isIP(key) !== 6 || /^::ffff:/i.test(key)) return key;
+    const [head, tail = ''] = key.split('::');
+    const a = head ? head.split(':') : [];
+    const b = key.includes('::') && tail ? tail.split(':') : [];
+    const groups = key.includes('::') ? [...a, ...Array(8 - a.length - b.length).fill('0'), ...b] : a;
+    return groups.slice(0, 4).map((g) => g.toLowerCase().replace(/^0+(?=.)/, '')).join(':') + '::/64';
+  }
+
+  private live(raw: string): number[] {
+    const key = this.norm(raw);
     const t = this.now() - this.windowMs;
     const list = (this.hits.get(key) ?? []).filter((x) => x > t);
     if (list.length) this.hits.set(key, list);
@@ -302,7 +323,19 @@ export class FailureWindow {
     return list.length < this.limit ? 0 : Math.max(1, Math.ceil((list[0] + this.windowMs - this.now()) / 1000));
   }
 
-  fail(key: string): void {
+  /** True the first time `key` is seen blocked in this window (so logs get one line, not one per request). */
+  noteBlocked(raw: string): boolean {
+    const key = this.norm(raw);
+    const at = this.noted.get(key);
+    if (at !== undefined && this.now() - at < this.windowMs) return false;
+    this.noted.delete(key);
+    if (this.noted.size >= 1000) this.noted.delete(this.noted.keys().next().value as string);
+    this.noted.set(key, this.now());
+    return true;
+  }
+
+  fail(raw: string): void {
+    const key = this.norm(raw);
     const list = this.live(key);
     list.push(this.now());
     this.hits.delete(key); // re-insert: Map order = least recently failed first
@@ -311,7 +344,7 @@ export class FailureWindow {
   }
 
   clear(key: string): void {
-    this.hits.delete(key);
+    this.hits.delete(this.norm(key));
   }
 }
 
@@ -322,8 +355,8 @@ export class FailureWindow {
 export function clientIp(req: IncomingMessage, behindProxy: boolean): string {
   const peer = req.socket.remoteAddress ?? '-';
   const h = req.headers['cf-connecting-ip'];
-  if (behindProxy && typeof h === 'string' && h.trim() && isLoopbackBind(peer.replace(/^::ffff:/i, ''))) return h.trim().slice(0, 64);
-  return peer;
+  const ip = typeof h === 'string' ? h.trim() : '';
+  return behindProxy && isIP(ip) !== 0 && isLoopbackBind(peer.replace(/^::ffff:/i, '')) ? ip : peer;
 }
 
 /** Requests that arrived on remote port and passed login. */
@@ -477,7 +510,7 @@ export interface RemoteGateDeps {
  * logout, 401, redirect, CA) and false when request is authenticated — and then marks it as remote.
  */
 export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, res: ServerResponse, url: URL) => boolean {
-  const throttle = deps.throttle ?? new LoginThrottle();
+  const throttle = deps.throttle ?? new LoginThrottle(Date.now, deps.domain ? 30 : 300);
   const failures = deps.failures ?? new FailureWindow();
   const verify = deps.verify ?? verifyPassword;
   const caAvailable = () => !!deps.caFile && existsSync(deps.caFile);
@@ -505,6 +538,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       const ipWait = failures.retryAfter(ip);
       if (ipWait > 0 || throttle.retryAfter() > 0) {
         req.resume();
+        if (ipWait > 0 && failures.noteBlocked(ip)) deps.log?.warn(tr('Remote sign-in blocked ({0}) from {1}, {2}', ['password', ip, ua]));
         if (ipWait > 0) sendJson(res, 429, { error: tr('Too many attempts. Try again in {0} s.', [ipWait]) }, { 'Retry-After': String(ipWait) });
         else tooMany();
         return true;

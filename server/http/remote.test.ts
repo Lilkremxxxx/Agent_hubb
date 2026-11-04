@@ -16,6 +16,7 @@ import {
   createRemoteGate,
   FailureWindow,
   isRemoteRequest,
+  isSecureRemote,
   loadSecret,
   LoginThrottle,
   parseAllow,
@@ -151,6 +152,125 @@ describe('behind a proxy', () => {
     expect(lines.join('\n')).not.toContain(PASSWORD);
   });
 
+  it('one IP failing at the Retry-After cadence cannot keep another IP out for more than the 30 s cap', async () => {
+    let now = 1_800_000_000_000;
+    const gate = createRemoteGate({
+      config: CFG,
+      sessions: new RemoteSessions(SECRET, CFG, () => now),
+      secure: true,
+      domain: 'hub.finstar.pp.ua',
+      failures: new FailureWindow(5, 600_000, () => now),
+      throttle: new LoginThrottle(() => now, 30),
+    });
+    const server = http.createServer((req, res) => {
+      if (!gate(req, res, new URL(req.url ?? '/', 'http://x'))) res.writeHead(204).end();
+    });
+    await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+    closers.push(() => new Promise<void>((ok) => server.close(() => ok())));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const post = (ip: string, password: string) =>
+      request(base, '/api/remote/login', { method: 'POST', headers: { Origin: 'https://hub.finstar.pp.ua', 'CF-Connecting-IP': ip }, body: { user: 'ana', password } });
+    const end = now + 3 * 3600_000;
+    let last401 = now;
+    while (now < end) {
+      const r = await post('203.0.113.7', 'wrong');
+      if (r.status === 401) last401 = now;
+      now += Math.max(1, Number(r.headers['retry-after'] ?? 1)) * 1000;
+    }
+    now = last401 + 31_000;
+    expect((await post('203.0.113.8', PASSWORD)).status).toBe(200);
+  });
+
+  it('LoginThrottle: default backoff reaches 300 s, a lower cap holds it', () => {
+    let now = 0;
+    const a = new LoginThrottle(() => now);
+    const b = new LoginThrottle(() => now, 30);
+    for (let i = 0; i < 20; i++) { a.fail(); b.fail(); }
+    expect(a.retryAfter()).toBe(300);
+    expect(b.retryAfter()).toBe(30);
+  });
+
+  it('FailureWindow: IPv6 is keyed by its /64, 1000 keys is the ceiling, blocked is noted once per window', () => {
+    let now = 0;
+    const w = new FailureWindow(2, 600_000, () => now);
+    w.fail('2001:db8:1:2:aaaa::1');
+    w.fail('2001:db8:1:2:bbbb:0:0:2');
+    expect(w.retryAfter('2001:db8:1:2::9')).toBeGreaterThan(0);
+    expect(w.retryAfter('2001:db8:1:3::9')).toBe(0);
+    expect(w.noteBlocked('2001:db8:1:2::9')).toBe(true);
+    expect(w.noteBlocked('2001:db8:1:2::1')).toBe(false);
+    now += 600_001;
+    expect(w.noteBlocked('2001:db8:1:2::1')).toBe(true);
+    const f = new FailureWindow(1, 600_000, () => now);
+    for (let i = 0; i < 1005; i++) f.fail(`10.0.${i >> 8}.${i & 255}`);
+    expect(f.retryAfter('10.0.0.0')).toBe(0); // oldest evicted
+    expect(f.retryAfter('10.0.3.236')).toBeGreaterThan(0);
+    expect((f as unknown as { hits: Map<string, unknown> }).hits.size).toBeLessThanOrEqual(1000);
+  });
+
+  it('clientIp: garbage or multi-valued CF-Connecting-IP falls back to the peer; a ::1 peer is loopback', () => {
+    const mk = (addr: string, ip?: string) => ({ headers: ip ? { 'cf-connecting-ip': ip } : {}, socket: { remoteAddress: addr } }) as never;
+    expect(clientIp(mk('127.0.0.1', '1.2.3.4, 5.6.7.8'), true)).toBe('127.0.0.1');
+    expect(clientIp(mk('127.0.0.1', 'evil<script>'), true)).toBe('127.0.0.1');
+    expect(clientIp(mk('::1', '2001:db8::1'), true)).toBe('2001:db8::1');
+  });
+
+  it('tokens whose expiry is beyond the session length (old 30-day cookies) are rejected', () => {
+    let now = 1_800_000_000_000;
+    const long = new RemoteSessions(SECRET, CFG, () => now);
+    const forged = (() => {
+      const exp = now + SESSION_MS + 60_000;
+      const payload = `v1.${exp}`;
+      return `${payload}.${(long as unknown as { sign(p: string): string }).sign(payload)}`;
+    })();
+    expect(long.verify(forged)).toBe(false);
+    expect(long.verify(long.issue().token)).toBe(true);
+  });
+
+  it('proxy mode: cookie Secure follows the domain, not only tls', () => {
+    expect(isSecureRemote({ domain: 'hub.finstar.pp.ua' })).toBe(true);
+    expect(isSecureRemote({ tls: {} as never })).toBe(true);
+    expect(isSecureRemote({})).toBe(false);
+  });
+
+  it('proxy mode with the real guard: Host must be in ALLOWED_HOSTS; Origin is needed on logout and DELETE too; 429s are logged once', async () => {
+    const lines: string[] = [];
+    const mkServer = async (allowed: string[]) => {
+      const guard = createRequestGuard({ allowedHosts: new Set(allowed) });
+      const gate = createRemoteGate({
+        config: CFG,
+        sessions: new RemoteSessions(SECRET, CFG),
+        secure: true,
+        domain: 'hub.finstar.pp.ua',
+        failures: new FailureWindow(1, 600_000),
+        log: { info: (m) => lines.push(m), warn: (m) => lines.push(m) },
+      });
+      const server = http.createServer((req, res) => {
+        if (guard(req, res)) return;
+        if (!gate(req, res, new URL(req.url ?? '/', 'http://x'))) res.writeHead(204).end();
+      });
+      await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+      closers.push(() => new Promise<void>((ok) => server.close(() => ok())));
+      return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    };
+    const H = { Connection: 'close', Host: 'hub.finstar.pp.ua', Origin: 'https://hub.finstar.pp.ua' };
+    const closed = await mkServer([]);
+    expect((await request(closed, '/login', { headers: H })).status).toBe(403);
+    const open = await mkServer(['hub.finstar.pp.ua']);
+    expect((await request(open, '/login', { headers: H })).status).toBe(200);
+    for (const method of ['POST', 'DELETE', 'PUT']) {
+      const path = method === 'POST' ? '/api/remote/logout' : '/api/x';
+      const { Origin: _o, ...noOrigin } = H;
+      expect((await request(open, path, { method, headers: { ...noOrigin, 'Content-Type': 'application/json' }, body: {} })).status, method).toBe(403);
+    }
+    const bad = { ...H, 'CF-Connecting-IP': '203.0.113.9' };
+    const post = () => request(open, '/api/remote/login', { method: 'POST', headers: bad, body: { user: 'ana', password: 'x' } });
+    expect((await post()).status).toBe(401);
+    expect((await post()).status).toBe(429);
+    expect((await post()).status).toBe(429);
+    expect(lines.filter((l) => l.includes('blocked'))).toHaveLength(1);
+  });
+
   it('clientIp trusts CF-Connecting-IP only behind a proxy and on a loopback connection', () => {
     const mk = (addr: string, ip?: string) => ({ headers: ip ? { 'cf-connecting-ip': ip } : {}, socket: { remoteAddress: addr } }) as never;
     expect(clientIp(mk('127.0.0.1', '1.2.3.4'), true)).toBe('1.2.3.4');
@@ -183,7 +303,7 @@ describe('RemoteSessions', () => {
     const file = join(tmp.dir, 'data', 'remote-revoked.json');
     const sessions = new RemoteSessions(SECRET, CFG, () => now, file);
     const phone = sessions.issue().token;
-    const other = new RemoteSessions(SECRET, CFG, () => now + 1).issue().token;
+    const other = new RemoteSessions(SECRET, CFG, () => now - 1).issue().token;
     sessions.revoke(phone);
     sessions.revoke('junk');
     expect(sessions.verify(phone)).toBe(false);
