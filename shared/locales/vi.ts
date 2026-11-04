@@ -1261,4 +1261,5 @@ export const VI: Readonly<Record<string, string>> = {
   "👑 {0} is the boss, but its session is closed: the crown waits for it (claude --resume).": "👑 {0} là boss, nhưng phiên của nó đã đóng: vương miện chờ nó (claude --resume).",
   "Nobody yet: ＋ opens the boss in the office folder, or press “👑 Make boss” on an open Claude session.": "Chưa có ai: ＋ mở boss trong thư mục văn phòng, hoặc bấm “👑 Make boss” trên một phiên Claude đang mở.",
   "No seats yet: add them to ~/.habblaud/team.json.": "Chưa có ghế nào: thêm vào ~/.habblaud/team.json.",
+  "❓ Seat {0} asks (job {1}): {2}\n→ Reply briefly, starting exactly with the tag {3}; that reply is passed verbatim to {0}.": "❓ Ghế {0} hỏi (việc {1}): {2}\n→ Trả lời ngắn, mở đầu đúng bằng thẻ {3}; đoạn trả lời đó được chuyển nguyên văn cho {0}.",
 };
