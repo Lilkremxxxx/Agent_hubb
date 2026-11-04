@@ -661,3 +661,43 @@ Deploy spec:
 - **Route passkey dùng CHUNG `FailureWindow` với đăng nhập mật khẩu** (Quyết định 4) theo thiết kế: 5 lần sai/10 phút/IP tính chung cho cả hai đường. Chỉ KHÔNG dùng chung `LoginThrottle` toàn cục.
 - **`__Host-habblaud_remote` chỉ khi `Secure`** (có domain hoặc TLS): trình duyệt bỏ cookie `__Host-` thiếu `Secure`, nên chế độ HTTP thuần ở LAN (`HABBLAUD_REMOTE_INSECURE_HTTP`) giữ tên cũ `habblaud_remote`.
 - Đã sửa: bản đồ challenge đăng nhập (công khai) tách khỏi đăng ký, giới hạn 10 challenge/IP và 5000 tổng; đăng ký/xoá passkey cần phiên được cấp trong 10 phút gần nhất; transports lọc theo danh sách trắng; `userID` là sha256 của tên; body options rỗng được chấp nhận; body quá giới hạn thì huỷ kết nối.
+
+## Kết quả
+
+Task 7, commit mẫu/runbook `bdc62c5`. Nghiệm thu trong worktree `~/bang-ver-accept6` (đã xoá), cổng chính 4749, remote giả 4758, `HABBLAUD_REMOTE_DOMAIN=hub.test.invalid`, dữ liệu `~/.bang-test-data/plan6` (giữ lại). Không đụng 4747/4748 thật, không tunnel/DNS/systemd, không đọc `Bang_ver/.env`. Lệch so với kế hoạch: domain thử là `hub.test.invalid` (không phải hub.finstar.pp.ua); cookie là `__Host-habblaud_remote` (sửa Task 4), không phải `habblaud_remote`.
+
+| Step | Kiểm | Kết quả |
+|---|---|---|
+| 1 | `deploy/*`, `docs/deploy.md`, README, CHANGELOG; `grep -c CLF_API_KEY` | 0 mỗi file; `systemd-analyze verify` không lỗi ngoài EnvironmentFile; unit không có MemoryMax (comment `# MemoryMax=3G`) |
+| 2 | `npm run build` trong worktree | `dist/client/assets/remote/auth.js` 17 KB có; `dist/server/index.js` 1.58 MB; không có import/require trần của `@simplewebauthn` |
+| 2 | Chạy bundle SAU KHI gỡ `node_modules` khỏi worktree, cert rác trong `HABBLAUD_REMOTE_TLS_DIR` | khởi động được, log "HTTP behind a proxy", "0 passkey(s)", 4758 nghe `127.0.0.1`, 4748 không nghe, không 308 |
+| 2 | `remote:setup --behind-proxy` | `hub.env` mode 600, `HABBLAUD_REMOTE_HOST='127.0.0.1'` (có nháy đơn, grep của kế hoạch không khớp, giá trị đúng) |
+| 3 | `/` → 302 `/login`; `/login` có passkey, CSP `default-src 'none'; script-src 'self'…`; auth.js 200 js; finstar.png 200; Host lạ 403; POST không Origin 403; Origin evil 403; 5 sai → 401, thứ 6 → 429 | đạt |
+| 3 | Đăng nhập đúng (IP khác) | `Set-Cookie: __Host-habblaud_remote=…; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800; Secure` |
+| 4 | `/api/access` | `{"remote":true,"local":false,"terminal":true,"spawn":false}` |
+| 4 | POST advisor/team/workers/cancel/pty/spawn + GET workers/jobs, advisor/q1 | 403 cả 7 |
+| 4 | passkeys register/options, list, delete không phiên | 401 cả 3; thiếu Origin có cookie → 403 |
+| 4 | login/options; register/options (có phiên); `/remote/security` | rpId `hub.test.invalid`, `required`, 0 credential; `residentKey` có; 200 |
+| 5 | passkeys.json giả + restart | đăng nhập mật khẩu 403, form mật khẩu ẩn (0), cookie cũ sống sau restart (200), file mode 600 |
+| 5 | Dừng, `--reset-passkeys`, start | file mất; đăng nhập mật khẩu lại 200 |
+| 6 | Trang 390 px | CHƯA kiểm bằng trình duyệt (xem test chuỗi CSS ở Task 5) |
+| 7 | Test | typecheck sạch; vitest 84 file / 1042 test xanh; i18n 1317/1317; pytest agy 89 xanh |
+| 7 | RSS idle (cổng chính 4749, 3 mẫu cách 10 s) | 128.3, 128.5, 128.5 MB (Kế hoạch 5: 112.4 MB, +16 MB do bundle có dependency) |
+| 7 | Dọn | không còn listener 4758/4749; 4747 của người dùng còn nguyên (1 dòng), 4748 không có; worktree đã xoá; `git status | grep -c .env` = 0 |
+
+Số dòng không-test (`git diff --shortstat 3b6d21d..HEAD -- server client shared scripts`, trừ test): +1041 / −344 = **ròng +697, vượt trần +600 của kế hoạch** (cho CSS/trang/JS Task 5, vi.ts). Báo controller; không cắt test.
+
+Sai khác khi chạy: `scripts/office.sh start` build lại bằng vite nên không chạy được khi gỡ `node_modules`; khởi động bundle trực tiếp bằng `load_hub_env` + `node dist/server/index.js` cho phép chứng minh bundle không cần `node_modules`. `remote:setup --reset-passkeys` cần `tsx` (cần `node_modules`).
+
+## Để lại cho go-live
+
+1. Chạy `docs/deploy.md` SAU lệnh "go" rõ ràng của chủ: preconditions, `remote:setup --behind-proxy`, `npm run build`, cài unit, tunnel `bang-hub` + CNAME `hub`, `loginctl enable-linger`.
+2. Nghi thức WebAuthn thật (đăng ký, đăng nhập passwordless, trình duyệt thật, `rpID=hub.finstar.pp.ua`) chưa kiểm: chỉ test tiêm + sinh options thật (spec §5.3).
+3. Cloudflare thật chưa kiểm: SSE terminal chỉ đọc sống qua 3 phút im lặng (spec §5.2), cloudflared gửi `CF-Connecting-IP`, CNAME, WAF rate-limit rule (đề nghị, ngoài repo).
+4. systemd chưa kiểm: unit chỉ `verify` tĩnh; restart/reboot trong 60 s (§5.2b), `cloudflared` stop/start (§5.4) kiểm sau go-live. Nâng node → sửa `ExecStart` trong unit.
+5. Chọn `allow`: mặc định `terminal` cho người giữ mật khẩu đọc transcript qua Internet; `--allow none` để chỉ xem office.
+6. `HABBLAUD_ALLOWED_HOSTS` dùng chung với cổng 4747 (đã ghi ở runbook).
+7. Trang 390 px và `prefers-reduced-motion` chưa kiểm bằng trình duyệt (Step 6).
+8. Số dòng +697 so với trần +600: controller duyệt hoặc cắt.
+9. Câu hỏi controller còn mở: chế độ LAN/mDNS (Q4), hệ con `POST /api/spawn` local không có UI (Q5), mức (b) gõ từ web.
+10. Còn mở từ Kế hoạch 5 mục 2–12 (nghiệm thu advisor với boss thật, ghế agy duyệt lệnh, tuân thủ thẻ, CLI timeout...), không thuộc deploy.
