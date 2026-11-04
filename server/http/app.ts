@@ -11,7 +11,7 @@ import { handleSessionsRoute } from './sessions';
 import type { Hub } from './sse';
 import type { TerminalStreams } from './terminal';
 import type { AgyJobResult, AgyMode } from '../sources/agy/source';
-import type { OfficeResult, TeamResult } from '../team';
+import type { TeamResult } from '../team';
 import { errMsg } from '../log';
 import type { AskInput, AskResult } from '../workers/service';
 import { tr } from '../../shared/i18n';
@@ -63,17 +63,9 @@ export interface ApiDeps {
   };
   /** Accounts dialog: add and sign in accounts (/api/accounts/*, http/accounts.ts); only with the interactive terminal. */
   accountsApi?: (req: IncomingMessage, res: ServerResponse, path: string) => void;
-  /** POST /api/team: appoints the boss or (un)registers a worker (server/team.ts); this computer only. */
+  /** POST /api/team: appoints the boss (server/team.ts); this computer only. */
   team?: {
-    /** `office`: OfficeInfo.id (undefined = the first office). */
-    appoint: (office: string | undefined, agentId: string | null, pending?: { account: string }) => TeamResult;
-    setWorker: (office: string | undefined, acc: string, on: boolean) => TeamResult;
-    /** "＋ Boss" with an Antigravity account: appoints it and opens its terminal (in the office's folder). */
-    appointAgy?: (office: string | undefined, acc: string, cwd?: string) => Promise<{ ok: true; pty?: PtyInfo } | { ok: false; status: number; error: string }>;
-    createOffice: (name: string, folder: string) => OfficeResult;
-    renameOffice: (office: string | undefined, name: string) => TeamResult;
-    setFolder: (office: string | undefined, folder: string) => TeamResult;
-    deleteOffice: (office: string) => TeamResult;
+    appoint: (agentId: string | null, pending?: { account: string }) => TeamResult;
   };
   /** Worker terminals (/api/workers/*, server/workers): jobs, cancel; this computer only. */
   workers?: {
@@ -472,58 +464,19 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/team') {
-      // Every change names its `office` (id; absent = the first office): {office, boss: agentId | null, pendingAccount?}
-      // appoints its boss (pendingAccount = a session just opened with POST /api/pty, not in the office yet); {office,
-      // bossAgy, cwd?} an Antigravity boss; {office, worker, on} (un)registers a worker; {office, rename} / {office,
-      // folder}; {createOffice: {name, folder}} -> {office}; {deleteOffice: id}.
+      // {boss: agentId | null, pendingAccount?}: appoints the Claude Code boss (pendingAccount = a session just opened
+      // with POST /api/pty, not in the office yet). Seats are edited in team.json, not here.
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (!deps.team) sendJson(res, 404, { error: tr('unknown route') });
       else if (isRemote(req) || !trusted(req)) sendJson(res, 403, { error: denied(req, tr('changing the team only from this computer (http://localhost)')) });
       else
         readJson(req)
           .then((body) => {
-            const b = (body ?? {}) as {
-              office?: unknown;
-              boss?: unknown;
-              pendingAccount?: unknown;
-              worker?: unknown;
-              on?: unknown;
-              bossAgy?: unknown;
-              cwd?: unknown;
-              createOffice?: { name?: unknown; folder?: unknown };
-              rename?: unknown;
-              folder?: unknown;
-              deleteOffice?: unknown;
-            };
-            const t = deps.team!;
-            if (b.office !== undefined && typeof b.office !== 'string') throw new HttpError(400, tr('invalid office'));
-            const office = b.office as string | undefined;
-            let r: TeamResult;
-            if (b.createOffice) {
-              const { name, folder } = b.createOffice;
-              if (typeof name !== 'string' || typeof folder !== 'string') throw new HttpError(400, tr('expected {createOffice: {name, folder}}'));
-              const c = t.createOffice(name, folder);
-              if (!c.ok) throw new HttpError(c.status, c.error);
-              return sendJson(res, 200, { ok: true, office: c.office });
-            }
-            if (typeof b.deleteOffice === 'string') r = t.deleteOffice(b.deleteOffice);
-            else if (typeof b.rename === 'string') r = t.renameOffice(office, b.rename);
-            else if (typeof b.folder === 'string') r = t.setFolder(office, b.folder);
-            else if (typeof b.bossAgy === 'string') {
-              if (!t.appointAgy) throw new HttpError(404, tr('no Antigravity accounts here'));
-              if (b.cwd !== undefined && typeof b.cwd !== 'string') throw new HttpError(400, tr('invalid cwd'));
-              return t.appointAgy(office, b.bossAgy, b.cwd as string | undefined).then((a) => {
-                if (!a.ok) throw new HttpError(a.status, a.error);
-                sendJson(res, 200, { ok: true, ...(a.pty ? { pty: a.pty } : {}) });
-              });
-            }
-            else if ('boss' in b) {
-              if (b.boss !== null && typeof b.boss !== 'string') throw new HttpError(400, tr('expected {boss} (null = no boss)'));
-              if (b.pendingAccount !== undefined && typeof b.pendingAccount !== 'string') throw new HttpError(400, tr('invalid pendingAccount'));
-              r = t.appoint(office, b.boss, typeof b.pendingAccount === 'string' ? { account: b.pendingAccount } : undefined);
-            } else if (typeof b.worker === 'string' && typeof b.on === 'boolean') {
-              r = t.setWorker(office, b.worker, b.on);
-            } else throw new HttpError(400, tr('expected {boss} or {worker, on}'));
+            const b = (body ?? {}) as { boss?: unknown; pendingAccount?: unknown };
+            if (!('boss' in b) || Object.keys(b).some((k) => k !== 'boss' && k !== 'pendingAccount')) throw new HttpError(400, tr('expected {boss}'));
+            if (b.boss !== null && typeof b.boss !== 'string') throw new HttpError(400, tr('expected {boss} (null = no boss)'));
+            if (b.pendingAccount !== undefined && typeof b.pendingAccount !== 'string') throw new HttpError(400, tr('invalid pendingAccount'));
+            const r = deps.team!.appoint(b.boss, typeof b.pendingAccount === 'string' ? { account: b.pendingAccount } : undefined);
             if (!r.ok) throw new HttpError(r.status, r.error);
             sendJson(res, 200, { ok: true });
           })

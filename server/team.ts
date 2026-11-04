@@ -1,66 +1,57 @@
-// The offices: each one is a team working in ONE project folder — one boss (orchestrator) and the accounts registered as
-// its workers — chosen in the office (office tabs, sidebar ＋ and the drawer) and kept in <agy root>/team.json
-// (~/.agy_profiles/team.json), next to the workers, not inside Habblaud, because agy-ask / claude-ask read the same file
-// to enforce it from any terminal: a caller that is some office's boss may only give jobs to that office's workers.
-// Habblaud is just the editor.
+// The team: ONE office, ONE project folder and its seats, kept in a flat <dataDir>/team.json (~/.habblaud/team.json) that
+// the user edits by hand. The file is re-read when it changes; worker-ask reads the same file to find the folder and the
+// seats. The first time (no file yet) the first office of the old ~/.agy_profiles/team.json is imported and written
+// here; the old file is only ever read.
 //
-// A boss is either a Claude Code main session, found again by its agent id ("<account>:<pid>") or, after
-// `claude --resume` (new pid), by account + session id; or an Antigravity account ("agy:accN") whose terminal the office
-// opens (agy-ask recognises it by an ancestor `agy` process with that profile's HOME). While a Claude boss is closed its
-// crown waits for it. "＋ Boss" opens a session and appoints it before it shows up (pending: the record has its id only,
-// filled in when it appears).
-//
-// Workers (WorkerId): an Antigravity profile ("acc2") or a Claude Code account ("claude:<account id>"). Workers may sit
-// in several offices (their jobs go through agy-ask; a busy one answers BUSY). A boss session leads one office; an
-// Antigravity account bosses at most one office and is then nobody's worker (one agy per profile); within an office the
-// boss's account is not a worker. Two offices never share a folder.
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { dirname, isAbsolute, resolve } from 'node:path';
+// A seat is a name + kind (agy | claude) + account: several seats may share an account. The boss is either an Antigravity
+// account (its character agy-boss:<acc> is crowned whenever it is in) or a Claude Code main session appointed from the
+// page (kept in memory only: found again by its agent id "<account>:<pid>" or, after `claude --resume`, by account +
+// session id; while it is closed its crown waits for it).
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import type { AgentInfo, OfficeInfo, TeamInfo, WorkerKind } from '../shared/types';
 import type { Office } from './model/office';
 import { normalizeCwd } from './model/rooms';
-import { FOLDER_CLASH, folderRelation, isDiskRoot } from '../shared/folders';
+import { log } from './log';
 import { pidAlive } from './sources/registry';
 import { tr } from '../shared/i18n';
 
-/** How often the crowns are put back on the right heads (sessions come, go and resume). */
+/** How often the crowns are put back on the right heads and the file is looked at again. */
 const TICK_MS = 1_000;
 
-/** WorkerId prefix of a Claude Code account. */
-export const CLAUDE_WORKER = 'claude:';
-
-/** Id of the office carried over from a team file without offices. */
-export const FIRST_OFFICE = 'main';
-
-export interface BossRecord {
+export interface SeatRecord {
+  name: string;
   kind: WorkerKind;
-  /** Agent id: "<account>:<pid>" (Claude) or "agy:accN" (Antigravity). */
-  id: string;
   account: string;
-  /** Antigravity profile (kind 'agy'). */
-  acc?: string;
-  /** Empty while pending (the session was opened from the office and has not shown up yet); unused for agy. */
-  sessionId: string;
-  /** Claude Code PID (the number in `id`): what agy-ask compares with the PID of the Claude that calls it; 0 for agy. */
-  pid: number;
-  name: string;
-  /** When it was appointed (epoch ms). */
-  at: number;
-}
-
-export interface OfficeRecord {
-  id: string;
-  name: string;
-  /** Absolute project folder; '' = not declared yet (carried over from a team file without offices). */
-  folder: string;
-  boss?: BossRecord;
-  /** Registered workers (WorkerId). */
-  workers: string[];
 }
 
 export interface TeamFile {
-  offices: OfficeRecord[];
+  /** Absolute project folder; '' = not set yet. */
+  folder: string;
+  boss: { kind: WorkerKind; account: string };
+  workers: SeatRecord[];
+}
+
+/** A seat with its character id. */
+export interface Seat extends SeatRecord {
+  agentId: string;
+}
+
+export const SEAT_NAME = /^[A-Za-z][\w-]{0,15}$/;
+const ACCOUNT = /^[\w.-]+$/;
+
+export const agyBossId = (acc: string): string => `agy-boss:${acc}`;
+
+/** The boss as the sync loop sees it (an Antigravity one is derived from the file, a Claude one lives in memory). */
+export interface BossRecord {
+  kind: WorkerKind;
+  /** Agent id: "<account>:<pid>" (Claude) or "agy-boss:accN" (Antigravity). */
+  id: string;
+  account: string;
+  /** Empty while pending (the session was opened from the page and has not shown up yet); unused for agy. */
+  sessionId: string;
+  pid: number;
+  name: string;
 }
 
 export type TeamResult = { ok: true } | { ok: false; status: number; error: string };
@@ -80,157 +71,119 @@ export function findBoss(rec: BossRecord | undefined, agents: readonly AgentInfo
 
 const pidOf = (id: string): number => Number(/:(\d+)$/.exec(id)?.[1] ?? 0);
 
-const WORKER_ID = /^(?:claude:[\w.~-]+|[\w.-]+)$/;
-const OFFICE_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
-/** Account id (AccountInfo.id) of a worker: "acc2" -> "agy:acc2", "claude:.claude-w" -> ".claude-w". */
-export function workerAccount(worker: string): string {
-  return worker.startsWith(CLAUDE_WORKER) ? worker.slice(CLAUDE_WORKER.length) : `agy:${worker}`;
-}
-
-const byName = (x: string, y: string) => x.localeCompare(y, undefined, { numeric: true });
-
-/** "FinSTAR labels" -> "finstar-labels" (ASCII, for ids). */
-export function officeSlug(name: string): string {
-  const s = name
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/đ/gi, 'd')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 32);
-  return s || 'office';
-}
-
-/** A folder as offices compare them: absolute, normalized, without a trailing separator. */
-export function officeFolder(path: string): string {
+/** A folder as the rooms compare them: absolute, normalized, without a trailing separator. */
+function officeFolder(path: string): string {
   return path ? normalizeCwd(resolve(path)) : '';
 }
 
-function parseBoss(b: Partial<BossRecord> | null | undefined): BossRecord | undefined {
-  if (b?.kind === 'agy' && typeof b.acc === 'string' && /^[\w.-]+$/.test(b.acc)) {
-    const id = `agy:${b.acc}`;
-    return { kind: 'agy', id, account: id, acc: b.acc, sessionId: '', pid: 0, name: typeof b.name === 'string' ? b.name : b.acc, at: typeof b.at === 'number' ? b.at : 0 };
+function cleanTeam(raw: unknown): TeamFile {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('team.json is not an object');
+  const r = raw as { folder?: unknown; boss?: { kind?: unknown; account?: unknown } | null; workers?: unknown };
+  const folder = typeof r.folder === 'string' && isAbsolute(r.folder) ? officeFolder(r.folder) : '';
+  const b = r.boss;
+  const boss: TeamFile['boss'] =
+    (b?.kind === 'agy' || b?.kind === 'claude') && typeof b.account === 'string' && ACCOUNT.test(b.account) ? { kind: b.kind, account: b.account } : { kind: 'claude', account: 'default' };
+  const workers: SeatRecord[] = [];
+  for (const w of Array.isArray(r.workers) ? (r.workers as Array<Partial<SeatRecord> | null>) : []) {
+    if (!w || typeof w.name !== 'string' || !SEAT_NAME.test(w.name) || (w.kind !== 'claude' && w.kind !== 'agy')) continue;
+    if (typeof w.account !== 'string' || !ACCOUNT.test(w.account) || workers.some((x) => x.name === w.name)) continue;
+    workers.push({ name: w.name, kind: w.kind, account: w.account });
   }
-  if (!b || typeof b.id !== 'string' || typeof b.account !== 'string') return undefined;
-  return { kind: 'claude', id: b.id, account: b.account, sessionId: typeof b.sessionId === 'string' ? b.sessionId : '', pid: pidOf(b.id), name: typeof b.name === 'string' ? b.name : '', at: typeof b.at === 'number' ? b.at : 0 };
+  return { folder, boss, workers };
 }
 
-const workerList = (w: unknown): string[] => (Array.isArray(w) ? w.filter((x): x is string => typeof x === 'string' && WORKER_ID.test(x)) : []);
-
-/**
- * Parses team.json; anything malformed is dropped (a bad boss = no boss, bad names skipped). A file from before offices
- * ({boss, workers}) becomes the first office, without a folder yet.
- */
+/** Parses team.json; anything malformed is dropped (a bad boss = the default Claude one, bad seats skipped). */
 export function parseTeam(text: string): TeamFile {
-  const raw = JSON.parse(text) as { offices?: unknown; boss?: Partial<BossRecord> | null; workers?: unknown };
-  if (!Array.isArray(raw.offices)) {
-    const boss = parseBoss(raw.boss);
-    return { offices: [{ id: FIRST_OFFICE, name: 'Office', folder: '', workers: workerList(raw.workers), ...(boss ? { boss } : {}) }] };
+  return cleanTeam(JSON.parse(text));
+}
+
+/** "default" for the plain ".claude" account id of the old file, "x" for ".claude-x". */
+const oldClaudeAccount = (id: unknown): string | undefined => {
+  const m = typeof id === 'string' ? /^\.claude(?:-([\w.-]+))?$/.exec(id) : null;
+  return m ? (m[1] ?? 'default') : undefined;
+};
+
+/** The old ~/.agy_profiles/team.json (v3 {offices:[…]} or v2 {boss, workers}) as the flat file: its first office only. */
+export function importTeam(oldText: string): TeamFile {
+  const raw = JSON.parse(oldText) as { offices?: unknown; folder?: unknown; boss?: Record<string, unknown> | null; workers?: unknown };
+  const o = (Array.isArray(raw.offices) ? raw.offices[0] : raw) as typeof raw | undefined;
+  const b = o?.boss;
+  const bossClaude = b?.kind === 'agy' ? undefined : oldClaudeAccount(b?.account);
+  const workers: SeatRecord[] = [];
+  for (const w of Array.isArray(o?.workers) ? (o!.workers as unknown[]) : []) {
+    if (typeof w !== 'string') continue;
+    if (!w.startsWith('claude:')) workers.push({ name: w, kind: 'agy', account: w });
+    else {
+      const account = oldClaudeAccount(w.slice(7));
+      if (account) workers.push({ name: account === 'default' ? 'claude' : account, kind: 'claude', account });
+    }
   }
-  const offices: OfficeRecord[] = [];
-  for (const o of raw.offices as Array<Record<string, unknown>>) {
-    if (!o || typeof o.id !== 'string' || !OFFICE_ID.test(o.id) || offices.some((x) => x.id === o.id)) continue;
-    const boss = parseBoss(o.boss as Partial<BossRecord> | undefined);
-    const folder = typeof o.folder === 'string' && isAbsolute(o.folder) ? officeFolder(o.folder) : '';
-    offices.push({ id: o.id, name: typeof o.name === 'string' && o.name.trim() ? o.name.trim().slice(0, 40) : o.id, folder, workers: workerList(o.workers), ...(boss ? { boss } : {}) });
-  }
-  if (!offices.length) offices.push({ id: FIRST_OFFICE, name: 'Office', folder: '', workers: [] });
-  return { offices };
+  return cleanTeam({
+    folder: o?.folder,
+    boss: b?.kind === 'agy' ? { kind: 'agy', account: b.acc } : { kind: 'claude', account: bossClaude },
+    workers,
+  });
+}
+
+/** The characters of the seats: the first seat of an agy account keeps "agy:<acc>" (its job board, /proc jobs and level hang on it). */
+export function teamSeats(workers: readonly SeatRecord[]): Seat[] {
+  const firstOf = new Set<string>();
+  return workers.map((w) => {
+    if (w.kind === 'claude') return { ...w, agentId: `claude-worker:${w.name}` };
+    const first = !firstOf.has(w.account);
+    firstOf.add(w.account);
+    return { ...w, agentId: first ? `agy:${w.account}` : `agy:${w.account}@${w.name}` };
+  });
+}
+
+/** CLAUDE_CONFIG_DIR of a Claude seat: "default" -> ~/.claude, "x" -> ~/.claude-x. */
+export function claudeConfigDir(account: string, home: string): string {
+  return join(home, account === 'default' ? '.claude' : `.claude-${account}`);
 }
 
 export interface TeamServiceOptions {
   office: Office;
-  /** <agy root>/team.json. */
+  /** <dataDir>/team.json. */
   file: string;
-  /** Logged-in Antigravity profiles: profile name (accN) and account id, registered or not. */
-  profiles: () => Array<{ acc: string; account: string }>;
-  /** Re-reads the profiles folder now (it is re-read every 30 s anyway): an account signed in moments ago. */
-  rescanProfiles?: () => void;
-  /** Claude Code accounts that can be workers: WorkerId ("claude:<id>") and account id. */
-  claudeAccounts?: () => Array<{ worker: string; account: string }>;
-  /** Workers of a brand-new team.json: the profiles in use until now. */
-  seed: () => string[];
-  /** Habblaud's old boss.json (before the team file), read once when team.json does not exist yet. */
-  legacyBossFile?: string;
-  /**
-   * Called after workers or bosses change: every registered worker (any office) and the Antigravity bosses' profiles
-   * (sources add or remove characters; each Antigravity boss gets one and a terminal).
-   */
-  onWorkers?: (workers: readonly string[], agyBosses: readonly string[]) => void;
-  /** An office was deleted (its running jobs are cancelled). */
-  onDeleteOffice?: (id: string) => void;
+  /** <agy root>/team.json: read once to import when `file` does not exist, never written. */
+  oldFile?: string;
+  home: string;
+  /** Logged-in Antigravity profiles: profile name (accN) and account id. */
+  profiles?: () => Array<{ acc: string; account: string }>;
+  /** Seats or boss changed (after a reload). */
+  onChange?: () => void;
   /** Worker sessions and jobs for the snapshot (server/workers). */
   extra?: () => Pick<TeamInfo, 'sessions' | 'jobs'>;
   now?: () => number;
   /** Is this PID running? (a pending boss whose Claude Code exited before showing up is dropped). */
   isAlive?: (pid: number) => boolean;
-  /**
-   * The workers' room of an office's building: the first office uses the Antigravity room (agy-hub), the others
-   * "<that room>@<office id>" (named "Workers"). Absent = no workers rooms (tests).
-   */
-  workersRoom?: (officeId: string, first: boolean) => string;
-  /** The user's home folder (never learned as an office folder; tests). */
-  home?: string;
   /** Is this an existing folder? (tests) */
   isDir?: (path: string) => boolean;
-  /** The folder with its symlinks resolved (tests; default realpath, else the path itself). */
-  realpath?: (path: string) => string;
 }
 
-export type OfficeResult = { ok: true; office: OfficeInfo } | { ok: false; status: number; error: string };
-
-/**
- * A worker's character in one office (its "seat"): one per office the worker belongs to. The first office that has
- * the worker keeps the plain character id (`base`); the next ones get "<base>@<office>" and a name ending in " (n)".
- */
-export interface Seat {
-  worker: string;
-  office: string;
-  /** 1 for the first office that has the worker, then 2, 3… */
-  n: number;
-  agentId: string;
-}
-
-/** The plain character id of a worker: "agy:accN", or "claude-worker:<account>" for a Claude Code account. */
-export function workerAgentId(worker: string): string {
-  return worker.startsWith(CLAUDE_WORKER) ? `claude-worker:${worker.slice(CLAUDE_WORKER.length)}` : `agy:${worker}`;
-}
-
-/** " (2)" for a worker's second seat, "" for its first. */
-export const seatSuffix = (n: number): string => (n > 1 ? ` (${n})` : '');
-
-/** Every seat, office by office in creation order. */
-export function teamSeats(offices: readonly Pick<OfficeRecord, 'id' | 'workers'>[]): Seat[] {
-  const count = new Map<string, number>();
-  const out: Seat[] = [];
-  for (const o of offices) {
-    for (const worker of o.workers) {
-      const n = (count.get(worker) ?? 0) + 1;
-      count.set(worker, n);
-      out.push({ worker, office: o.id, n, agentId: n === 1 ? workerAgentId(worker) : `${workerAgentId(worker)}@${o.id}` });
-    }
-  }
-  return out;
-}
-
-/** Is `path` the folder or inside it? */
-const within = (path: string, folder: string): boolean => path === folder || path.startsWith(`${folder}/`);
+const EMPTY: TeamFile = { folder: '', boss: { kind: 'claude', account: 'default' }, workers: [] };
 
 export class TeamService {
-  private team: TeamFile;
+  private team: TeamFile = EMPTY;
+  /** The file's text as last read: a re-read only parses when it differs. */
+  private last = '';
+  /** The Claude Code session appointed boss (memory only). */
+  private claudeBoss: BossRecord | undefined;
   private timer: ReturnType<typeof setInterval> | undefined;
-  /** Bosses that already got their coronation (party and feed line), by office. */
-  private readonly announced = new Map<string, string>();
+  /** The boss that already got its coronation (party and feed line). */
+  private announced = '';
 
   constructor(private readonly opts: TeamServiceOptions) {
-    this.team = this.load();
+    this.load();
   }
 
   start(): void {
     this.sync();
-    this.timer = setInterval(() => this.sync(), TICK_MS);
+    this.timer = setInterval(() => {
+      this.reload();
+      this.sync();
+    }, TICK_MS);
     this.timer.unref?.();
   }
 
@@ -238,279 +191,135 @@ export class TeamService {
     if (this.timer) clearInterval(this.timer);
   }
 
-  get offices(): readonly OfficeRecord[] {
-    return this.team.offices;
+  /** The file's folder if it is absolute and an existing directory, else ''. */
+  get folder(): string {
+    const f = this.team.folder;
+    return f && (this.opts.isDir ?? isDir)(f) ? f : '';
   }
 
-  /** An office by id (none given = the first one). */
-  officeOf(id?: string): OfficeRecord | undefined {
-    return id ? this.team.offices.find((o) => o.id === id) : this.team.offices[0];
+  get boss(): TeamFile['boss'] {
+    return this.team.boss;
   }
 
-  /** Every worker's character per office (server/workers, sources/agy). */
   seats(): Seat[] {
-    return teamSeats(this.team.offices);
+    return teamSeats(this.team.workers);
   }
 
-  /** The workers' room of an office's building (a folder-like path; its room id is the same string normalized). */
-  workersRoomOf(officeId: string): string | undefined {
-    const first = this.team.offices[0]?.id === officeId;
-    return this.opts.workersRoom?.(officeId, first);
+  seat(name: string): Seat | undefined {
+    return this.seats().find((s) => s.name === name);
   }
 
-  /** Every registered worker, any office. */
-  get workers(): readonly string[] {
-    return [...new Set(this.team.offices.flatMap((o) => o.workers))].sort(byName);
+  /** The crowned boss character, else the pending one ("<account>:<pid>" of the PTY just opened). */
+  bossAgentId(): string | undefined {
+    const rec = this.bossRec();
+    return findBoss(rec, this.opts.office.list())?.id ?? (rec?.kind === 'claude' && !rec.sessionId ? rec.id : undefined);
   }
 
-  /** Profiles of the Antigravity bosses. */
-  get agyBosses(): string[] {
-    return this.team.offices.flatMap((o) => (o.boss?.kind === 'agy' && o.boss.acc ? [o.boss.acc] : []));
-  }
-
-  /** Is this a registered worker (of that office, or of any)? */
-  isWorker(worker: string, office?: string): boolean {
-    return office ? !!this.officeOf(office)?.workers.includes(worker) : this.team.offices.some((o) => o.workers.includes(worker));
-  }
-
-  /** The first office that has this worker (a job without an office goes there). */
-  officeOfWorker(worker: string): string | undefined {
-    return this.team.offices.find((o) => o.workers.includes(worker))?.id;
+  private bossRec(): BossRecord | undefined {
+    const b = this.team.boss;
+    return b.kind === 'agy' ? { kind: 'agy', id: agyBossId(b.account), account: b.account, sessionId: '', pid: 0, name: b.account } : this.claudeBoss;
   }
 
   /**
-   * Appoints `agentId` (a Claude Code session) the boss of an office (its previous boss becomes a normal session), or
-   * `null` = that office has no boss. `pending`: a session just opened from the office ("＋ Boss") that has not shown up.
+   * Appoints `agentId` (a Claude Code session) the boss (the previous one becomes a normal session), or `null` = no
+   * Claude boss. `pending`: a session just opened from the page ("Open boss") that has not shown up yet.
    */
-  appoint(officeId: string | undefined, agentId: string | null, pending?: { account: string }): TeamResult {
-    const o = this.officeOf(officeId);
-    if (!o) return { ok: false, status: 404, error: tr('office not found: {0}', [officeId ?? '']) };
+  appoint(agentId: string | null, pending?: { account: string }): TeamResult {
     if (agentId === null) {
-      delete o.boss;
-      this.changed();
+      this.claudeBoss = undefined;
+      this.announced = '';
+      this.sync();
       return { ok: true };
     }
-    const elsewhere = this.team.offices.find((x) => x !== o && x.boss?.id === agentId);
-    if (elsewhere) return { ok: false, status: 409, error: tr('this session is already the boss of {0}', [elsewhere.name]) };
+    if (this.team.boss.kind === 'agy') return { ok: false, status: 409, error: tr('the boss is an Antigravity account set in team.json') };
     const a = this.opts.office.get(agentId);
-    const now = (this.opts.now ?? Date.now)();
     if (!a) {
       // A pending boss: "<account>:<pid>" of the Claude Code just opened in that account.
       if (!pending || !pidOf(agentId) || !agentId.startsWith(`${pending.account}:`)) return { ok: false, status: 404, error: tr('agent not found') };
-      o.boss = { kind: 'claude', id: agentId, account: pending.account, sessionId: '', pid: pidOf(agentId), name: '', at: now };
-      o.workers = o.workers.filter((w) => w !== `${CLAUDE_WORKER}${pending.account}`);
-      this.announced.delete(o.id);
-      this.changed();
+      this.claudeBoss = { kind: 'claude', id: agentId, account: pending.account, sessionId: '', pid: pidOf(agentId), name: '' };
+      this.announced = '';
+      this.sync();
       return { ok: true };
     }
     if (!canBeBoss(a)) return { ok: false, status: 400, error: tr('only an open Claude Code session can be the boss') };
-    if (o.boss?.id === a.id) return { ok: true };
-    o.boss = { kind: 'claude', id: a.id, account: a.account, sessionId: a.sessionId, pid: pidOf(a.id), name: a.name, at: now };
-    o.workers = o.workers.filter((w) => w !== `${CLAUDE_WORKER}${a.account}`);
-    this.announced.set(o.id, a.id);
-    this.changed();
+    if (this.claudeBoss?.id === a.id) return { ok: true };
+    this.claudeBoss = { kind: 'claude', id: a.id, account: a.account, sessionId: a.sessionId, pid: pidOf(a.id), name: a.name };
+    this.announced = a.id;
+    this.sync();
     this.crown(a);
     return { ok: true };
   }
 
-  /** Appoints an Antigravity account the boss of an office (the caller opens its terminal); it is nobody's worker then. */
-  appointAgy(officeId: string | undefined, acc: string, displayName?: string): TeamResult {
-    const o = this.officeOf(officeId);
-    if (!o) return { ok: false, status: 404, error: tr('office not found: {0}', [officeId ?? '']) };
-    const p = this.opts.profiles().find((x) => x.acc === acc);
-    if (!p) return { ok: false, status: 404, error: tr('Antigravity account not found: {0}', [acc]) };
-    const id = `agy:${acc}`;
-    if (o.boss?.id === id) return { ok: true };
-    const elsewhere = this.team.offices.find((x) => x !== o && x.boss?.id === id);
-    if (elsewhere) return { ok: false, status: 409, error: tr('{0} is already the boss of {1} (one Antigravity terminal per account)', [acc, elsewhere.name]) };
-    const name = displayName ?? this.opts.office.get(id)?.name ?? acc;
-    o.boss = { kind: 'agy', id, account: p.account, acc, sessionId: '', pid: 0, name, at: (this.opts.now ?? Date.now)() };
-    for (const x of this.team.offices) x.workers = x.workers.filter((w) => w !== acc);
-    this.announced.delete(o.id);
-    this.changed();
-    return { ok: true };
-  }
-
-  /** Registers an account as one of the office's workers (`on`) or removes it. */
-  setWorker(officeId: string | undefined, worker: string, on: boolean): TeamResult {
-    const o = this.officeOf(officeId);
-    if (!o) return { ok: false, status: 404, error: tr('office not found: {0}', [officeId ?? '']) };
-    if (on) {
-      const isProfile = () => this.opts.profiles().some((p) => p.acc === worker);
-      let known = worker.startsWith(CLAUDE_WORKER) ? (this.opts.claudeAccounts?.() ?? []).some((c) => c.worker === worker) : isProfile();
-      // A profile signed in since the last periodic re-read: look again before refusing.
-      if (!known && !worker.startsWith(CLAUDE_WORKER) && this.opts.rescanProfiles) {
-        this.opts.rescanProfiles();
-        known = isProfile();
-      }
-      if (!known) return { ok: false, status: 404, error: tr('account not found: {0}', [worker]) };
-      if (o.boss && workerAccount(worker) === o.boss.account) return { ok: false, status: 409, error: tr('{0} is the boss: the boss cannot be a worker', [worker]) };
-      const agyBoss = this.team.offices.find((x) => x.boss?.kind === 'agy' && x.boss.acc === worker);
-      if (agyBoss) return { ok: false, status: 409, error: tr('{0} is the boss of {1}: an Antigravity boss cannot be a worker', [worker, agyBoss.name]) };
-    }
-    const has = o.workers.includes(worker);
-    if (has === on) return { ok: true };
-    o.workers = on ? [...o.workers, worker].sort(byName) : o.workers.filter((w) => w !== worker);
-    this.changed();
-    return { ok: true };
-  }
-
-  /** A new office for a project folder (absolute, existing, used by no other office). */
-  createOffice(name: string, folder: string): OfficeResult {
-    const n = name.replace(/\s+/g, ' ').trim().slice(0, 40);
-    if (!n) return { ok: false, status: 400, error: tr('the office needs a name') };
-    const f = this.checkFolder(folder);
-    if (typeof f !== 'string') return f;
-    let id = officeSlug(n);
-    for (let i = 2; this.team.offices.some((o) => o.id === id); i++) id = `${officeSlug(n).slice(0, 36)}-${i}`;
-    const o: OfficeRecord = { id, name: n, folder: f, workers: [] };
-    this.team.offices.push(o);
-    this.changed();
-    return { ok: true, office: this.info(o) };
-  }
-
-  renameOffice(officeId: string | undefined, name: string): TeamResult {
-    const o = this.officeOf(officeId);
-    if (!o) return { ok: false, status: 404, error: tr('office not found: {0}', [officeId ?? '']) };
-    const n = name.replace(/\s+/g, ' ').trim().slice(0, 40);
-    if (!n) return { ok: false, status: 400, error: tr('the office needs a name') };
-    o.name = n;
-    this.changed();
-    return { ok: true };
-  }
-
-  /** Declares (or moves) the office's folder. */
-  setFolder(officeId: string | undefined, folder: string): TeamResult {
-    const o = this.officeOf(officeId);
-    if (!o) return { ok: false, status: 404, error: tr('office not found: {0}', [officeId ?? '']) };
-    const f = this.checkFolder(folder, o);
-    if (typeof f !== 'string') return f;
-    o.folder = f;
-    this.changed();
-    return { ok: true };
-  }
-
-  /** Deletes an office (not the last one): its boss steps down, its running jobs are cancelled. */
-  deleteOffice(officeId: string): TeamResult {
-    const o = this.officeOf(officeId);
-    if (!o) return { ok: false, status: 404, error: tr('office not found: {0}', [officeId]) };
-    if (this.team.offices.length === 1) return { ok: false, status: 409, error: tr('the last office cannot be deleted') };
-    this.team.offices = this.team.offices.filter((x) => x !== o);
-    this.announced.delete(o.id);
-    this.opts.onDeleteOffice?.(o.id);
-    this.changed();
-    return { ok: true };
-  }
-
-  /** Puts the crowns on the bosses (if open), takes them off everyone else, and shows the offices in the snapshot. */
+  /** Puts the crown on the boss (if open), takes it off everyone else, and shows the team in the snapshot. */
   sync(): void {
     const office = this.opts.office;
     const agents = office.list();
-    const crowned = new Set<string>();
-    let dirty = false;
-    for (const o of this.team.offices) {
-      let rec = o.boss;
-      const boss = findBoss(rec, agents);
-      // "＋ Boss" opened a Claude Code that exited before showing up (e.g. "No, exit" at the trust question): no boss,
-      // instead of "Opening the new boss…" forever (and its account barred from Workers).
-      if (!boss && rec?.kind === 'claude' && !rec.sessionId && rec.pid && !(this.opts.isAlive ?? pidAlive)(rec.pid)) {
-        delete o.boss;
-        rec = undefined;
-        dirty = true;
-      }
-      if (boss && rec?.kind === 'claude' && (boss.id !== rec.id || boss.sessionId !== rec.sessionId || boss.name !== rec.name)) {
-        o.boss = { ...rec, id: boss.id, sessionId: boss.sessionId, pid: pidOf(boss.id), name: boss.name };
-        dirty = true;
-      }
-      // An office carried over from the old team file learns its folder from its open boss (not the home folder: that
-      // is no project; the page asks for one instead).
-      if (!o.folder && boss) {
-        const path = office.roomPath(boss.roomId);
-        if (path && officeFolder(path) !== officeFolder(this.opts.home ?? homedir()) && !this.team.offices.some((x) => x !== o && x.folder === officeFolder(path))) {
-          o.folder = officeFolder(path);
-          dirty = true;
-        }
-      }
-      if (boss) {
-        crowned.add(boss.id);
-        // A boss opened from the office gets its coronation when it walks in.
-        if (this.announced.get(o.id) !== boss.id) {
-          this.announced.set(o.id, boss.id);
-          if (rec && (rec.kind === 'agy' || !rec.sessionId)) this.crown(boss);
-        }
-      }
+    let rec = this.bossRec();
+    const boss = findBoss(rec, agents);
+    // "Open boss" opened a Claude Code that exited before showing up (e.g. "No, exit" at the trust question): no boss,
+    // instead of "Opening the new boss…" forever.
+    if (!boss && rec?.kind === 'claude' && !rec.sessionId && rec.pid && !(this.opts.isAlive ?? pidAlive)(rec.pid)) {
+      this.claudeBoss = rec = undefined;
     }
-    for (const a of agents) if (a.kind === 'main') office.setBoss(a.id, crowned.has(a.id));
-    if (dirty) this.changed(false);
-    this.place(agents);
+    if (boss && rec?.kind === 'claude' && (boss.id !== rec.id || boss.sessionId !== rec.sessionId || boss.name !== rec.name)) {
+      this.claudeBoss = { ...rec, id: boss.id, sessionId: boss.sessionId, pid: pidOf(boss.id), name: boss.name };
+    }
+    // A boss opened from the page gets its coronation when it walks in.
+    if (boss && this.announced !== boss.id) {
+      this.announced = boss.id;
+      if (rec && (rec.kind === 'agy' || !rec.sessionId)) this.crown(boss);
+    }
+    for (const a of agents) if (a.kind === 'main') office.setBoss(a.id, a.id === boss?.id);
     this.publish();
   }
 
   /**
-   * Which building holds each room and each character. Rooms: an office's workers room, then a room where some
-   * office's boss sits, then the office whose folder holds the room's path (the deepest one); characters: a boss in its
-   * office, a worker's seat in its office, anyone else in the building of their room. Unplaced = the first building.
+   * Re-reads the file (small: compared as text, parsed only when it differs). True when the team changed. A file that
+   * does not parse (half saved) keeps the team as it was.
    */
-  private place(agents: readonly AgentInfo[]): void {
-    const office = this.opts.office;
-    const rooms = new Map<string, string>();
-    const labels = new Map<string, string>();
-    for (const o of this.team.offices) {
-      const path = this.workersRoomOf(o.id);
-      if (!path) continue;
-      rooms.set(normalizeCwd(path), o.id);
-      if (o !== this.team.offices[0]) labels.set(normalizeCwd(path), tr('Workers'));
+  // shortcut: re-reads the small file every tick, use fs.watch if it ever grows
+  reload(): boolean {
+    let text: string;
+    try {
+      text = readFileSync(this.opts.file, 'utf8');
+    } catch {
+      return false;
     }
-    const who = new Map<string, string>();
-    for (const o of this.team.offices) {
-      const boss = findBoss(o.boss, agents);
-      if (!boss) continue;
-      who.set(boss.id, o.id);
-      if (!rooms.has(boss.roomId)) rooms.set(boss.roomId, o.id);
+    if (text === this.last) return false;
+    this.last = text;
+    let next: TeamFile;
+    try {
+      next = parseTeam(text);
+    } catch (err) {
+      log.warnOnce(`team:${text.length}`, tr('team.json ({0}) could not be read: {1}', [this.opts.file, err instanceof Error ? err.message : String(err)]));
+      return false;
     }
-    const byDepth = this.team.offices.filter((o) => o.folder).sort((a, b) => b.folder.length - a.folder.length);
-    for (const r of office.roomList()) {
-      if (rooms.has(r.id)) continue;
-      const path = officeFolder(r.path);
-      const o = byDepth.find((x) => within(path, x.folder));
-      if (o) rooms.set(r.id, o.id);
-    }
-    for (const s of this.seats()) who.set(s.agentId, s.office);
-    const placed = new Map<string, string>();
-    for (const a of agents) {
-      const o = who.get(a.id) ?? rooms.get(a.roomId);
-      if (o) placed.set(a.id, o);
-    }
-    office.setRoomLabels(labels);
-    office.setPlacement(rooms, placed);
+    if (JSON.stringify(next) === JSON.stringify(this.team)) return false;
+    this.team = next;
+    this.opts.onChange?.();
+    this.sync();
+    return true;
   }
 
-  /** Sends the offices to the snapshot now (worker sessions and jobs changed). */
+  /** Sends the team to the snapshot now (worker sessions and jobs changed). */
   publish(): void {
-    const offices = this.team.offices.map((o) => this.info(o));
-    const first = offices[0];
-    const info: TeamInfo = { offices, workers: [...(first?.workers ?? [])], agy: this.opts.profiles() };
-    const claude = this.opts.claudeAccounts?.();
-    if (claude) info.claude = claude;
-    for (const k of ['bossAccount', 'bossKind', 'pendingBoss', 'waitingBoss'] as const) if (first?.[k]) (info as unknown as Record<string, unknown>)[k] = first[k];
-    Object.assign(info, this.opts.extra?.() ?? {});
+    const names = this.team.workers.map((w) => w.name);
+    const info: TeamInfo = { offices: [this.info(names)], workers: names, agy: this.opts.profiles?.() ?? [], ...(this.opts.extra?.() ?? {}) };
     this.opts.office.setTeam(info);
   }
 
-  private info(o: OfficeRecord): OfficeInfo {
-    const out: OfficeInfo = { id: o.id, name: o.name, folder: o.folder, workers: [...o.workers] };
-    const workersRoom = this.workersRoomOf(o.id);
-    if (workersRoom) out.workersRoomId = normalizeCwd(workersRoom);
-    const agents = this.opts.office.list();
-    if (o.folder) {
-      const room = this.opts.office.roomList().find((r) => officeFolder(r.path) === o.folder);
+  private info(workers: string[]): OfficeInfo {
+    const folder = this.folder;
+    const out: OfficeInfo = { id: 'main', name: basename(folder) || 'Office', folder, workers };
+    if (folder) {
+      const room = this.opts.office.roomList().find((r) => officeFolder(r.path) === folder);
       if (room) out.roomId = room.id;
     }
-    const rec = o.boss;
+    const rec = this.bossRec();
     if (rec) {
-      out.bossAccount = rec.account;
       out.bossKind = rec.kind;
-      const boss = findBoss(rec, agents);
+      out.bossAccount = rec.kind === 'agy' ? (this.opts.profiles?.().find((p) => p.acc === rec.account)?.account ?? `agy:${rec.account}`) : rec.account;
+      const boss = findBoss(rec, this.opts.office.list());
       if (boss) out.bossAgentId = boss.id;
       else if (rec.kind === 'claude' && !rec.sessionId) out.pendingBoss = rec.id;
       else out.waitingBoss = rec.name || rec.id;
@@ -518,76 +327,39 @@ export class TeamService {
     return out;
   }
 
-  /**
-   * A valid office folder (normalized, symlinks resolved), or why not: absolute, an existing folder, not the whole
-   * disk, and not overlapping another office's folder (the same, inside it or holding it; also through a symlink).
-   */
-  private checkFolder(folder: string, self?: OfficeRecord): string | { ok: false; status: number; error: string } {
-    if (!folder || !isAbsolute(folder)) return { ok: false, status: 400, error: tr('the folder must be an absolute path') };
-    const f = officeFolder(folder);
-    if (!(this.opts.isDir ?? isDir)(f)) return { ok: false, status: 400, error: tr('folder not found: {0}', [f]) };
-    const real = officeFolder((this.opts.realpath ?? realFolder)(f));
-    if (isDiskRoot(real)) return { ok: false, status: 400, error: tr('the whole disk ({0}) cannot be an office folder: pick a project folder', [real]) };
-    for (const o of this.team.offices) {
-      if (o === self || !o.folder) continue;
-      const rel = folderRelation(real, officeFolder((this.opts.realpath ?? realFolder)(o.folder)));
-      if (!FOLDER_CLASH.has(rel)) continue;
-      const error =
-        rel === 'inside' ? tr('this folder is inside the folder of {0}', [o.name]) : rel === 'contains' ? tr('this folder holds the folder of {0}', [o.name]) : tr('{0} already works in this folder', [o.name]);
-      return { ok: false, status: 409, error };
-    }
-    return real;
-  }
-
-  /** Saves, tells the sources, and (unless called from sync itself) puts the crowns back. */
-  private changed(resync = true): void {
-    this.save();
-    this.opts.onWorkers?.(this.workers, this.agyBosses);
-    if (resync) this.sync();
-  }
-
   private crown(a: AgentInfo): void {
     this.opts.office.celebrate(a.id, tr('👑 {0} is the boss', [a.name]), tr('👑 {0} is now the boss (orchestrator)', [a.name]));
   }
 
-  private load(): TeamFile {
-    try {
-      return parseTeam(readFileSync(this.opts.file, 'utf8'));
-    } catch {
-      // first run (or unreadable file): the workers in use until now, and the boss Habblaud kept before
-    }
-    const first: OfficeRecord = { id: FIRST_OFFICE, name: 'Office', folder: '', workers: this.opts.seed() };
-    if (this.opts.legacyBossFile && existsSync(this.opts.legacyBossFile)) {
+  /** Reads team.json; imports the old file once when it does not exist; never overwrites a file that exists. */
+  private load(): void {
+    const { file, oldFile } = this.opts;
+    if (existsSync(file)) {
       try {
-        const boss = parseBoss(JSON.parse(readFileSync(this.opts.legacyBossFile, 'utf8')) as Partial<BossRecord>);
-        if (boss) first.boss = boss;
+        this.last = readFileSync(file, 'utf8');
+        this.team = parseTeam(this.last);
+      } catch (err) {
+        log.warnOnce(`team:${this.last.length}`, tr('team.json ({0}) could not be read: {1}', [file, err instanceof Error ? err.message : String(err)]));
+      }
+      return;
+    }
+    this.team = EMPTY;
+    if (oldFile && existsSync(oldFile)) {
+      try {
+        this.team = importTeam(readFileSync(oldFile, 'utf8'));
       } catch {
-        // no usable old boss
+        // an unusable old file: start empty
       }
     }
-    this.team = { offices: [first] };
-    this.save();
-    return this.team;
-  }
-
-  private save(): void {
     try {
-      mkdirSync(dirname(this.opts.file), { recursive: true });
-      const tmp = `${this.opts.file}.tmp`;
-      writeFileSync(tmp, `${JSON.stringify(this.team, null, 2)}\n`);
-      renameSync(tmp, this.opts.file);
+      mkdirSync(dirname(file), { recursive: true });
+      this.last = `${JSON.stringify(this.team, null, 2)}\n`;
+      const tmp = `${file}.tmp`;
+      writeFileSync(tmp, this.last);
+      renameSync(tmp, file);
     } catch {
       // read-only folder: the team lasts until the server restarts
     }
-  }
-}
-
-/** The path with its symlinks resolved; the path itself when that fails. */
-function realFolder(p: string): string {
-  try {
-    return realpathSync.native(p);
-  } catch {
-    return p;
   }
 }
 

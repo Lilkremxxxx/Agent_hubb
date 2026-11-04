@@ -210,10 +210,6 @@ export class Office {
   private readonly boards = new Map<string, JobBoard>();
   /** The team (OfficeSnapshot.team; server/team.ts). */
   private team: TeamInfo | undefined;
-  /** The office whose building holds each room (setPlacement). */
-  private roomOffices = new Map<string, string>();
-  /** Room names set by the office (setRoomLabels). */
-  private roomLabels = new Map<string, string>();
   private seq = 0;
   private readonly now: () => number;
 
@@ -569,34 +565,6 @@ export class Office {
     if (JSON.stringify(this.boards.get(roomId)) === JSON.stringify(board)) return;
     if (board) this.boards.set(roomId, board);
     else this.boards.delete(roomId);
-    this.markDirty();
-  }
-
-  /**
-   * Which office's building holds each room and each character (RoomInfo.office / AgentInfo.office; server/team.ts).
-   * Missing = the first office's building.
-   */
-  setPlacement(rooms: ReadonlyMap<string, string>, agents: ReadonlyMap<string, string>): void {
-    let dirty = false;
-    if (JSON.stringify([...rooms]) !== JSON.stringify([...this.roomOffices])) {
-      this.roomOffices = new Map(rooms);
-      dirty = true;
-    }
-    for (const [id, rec] of this.agents) {
-      const office = agents.get(id);
-      if (rec.info.office === office) continue;
-      if (office) rec.info.office = office;
-      else delete rec.info.office;
-      dirty = true;
-    }
-    if (dirty) this.markDirty();
-  }
-
-  /** Display names that win over the folder name (an office's workers room is "Workers"). */
-  setRoomLabels(labels: ReadonlyMap<string, string>): void {
-    if (JSON.stringify([...labels]) === JSON.stringify([...this.roomLabels])) return;
-    this.roomLabels = new Map(labels);
-    this.recomputeRoomNames();
     this.markDirty();
   }
 
@@ -989,7 +957,6 @@ export class Office {
         slot: this.slots.slotOf(id) ?? 0,
         seed: hash32(id),
         createdAt: r.createdAt,
-        ...(this.roomOffices.get(id) ? { office: this.roomOffices.get(id) } : {}),
       }))
       .sort((a, b) => a.slot - b.slot);
     // party/alarm (GitHub events)
@@ -1063,7 +1030,7 @@ export class Office {
     const paths = new Map([...this.rooms].map(([id, r]) => [id, r.path]));
     this.roomNames = roomDisplayNames(paths);
     for (const [id, path] of paths) {
-      const alias = this.deps.roomAlias?.(path) ?? this.roomLabels.get(id);
+      const alias = this.deps.roomAlias?.(path);
       if (alias) this.roomNames.set(id, alias);
     }
   }

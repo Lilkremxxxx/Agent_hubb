@@ -3,8 +3,7 @@
 //   npm run dev    -> tsx server/index.ts --dev (Vite in middleware mode, HMR on the same server)
 //   npm start      -> node dist/server/index.js (serves dist/client)
 import http from 'node:http';
-import { existsSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { PtyInfo } from '../shared/types';
 import { isDefaultDir } from './accounts/detect';
 import { AccountsService } from './accounts/service';
@@ -27,7 +26,7 @@ import { openMainAgent, SessionHistory } from './sources/history';
 import { HistorySet, SourceSet } from './sources/source';
 import { ClaudeWatcher } from './sources/watcher';
 import { AgySource, type AgySeat } from './sources/agy/source';
-import { CLAUDE_WORKER, seatSuffix, TeamService, workerAgentId } from './team';
+import { agyBossId, claudeConfigDir, TeamService } from './team';
 import { GhostWatch } from './workers/ghosts';
 import { WorkerService, type WorkerTarget } from './workers/service';
 import { agyProfilesRoot } from './sources/agy/profiles';
@@ -86,47 +85,39 @@ const agy = config.agy.enabled && process.platform === 'linux'
     })
   : undefined;
 if (agy) agents.add(agy);
-// The offices (server/team.ts): one team per project folder (its boss and registered workers), in
-// ~/.agy_profiles/team.json, where agy-ask reads it too (without Antigravity, in the data dir: only the bosses matter).
+// The seats (server/team.ts): one office, one folder, the seats and the boss, in <dataDir>/team.json (~/.habblaud),
+// imported once from ~/.agy_profiles/team.json (never written). worker-ask reads the same file.
 const team = new TeamService({
   office,
-  file: join(agy ? agyRoot : config.dataDir, 'team.json'),
-  // Each office's building has its workers room: the first one is the Antigravity room, the others "<it>@<office>".
-  workersRoom: (id, first) => (first ? config.agy.room : `${config.agy.room}@${id}`),
-  legacyBossFile: join(config.dataDir, 'boss.json'),
+  file: join(config.dataDir, 'team.json'),
+  oldFile: join(agyRoot, 'team.json'),
+  home: config.home,
   profiles: () => agy?.profiles() ?? [],
-  rescanProfiles: () => agy?.rescan(),
-  claudeAccounts: () => accounts.entries().map((e) => ({ worker: `${CLAUDE_WORKER}${e.id}`, account: e.id })),
-  seed: () => agy?.seed() ?? [],
-  onWorkers: (w, agyBosses) => {
-    agy?.setTeam(w, agyBosses, agySeats());
+  onChange: () => {
+    syncAgy();
     late.workers?.sync();
-  },
-  onDeleteOffice: (id) => {
-    late.workers?.cancel({ office: id });
   },
   extra: () => (late.workers ? { sessions: late.workers.sessionList(), jobs: late.workers.jobs() } : {}),
 });
-agy?.setTeam(team.workers, team.agyBosses, agySeats());
+syncAgy();
 
 /**
- * The Antigravity characters: one per office a worker belongs to (its first office keeps "agy:accN", the next ones
- * "agy:accN@<office>" named "… (2)"), each in its office's workers room; each Antigravity boss in its office's folder.
+ * The Antigravity characters: one per agy seat (the first seat of an account keeps "agy:<acc>"), plus the Antigravity
+ * boss "agy-boss:<acc>", all in the team's folder.
  */
 function agySeats(): AgySeat[] {
-  const out: AgySeat[] = [];
-  for (const seat of team.seats()) {
-    if (seat.worker.startsWith(CLAUDE_WORKER)) continue;
-    const p = agy?.profileOf(seat.worker);
-    if (!p) continue;
-    out.push({ acc: seat.worker, agentId: seat.agentId, name: `${p.name}${seatSuffix(seat.n)}`, room: team.workersRoomOf(seat.office) ?? config.agy.room, office: seat.office });
-  }
-  for (const o of team.offices) {
-    if (o.boss?.kind !== 'agy' || !o.boss.acc) continue;
-    const p = agy?.profileOf(o.boss.acc);
-    if (p) out.push({ acc: o.boss.acc, agentId: o.boss.id, name: p.name, room: o.folder || config.agy.room, office: o.id });
+  const room = team.folder || config.home;
+  // Temporary until the seat model reaches AgySource: `office` = the seat name keeps each character's sessionId apart.
+  const out: AgySeat[] = team.seats().filter((s) => s.kind === 'agy').map((s) => ({ acc: s.account, agentId: s.agentId, name: s.name, room, office: s.name }));
+  if (team.boss.kind === 'agy') {
+    const acc = team.boss.account;
+    const p = agy?.profileOf(acc);
+    if (p) out.push({ acc, agentId: agyBossId(acc), name: p.name, room });
   }
   return out;
+}
+function syncAgy(): void {
+  agy?.setTeam([...new Set(agySeats().map((x) => x.acc))], team.boss.kind === 'agy' ? [team.boss.account] : [], agySeats());
 }
 team.start();
 late.office = office;
@@ -187,8 +178,7 @@ const ptys = spawnPty
       },
       onChange: () => office.markDirty(),
       reopen: (id) => {
-        const o = team.offices.find((x) => x.boss?.kind === 'agy' && x.boss.id === id);
-        return o ? openAgyBossTerminal(o.id, o.boss!.acc!) : undefined;
+        return team.boss.kind === 'agy' && id === agyBossId(team.boss.account) ? openAgyBossTerminal(team.boss.account) : undefined;
       },
       createScreen: ptyScreen,
     })
@@ -199,80 +189,48 @@ late.ptyOff = ptyOff;
 // Worker terminals (server/workers): jobs typed into each registered worker's terminal, answered from its conversation
 // file; you can watch them. Needs the interactive terminal.
 const agyBin = join(config.home, '.local', 'bin', 'agy-as');
-/** A worker's characters per office (named "… (2)" after the first), each in its office's workers room. */
-const seatsOf = (worker: string, name: string) =>
-  team
-    .seats()
-    .filter((x) => x.worker === worker)
-    .map((x) => ({ office: x.office, agentId: x.agentId, name: `${name}${seatSuffix(x.n)}`, room: team.workersRoomOf(x.office) ?? config.agy.room }));
 const workers = ptys
   ? new WorkerService({
       office,
       ptys,
+      // One target per seat (Task 5 gives seats their own locks); a Claude seat does not need a signed-in account yet.
       targets: () =>
-        team.workers.flatMap((id): WorkerTarget[] => {
-          if (id.startsWith(CLAUDE_WORKER)) {
-            const e = accounts.entries().find((x) => x.id === id.slice(CLAUDE_WORKER.length));
-            if (!e) return [];
-            const name = tr('{0} (Claude worker)', [e.detected.email?.split('@')[0] ?? e.id]);
-            return [{ id, kind: 'claude', agentId: workerAgentId(id), account: e.id, name, configDir: e.dir, isDefault: isDefaultDir(e.dir, config.home), seats: seatsOf(id, name) }];
+        team.seats().flatMap((s): WorkerTarget[] => {
+          if (s.kind === 'claude') {
+            const configDir = claudeConfigDir(s.account, config.home);
+            const account = accounts.addDir(configDir) ?? basename(configDir);
+            return [{ id: s.name, kind: 'claude', agentId: s.agentId, account, name: s.name, configDir, isDefault: s.account === 'default' }];
           }
-          const p = agy?.profileOf(id);
-          return p ? [{ id, kind: 'agy', agentId: workerAgentId(id), account: p.account, name: p.name, acc: id, stateDir: p.stateDir, seats: seatsOf(id, p.name) }] : [];
+          const p = agy?.profileOf(s.account);
+          return p ? [{ id: s.name, kind: 'agy', agentId: s.agentId, account: p.account, name: s.name, acc: s.account, stateDir: p.stateDir }] : [];
         }),
       agyBin,
       claudeBin: claudeBin ?? 'claude',
-      room: config.agy.room,
+      room: team.folder || config.home,
       logFile: join(agyRoot, 'agy-ask.log.jsonl'),
       onChange: () => team.publish(),
-      offices: { has: (w, o) => team.isWorker(w, o), of: (w) => team.officeOfWorker(w) },
       board: (item) => agy?.upsertJob(item),
     })
   : undefined;
 late.workers = workers;
 if (workers) {
-  agy?.setExternal((acc, officeId) => workers.statusOf(acc, officeId));
+  // the seat name is the target id (temporary: the shim puts it in `office`)
+  agy?.setExternal((acc, seatName) => workers.statusOf(seatName ?? acc));
   workers.start();
 }
 
-/** "＋ Boss" with an Antigravity account: appoints it and opens its terminal (after its worker terminal closed). */
-async function appointAgyBoss(officeId: string | undefined, acc: string, cwd?: string): Promise<{ ok: true; pty?: PtyInfo } | { ok: false; status: number; error: string }> {
-  if (!ptys) return { ok: false, status: 503, error: tr('the interactive terminal is off (HABBLAUD_PTY=1)') };
-  if (cwd !== undefined && !isAbsolute(cwd)) return { ok: false, status: 400, error: tr('folder not found: {0}', [cwd]) };
-  const wasWorker = team.isWorker(acc);
-  const r = team.appointAgy(officeId, acc, agy?.profileOf(acc)?.name);
-  if (!r.ok) return r;
-  const agentId = `agy:${acc}`;
-  // Its worker terminal is closing (one agy per profile): wait for it before opening the boss's.
-  for (let i = 0; wasWorker && ptys.ofAgent(agentId) && i < 40; i++) await new Promise((ok) => setTimeout(ok, 200));
-  try {
-    return { ok: true, pty: openAgyBossTerminal(team.officeOf(officeId)!.id, acc, cwd) };
-  } catch (err) {
-    return { ok: false, status: 500, error: errMsg(err) };
-  }
-}
-
-/**
- * An Antigravity boss's terminal (the open one, or a new idle agy: no prompt, no quota), in its office's folder;
- * AGY_BOSS=1 marks the boss (no plugin loads rules from it yet), AGY_OFFICE names the office for agy-ask.
- */
-function openAgyBossTerminal(officeId: string, acc: string, cwd?: string): PtyInfo {
-  const agentId = `agy:${acc}`;
+/** The Antigravity boss's terminal (the open one, or a new idle agy: no prompt, no quota), in the team's folder; AGY_BOSS=1 marks the boss. */
+function openAgyBossTerminal(acc: string): PtyInfo {
+  const agentId = agyBossId(acc);
   const open = ptys!.ofAgent(agentId);
   if (open) return open;
-  const folder = team.officeOf(officeId)?.folder;
-  const desk = join(config.agy.room, 'boss');
-  const where = cwd ?? (folder && existsSync(folder) ? folder : existsSync(desk) ? desk : config.agy.room);
-  return ptys!.openProgram({ agentId, account: agentId, file: agyBin, args: [acc], cwd: where, env: { AGY_BOSS: '1', AGY_OFFICE: officeId } });
+  return ptys!.openProgram({ agentId, account: agentId, file: agyBin, args: [acc], cwd: team.folder || config.home, env: { AGY_BOSS: '1' } });
 }
-if (ptys) {
-  for (const o of team.offices) {
-    if (o.boss?.kind !== 'agy') continue;
-    try {
-      openAgyBossTerminal(o.id, o.boss.acc!);
-    } catch (err) {
-      log.warn(tr("Couldn't open the Antigravity boss's terminal: {0}", [errMsg(err)]));
-    }
+if (ptys && team.boss.kind === 'agy') {
+  try {
+    openAgyBossTerminal(team.boss.account);
+  } catch (err) {
+    log.warn(tr("Couldn't open the Antigravity boss's terminal: {0}", [errMsg(err)]));
   }
 }
 
@@ -295,15 +253,7 @@ const ticker = setInterval(() => {
 }, 250);
 
 const api = createApiHandler({
-  team: {
-    appoint: (office, id, pending) => team.appoint(office, id, pending),
-    setWorker: (office, acc, on) => team.setWorker(office, acc, on),
-    appointAgy: agy ? appointAgyBoss : undefined,
-    createOffice: (name, folder) => team.createOffice(name, folder),
-    renameOffice: (office, name) => team.renameOffice(office, name),
-    setFolder: (office, folder) => team.setFolder(office, folder),
-    deleteOffice: (office) => team.deleteOffice(office),
-  },
+  team: { appoint: (id, pending) => team.appoint(id, pending) },
   workers: workers
     ? {
         ask: (input) => workers.ask(input),
