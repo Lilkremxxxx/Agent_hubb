@@ -7,7 +7,7 @@
 //   content is the answer.
 // - Claude Code: <config>/projects/<cwd>/<session>.jsonl. The turn is over when the last assistant message stopped with
 //   `end_turn` and no tool is pending; the answer is the text of that message.
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 export interface TurnState {
@@ -93,8 +93,16 @@ export function agyTrusts(stateDir: string, folder: string): boolean | undefined
   try {
     const list = (JSON.parse(readFileSync(join(stateDir, 'settings.json'), 'utf8')) as { trustedWorkspaces?: unknown }).trustedWorkspaces;
     if (!Array.isArray(list)) return undefined;
-    const want = resolve(folder);
-    return list.some((p) => typeof p === 'string' && resolve(p) === want);
+    // A symlink may be spelled either way in agy's list: accept the plain and the real path of both sides.
+    const forms = (p: string): string[] => {
+      try {
+        return [resolve(p), realpathSync(p)];
+      } catch {
+        return [resolve(p)];
+      }
+    };
+    const want = forms(folder);
+    return list.some((p) => typeof p === 'string' && forms(p).some((f) => want.includes(f)));
   } catch {
     return undefined;
   }

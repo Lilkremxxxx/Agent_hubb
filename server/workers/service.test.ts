@@ -1,6 +1,6 @@
 // Worker terminals: jobs restart the worker's terminal with the request, the answer comes from the conversation file.
 // Fake terminals; real temporary files.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -95,6 +95,24 @@ describe('agyTrusts', () => {
     expect(agyTrusts(d, '/w/a')).toBeUndefined();
     writeFileSync(join(d, 'settings.json'), '{}');
     expect(agyTrusts(d, '/w/a')).toBeUndefined();
+  });
+  it('a symlinked folder matches by its real path too, and the other way round; an unlisted target does not', () => {
+    const d = state();
+    const real = join(state(), 'real');
+    const other = join(state(), 'other');
+    mkdirSync(real);
+    mkdirSync(other);
+    const link = join(d, 'link');
+    const linkOther = join(d, 'link-other');
+    symlinkSync(real, link);
+    symlinkSync(other, linkOther);
+    const list = (...l: string[]) => writeFileSync(join(d, 'settings.json'), JSON.stringify({ trustedWorkspaces: l }));
+    list(real);
+    expect(agyTrusts(d, link)).toBe(true);
+    list(link);
+    expect(agyTrusts(d, real)).toBe(true);
+    list(real, '/gone/missing');
+    expect(agyTrusts(d, linkOther)).toBe(false);
   });
 });
 
