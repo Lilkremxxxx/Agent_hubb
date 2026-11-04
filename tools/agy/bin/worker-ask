@@ -65,7 +65,7 @@ CLAUDE_MODES = {"plan": "plan", "accept-edits": "acceptEdits", "auto": "auto", "
 HEADINGS = ("# Việc <ID> — <tên>", "## Bối cảnh", "## Input", "## Skill dùng", "## Cách làm", "## Output", "## Tiêu chí review")
 # Spec §12: put before every prompt, office and headless, agy and Claude. {lessons} = the "Bài học" lines of the board.
 PREAMBLE = ("Bạn là ghế {seat} trong office {folder}. Luật: đọc task_board.md trước khi làm; chỉ sửa dòng việc của mình;\n"
-            "kẹt thì đọc Ghi chú kỹ thuật, rồi chạy lệnh `advisor \"<câu hỏi>\"` và chờ trả lời, rồi ghi `blocked:` và dừng; "
+            "kẹt thì đọc Ghi chú kỹ thuật, rồi chạy lệnh `advisor \"<câu hỏi>\"` và chờ trả lời; advisor thoát khác 0 (không có trả lời) thì ghi `blocked: <câu hỏi>` vào dòng việc của mình và dừng, thoát 0 thì làm theo câu trả lời; "
             "xong thì cập nhật dòng việc + báo cáo ≤10 dòng.\n\n## Bài học (từ task_board.md)\n{lessons}\n---\n")
 EMPTY_HINT = "the job may be done: check the review criteria before resending"
 PROMPT_MAX = 100_000  # bytes, as the office (service.ts PROMPT_MAX_BYTES): the prompt is one argv string (128 KiB each)

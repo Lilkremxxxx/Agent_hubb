@@ -233,7 +233,7 @@ Thay `apply_rules` (worker-ask:472–492). Ghép trước mọi prompt, office l
 
 ```
 Bạn là ghế <name> trong office <folder>. Luật: đọc task_board.md trước khi làm; chỉ sửa dòng việc của mình;
-kẹt thì đọc Ghi chú kỹ thuật, rồi chạy lệnh `advisor "<câu hỏi>"` và chờ trả lời, rồi ghi `blocked:` và dừng; xong thì cập nhật dòng việc + báo cáo ≤10 dòng.
+kẹt thì đọc Ghi chú kỹ thuật, rồi chạy lệnh `advisor "<câu hỏi>"` và chờ trả lời; advisor thoát khác 0 (không có trả lời) thì ghi `blocked: <câu hỏi>` vào dòng việc của mình và dừng, thoát 0 thì làm theo câu trả lời; xong thì cập nhật dòng việc + báo cáo ≤10 dòng.
 
 ## Bài học (từ task_board.md)
 <nội dung mục Bài học, nguyên văn>

@@ -44,3 +44,16 @@ def test_advisor_says_how_to_ask_and_what_each_exit_means():
     for s in ('advisor "', "blocked:", "STOP", "timeout: 600000", "| 0 |", "| 5 |", "approve", "Hỏi đáp", "retries"):
         assert s in a, s
     assert "placeholder" not in a
+
+
+def test_advisor_exit_table_matches_the_cli():
+    cli = open(os.path.join(REPO, "tools", "agy", "bin", "advisor"), encoding="utf-8").read()
+    nums = dict(zip(("OK", "FAIL", "NO_BOSS", "BOSS_WAITING", "TIMEOUT", "UNTAGGED"),
+                    re.search(r"^OK, FAIL, NO_BOSS, BOSS_WAITING, TIMEOUT, UNTAGGED = ([\d, ]+)$", cli, re.M).group(1).split(", ")))
+    rows = dict(re.findall(r"^\| (\d) \| (.+?) \|$", read("advisor"), re.M))
+    assert sorted(rows) == sorted(nums.values())
+    for name, word in (("NO_BOSS", "no boss terminal"), ("BOSS_WAITING", "waiting for the user"), ("TIMEOUT", "no answer"),
+                       ("UNTAGGED", "without the")):
+        assert word in rows[nums[name]], name
+    for exit_name, n in re.findall(r'"(\w[\w-]*)": (\d)', re.search(r"^EXIT = \{(.*)\}$", cli, re.M).group(0)):
+        assert n in rows, exit_name

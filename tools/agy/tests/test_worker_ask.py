@@ -9,7 +9,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "bin", "worker-ask")
 # A prompt with the title and the 6 sections of the giao-viec template.
 PRE = ("Bạn là ghế {} trong office {}. Luật: đọc task_board.md trước khi làm; chỉ sửa dòng việc của mình;\n"
-       "kẹt thì đọc Ghi chú kỹ thuật, rồi chạy lệnh `advisor \"<câu hỏi>\"` và chờ trả lời, rồi ghi `blocked:` và dừng; "
+       "kẹt thì đọc Ghi chú kỹ thuật, rồi chạy lệnh `advisor \"<câu hỏi>\"` và chờ trả lời; advisor thoát khác 0 (không có trả lời) thì ghi `blocked: <câu hỏi>` vào dòng việc của mình và dừng, thoát 0 thì làm theo câu trả lời; "
        "xong thì cập nhật dòng việc + báo cáo ≤10 dòng.\n\n## Bài học (từ task_board.md)\n{}\n---\n")
 JOB = "# Việc T1 — đếm\n## Bối cảnh x\n## Input x\n## Skill dùng không\n## Cách làm x\n## Output x\n## Tiêu chí review x\n"
 
