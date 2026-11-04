@@ -666,7 +666,21 @@ Spec §13:
 
 ## Kết quả
 
-(Task 6 ghi.)
+Nghiệm thu trên cổng 4749 (worktree `~/bang-ver-accept5` tại 7990626, đã gỡ). Không mở boss, không sửa `~/.claude.json` (`hasTrustDialogAccepted` của `~/bang-test-office` cho tài khoản mặc định là None).
+
+| Bước | Kết quả |
+|---|---|
+| 1 Sao lưu, worktree, build, start | Xong. `GET /` 200; cổng 4747 vẫn đúng 1 listener. |
+| 2 Điều kiện, fixture | `~/.local/bin/advisor` -> `tools/agy/bin/advisor` (OK); mục `## Hỏi đáp` có 1; không ghi `docs/r01.txt` (chỉ phục vụ Bước 4). Trust: chưa tin cậy. |
+| 3 Không boss | `ask` -> "no boss terminal: open the boss from the page (the + beside Boss)" + dòng `blocked:`, exit 2. Thiếu `BANG_SLOT` -> exit 1. `HABBLAUD_URL=...:9` -> "the office is not running", exit 2. Activity ❓/💬/⚠️ của W2 = 0; `task_board.md` không đổi (cmp SAME). |
+| 3 (thêm) 400 trên server thật | POST `/api/advisor` body `{bad` -> 400 `invalid JSON`; body `{"slot":"W2"}` -> 400 `expected {slot, question}`; GET `/api/advisor/%E0%A4%A` và `/api/advisor/%ZZ?s=1` -> 400 `invalid id`; id không tồn tại -> 404 `question not found`. |
+| 4 Boss Claude thật, ghế giả, hai ghế, gõ lại | CHỜ NGƯỜI DÙNG (thư mục chưa tin cậy). |
+| 5 Ghế agy thật hỏi | CHỜ NGƯỜI DÙNG (cần boss từ Bước 4 và duyệt `advisor` trong terminal W2). |
+| 6 M2 boss agy | CHỜ NGƯỜI DÙNG / controller (tuỳ chọn, tốn quota acc1; cần quyết định). |
+| 7 Test, dòng, RSS | typecheck xanh; vitest 985 pass, 1 fail = `art.test.ts > floor chunks` (timeout 5 s, flaky đã biết); i18n 1274/1274; pytest tools/agy 89 pass. Dòng không-test thêm so với 8c0e278: 469 thêm, 4 xoá (ròng +465; `advisor.ts` 284, CLI 94) - vượt trần 300 (số ghi nhận, chưa cắt). RSS server 4749 rảnh: 112412 / 112416 / 112424 KB (HEAD Kế hoạch 4: 113132 KB), đo khi chưa mở boss nào. |
+| 8 Dọn | `office.sh stop` -> 4749 còn 0 listener, 4747 còn 1; worktree gỡ; `team.json` md5 OK (không đổi). Không có boss/PTY nào để đóng. |
+
+Người dùng cần làm: tin cậy `~/bang-test-office` cho tài khoản Claude mặc định (mở `claude` một lần trong thư mục đó và chọn "Yes, I trust this folder"), rồi chạy lại Bước 4-5 (và Bước 6 nếu muốn). Chưa đo: ngôn ngữ khung boss nhận, tuân thủ thẻ, gõ lại, thời gian trả lời, dòng Hỏi đáp thật.
 
 ## Để lại cho Kế hoạch 6
 
