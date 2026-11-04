@@ -71,8 +71,14 @@ You need:
 # clone this repository, then enter its folder
 cd <folder>
 npm install && npm run build && npm run office
-tools/install.sh         # worker-ask (also agy-ask, claude-ask), agy-as, bang-init; --worker links the skills for ~/.claude-worker
+tools/install.sh         # worker-ask (also agy-ask, claude-ask), agy-as, bang-init
+tools/install.sh --worker   # also: skills for the Claude seats in ~/.claude-worker, and the login command to run once
 ```
+
+`tools/install.sh` links the scripts into `~/.local/bin` (it never replaces a real file) and removes what an old
+Vi-Habblaud install left there: its `~/.local/bin` links, its skill links in
+`~/.claude/skills`, and the `office-rules` plugin links in the Antigravity profiles. Run it again any time: the second
+run changes nothing.
 
 `npm install` fetches build tools only: the server has no required runtime dependencies. `npm run office` builds and
 starts it in the background. Then open **http://127.0.0.1:4747**. If `~/.local/bin` is not on your PATH, the installer
@@ -121,6 +127,24 @@ says so: add it.
    another. Every terminal and job runs in `folder` with `BANG_SLOT` and `BANG_OFFICE` set. Anyone may give jobs. Claude
    seats run full; add `--lean` for a light run. See [`tools/agy/README.md`](tools/agy/README.md).
 
+## Start a project: `bang-init <folder>`
+
+```bash
+bang-init ~/projects/my-app
+```
+
+It makes `<folder>` an office folder and is safe to run again (it keeps files you edited). It writes:
+
+- `task_board.md` and `project_proposal.md` from `templates/`, with the project name and folder filled in;
+- `.agents/skills.json` for Antigravity, with absolute paths to the skill folders it finds and this repo's `skills/`;
+- `.claude/skills/` with three links (`giao-viec`, `advisor`, `bang-task`) and `GEMINI.md` as a link to `CLAUDE.md`;
+- `folder` in `team.json`, only when it is empty (another folder is kept and reported). It does not create `team.json`:
+  start the office once first.
+
+To limit which skills Antigravity sees, put their names in `<folder>/skills.list` (one per line, `#` for comments) and
+run `bang-init` again: every folder in `skills.json` then gets `include_only`, except this repo's `skills/`. Run it
+again also when a plugin updates its version.
+
 ## Run it every day
 
 ```bash
@@ -134,12 +158,14 @@ after a reboot. If it is already running, the command only tells you so.
 To stop it and take in new code:
 
 ```bash
-kill "$(ss -ltnp | grep ':4747' | grep -o 'pid=[0-9]*' | cut -d= -f2 | head -1)"   # sessions in the page's terminals end too
+npm run office -- stop   # sessions in the page's terminals end too
 git pull
 npm install
 npm run office
 ```
 
+`npm run office -- restart` builds, stops and starts it again in one go. `stop` and `restart` only touch this repo's own
+server on the port (they check the command and the folder), never another process.
 Sessions closed this way come back with `claude --resume`. The log is `${HABBLAUD_DATA_DIR:-~/.habblaud}/office.log`.
 
 ## Make it yours
@@ -160,7 +186,8 @@ repository, so they stay on your machine.
 | Default mode and effort of a worker | A worker's drawer › "Defaults for jobs" |
 | Display name of a seat | The seat's name in `team.json` |
 | Reference for the boss and worker rules (kept for a later plan; nothing loads it yet) | `docs/boss-rules-from-fork.md` |
-| The skills a Claude Code boss uses | `skills/` |
+| The skills of the office (`giao-viec`, `advisor`, `bang-task`) | `skills/` |
+| Project templates (`task_board.md`, `project_proposal.md`) | `templates/` |
 | The scripts | `tools/agy/bin/`. They are linked, so an edit applies at once |
 | How it starts | `scripts/office.sh`; for the port, `HABBLAUD_PORT=4800 npm run office` |
 | Interface text | `tr('English text')` in the code, with its line in `shared/locales/vi.ts` |
@@ -527,7 +554,7 @@ shared/   protocol (types.ts), activities, names
 server/   HTTP + SSE server: accounts and usage, reading sessions and transcripts, office model, workers
 client/   Vite: src/art (procedural pixel art), src/world (office canvas), src/ui (interface)
 scripts/  server build, office.sh, i18n check, phone setup (remote:setup, remote:mdns)
-tools/    agy: worker scripts (worker-ask, agy-as) and the skills
+tools/    agy: worker scripts (worker-ask, agy-as, bang-init)
 ```
 
 ## Privacy and security
@@ -610,7 +637,7 @@ account, the numbers come from its own `/usage`, read every few minutes.
 <details>
 <summary><b>"Port 4747 is already in use"</b></summary>
 
-Another Habblaud is already running. Stop it (Ctrl+C in the `npm start` terminal, or the `kill` line in
+Another Habblaud is already running. Stop it (Ctrl+C in the `npm start` terminal, or `npm run office -- stop`, see
 [Run it every day](#run-it-every-day)) or use another port: `HABBLAUD_PORT=4848 npm run office`.
 
 </details>

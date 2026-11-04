@@ -8,8 +8,17 @@ middle one (0.**3**.0).
 
 ## [Unreleased]
 
+### Added
+
+- **`skills/`** with `giao-viec` (for now the old `agy-orchestrator` guide, rewritten in a later plan), `advisor` (a placeholder until the command exists) and `bang-task` (the `task_board.md` rules), and **`templates/`** with `task_board.md` and `project_proposal.md`.
+- **`bang-init <folder>`** prepares a project folder: the two templates with the name and folder filled in, `.agents/skills.json` for Antigravity (absolute paths plus this repo's `skills/`), `include_only` from `skills.list`, three links in `.claude/skills/`, `GEMINI.md` linked to `CLAUDE.md`, and `folder` in `team.json` when it is empty. It does not create `team.json` and keeps another folder.
+- **`tools/install.sh --worker`** links the skills into `~/.claude-worker/skills` and prints the login command.
+- **`npm run office -- stop|restart`**; they only stop this repo's own server on the port (exact command and folder check).
+
 ### Changed
 
+- **`tools/install.sh`** replaces `tools/agy/install.sh`. It also links `bang-init`, no longer links skills into `~/.claude/skills`, never replaces a real file, and removes the Vi-Habblaud leftovers (`~/.local/bin` links into it, the `agy-orchestrator` and `office-rules` links in `~/.claude/skills`, the `office-rules` plugin links in each Antigravity profile). Running it again changes nothing.
+- **The job board lives in the room of the office `folder`** (a Claude-only team has one). Removing a seat that has a job makes the job point at `team.json`. Switching `boss.kind` closes the old Antigravity boss terminal.
 - **One job per seat** (BUSY per seat, `worker-ask` exit 3, instead of per account). Seats on one Antigravity account start one after another: the second waits until the first's conversation appears, up to 30 s.
 - **Every terminal and every job runs in the office `folder`**, with `BANG_SLOT` and `BANG_OFFICE` set. An empty or missing `folder` refuses jobs and "Open the boss" with a message that points at `team.json`.
 - **`worker-ask <seat> "<prompt>" [--mode …] [--lean] [--cwd DIR] …`** replaces `agy-ask`/`claude-ask` by account. Anyone may give jobs (there is no team rule). Claude seats run full; `--lean` runs them light.
@@ -21,6 +30,7 @@ middle one (0.**3**.0).
 
 ### Removed
 
+- The `agy-orchestrator` skill (now `giao-viec`).
 - Several offices on the page: the office tabs and their menu, the new-office, rename, folder and delete dialogs, and ＋ Worker.
 - The team rule (only the boss gives jobs; the call-chain check in `agy-ask`).
 - `names.conf` and the manual Antigravity terminal (`POST /api/pty {agy}`), which nothing called.

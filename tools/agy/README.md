@@ -14,8 +14,11 @@ tools/install.sh
 npm run office         # builds and starts it in the background: open http://127.0.0.1:4747
 ```
 
-It links everything from this folder into `~/.local/bin` and the Claude Code skills, so editing a file
-here changes the installed one. Then, once per Antigravity account:
+It links `worker-ask` (also as `agy-ask`, `claude-ask`), `agy-as` and `bang-init` from this folder into
+`~/.local/bin`, so editing a file here changes the installed one. It never replaces a real file, removes what an old
+Vi-Habblaud install left behind, and a second run changes nothing. `tools/install.sh --worker` also links the skills
+into `~/.claude-worker/skills` for the Claude seats and prints the login command to run once. To make a project
+folder an office, run `bang-init <folder>` (see the README). Then, once per Antigravity account:
 
 ```bash
 mkdir -p ~/.agy_profiles/acc1
@@ -30,6 +33,7 @@ any repository.
 | Path | What it does |
 |---|---|
 | `bin/agy-as` | Runs `agy` in one account's profile (own HOME, D-Bus, keyring) |
+| `bin/bang-init` | Prepares a project folder: board templates, `.agents/skills.json`, skill links, `folder` in `team.json` |
 | `bin/worker-ask` | `agy-ask` and `claude-ask`: give a job, print its answer |
 | `agy-plugin/` | `agy-boss`. Nothing installs it now; `docs/boss-rules-from-fork.md` is the reference kept for a later plan |
 
