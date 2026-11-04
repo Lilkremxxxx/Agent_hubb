@@ -161,3 +161,29 @@ def test_unknown_argument_is_refused(box):
     code, _, err = box.run("--nope")
     assert code == 1 and "usage" in err
     assert not os.path.exists(f"{box.h}/.local/bin/worker-ask")
+
+
+def test_real_file_or_dir_in_local_bin_is_never_replaced(box):
+    b = f"{box.h}/.local/bin"
+    os.remove(f"{b}/agy-ask")
+    touch(f"{b}/bang-init", "mine")
+    os.makedirs(f"{b}/agy-ask")
+    code, out, err = box.run()
+    assert code == 0
+    assert open(f"{b}/bang-init").read() == "mine" and not os.path.islink(f"{b}/bang-init")
+    assert os.listdir(f"{b}/agy-ask") == [] and not os.path.islink(f"{b}/agy-ask")
+    assert "left" in err and "bang-init" in err and "agy-ask" in err
+    assert "agy-ask" not in box.run()[1]
+
+
+def test_worker_second_run_prints_nothing_to_change(box):
+    box.run("--worker")
+    code, out, _ = box.run("--worker")
+    assert code == 0 and "removed" not in out and "linked" not in out.split("Sign in")[0]
+
+
+def test_link_into_a_look_alike_folder_is_not_removed(box):
+    b = f"{box.h}/.local/bin"
+    os.symlink("/x/Vi-Habblaud-backup/agy-up", f"{b}/keep-me")
+    box.run()
+    assert os.readlink(f"{b}/keep-me") == "/x/Vi-Habblaud-backup/agy-up"

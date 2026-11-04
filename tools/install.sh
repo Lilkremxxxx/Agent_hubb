@@ -2,7 +2,7 @@
 # Links worker-ask (also agy-ask, claude-ask), agy-as and bang-init from this repo into ~/.local/bin, and removes what the
 # old Vi-Habblaud install left behind (only symlinks whose target is under a Vi-Habblaud folder, never anything else).
 # --worker also fills ~/.claude-worker/skills with the skills of the main Claude account, for the Claude seats.
-# Safe to run again: the second run changes nothing. Accounts are not touched: sign in once with `agy-as accN`.
+# Safe to run again: the second run changes nothing and prints no change. Accounts are not touched: sign in once with `agy-as accN`.
 set -eu
 [ $# -eq 0 ] || [ "$*" = "--worker" ] || { echo "usage: tools/install.sh [--worker]" >&2; exit 1; }
 agy="$(dirname "$(readlink -f "$0")")/agy"
@@ -11,6 +11,9 @@ vi='*/Vi-Habblaud/*'
 mkdir -p "$bin"
 
 link() {  # link <target> <path>: say so only when it changes
+  if [ -e "$2" ] || [ -L "$2" ]; then
+    if [ ! -L "$2" ]; then echo "left $2: not a link" >&2; return 0; fi
+  fi
   if [ "$(readlink "$2" 2>/dev/null)" != "$1" ]; then ln -sfn "$1" "$2"; echo "linked $2"; fi
 }
 drop_vi() {  # drop_vi <path>: remove a symlink into Vi-Habblaud (harmless elsewhere: nothing else points there)
@@ -39,25 +42,29 @@ done
 if [ "${1:-}" = "--worker" ]; then
   w="$HOME/.claude-worker/skills"
   mkdir -p "$w"
-  for l in "$w"/*; do  # links into ~/.claude go stale when a plugin updates; real folders and other links stay
+  repo=$(readlink -f "$agy/../..")
+  n=0 seen=" "
+  for d in $("$agy/bin/skill-dirs" "$HOME"); do  # shortcut: paths with spaces are skipped, as in skill-dirs
+    if [ "$(readlink -f "$d")" = "$repo/skills" ]; then continue; fi  # the Bang_ver skills come through the office folder
+    for s in "$d"/*/; do
+      s="${s%/}"; name=$(basename "$s"); t="$w/$name"
+      if [ ! -f "$s/SKILL.md" ]; then continue; fi
+      case "$seen" in *" $name "*) continue ;; esac
+      seen="$seen$name "
+      if [ -L "$t" ] && [ "$(readlink "$t")" = "$s" ]; then continue; fi
+      if [ -L "$t" ]; then  # a link into ~/.claude goes stale when a plugin updates; any other link stays
+        case "$(readlink "$t")" in "$HOME/.claude/"*) rm "$t"; echo "removed $t" ;; esac
+      fi
+      if [ -e "$t" ] || [ -L "$t" ]; then echo "left $t: already there"; else ln -s "$s" "$t"; n=$((n + 1)); fi
+    done
+  done
+  for l in "$w"/*; do  # links into ~/.claude whose skill is gone
     if [ -L "$l" ]; then
+      case "$seen" in *" $(basename "$l") "*) continue ;; esac
       case "$(readlink "$l")" in "$HOME/.claude/"*) rm "$l"; echo "removed $l" ;; esac
     fi
   done
-  n=0
-  for d in $("$agy/bin/skill-dirs" "$HOME"); do  # shortcut: paths with spaces are skipped, as in skill-dirs
-    for s in "$d"/*/; do
-      s="${s%/}"
-      if [ -f "$s/SKILL.md" ]; then
-        if [ -e "$w/$(basename "$s")" ] || [ -L "$w/$(basename "$s")" ]; then
-          echo "left $w/$(basename "$s"): already there"
-        else
-          ln -s "$s" "$w/$(basename "$s")"; n=$((n + 1))
-        fi
-      fi
-    done
-  done
-  echo "linked $n skills into $w"
+  if [ "$n" -gt 0 ]; then echo "linked $n skills into $w"; fi
   folder=$(python3 -c 'import json,os,sys; print(json.load(open(os.path.join((os.environ.get("HABBLAUD_DATA_DIR") or "").strip() or sys.argv[1]+"/.habblaud","team.json"))).get("folder") or "")' "$HOME" 2>/dev/null || true)
   echo "Sign in once: cd ${folder:-<office folder>} && CLAUDE_CONFIG_DIR=$HOME/.claude-worker claude"
   echo "(sign in with the same account, trust the folder, then /exit)"
