@@ -11,12 +11,14 @@ url="http://127.0.0.1:$port"
 log="${HABBLAUD_DATA_DIR:-$HOME/.habblaud}/office.log"
 hub="${HABBLAUD_DATA_DIR:-$HOME/.habblaud}/hub.env"
 
+. ./scripts/hub-env.sh
+
 listener() { ss -Hltnp "sport = :$port" | grep -o 'pid=[0-9]*' | head -n 1 | cut -d= -f2 || true; }
 
 launch() {
   mkdir -p "${log%/*}"
-  # hub.env (remote settings) is sourced in a subshell so it only reaches the server.
-  ( if [ -f "$hub" ]; then set -a; . "$hub"; set +a; fi; HABBLAUD_PTY=1 setsid nohup node dist/server/index.js > "$log" 2>&1 < /dev/null & )
+  # hub.env (remote settings) is parsed, never sourced, in a subshell so it only reaches the server.
+  ( load_hub_env "$hub"; HABBLAUD_PTY=1 setsid nohup node dist/server/index.js > "$log" 2>&1 < /dev/null & )
   echo "The office is starting: $url (log: $log)"
   if [ -f "$hub" ]; then echo "(remote settings: $hub)"; fi
 }
@@ -31,6 +33,11 @@ stop_office() {
     fi
     echo "The office is not running on port $port"
     return 0
+  fi
+  # Under no-bus conditions systemctl cannot be asked: the cgroup still tells whether the unit owns this process.
+  if grep -q 'bang-hub\.service' "/proc/$pid/cgroup" 2> /dev/null; then
+    echo "pid $pid belongs to bang-hub.service: use systemctl --user stop|restart bang-hub"
+    return 1
   fi
   cwd="$(readlink "/proc/$pid/cwd" || true)"
   cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" | sed 's/ $//' || true)"
@@ -53,7 +60,7 @@ stop_office() {
 }
 
 # When the user unit runs the office on the default port, it owns start/stop/restart: never touch that port from here.
-if [ "$port" = 4747 ] && systemctl --user is-enabled --quiet bang-hub.service 2> /dev/null; then
+if [ "$port" = 4747 ] && { systemctl --user is-enabled --quiet bang-hub.service || systemctl --user is-active --quiet bang-hub.service; } 2> /dev/null; then
   echo "bang-hub.service runs the office: systemctl --user start|stop|restart bang-hub (logs: journalctl --user -u bang-hub)"
   exit 1
 fi

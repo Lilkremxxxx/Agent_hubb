@@ -9,7 +9,7 @@
 //   4. prints the addresses, CA fingerprint and phone setup instructions.
 // Afterwards: npm run office. To disable: npm run remote:setup -- --off.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { homedir, userInfo } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -44,6 +44,39 @@ const REMOTE_KEYS = [
   'HABBLAUD_REMOTE_HOST',
   'HABBLAUD_REMOTE_PASSWORD_LOGIN',
 ];
+
+// hub.env is read by sh (scripts/hub-env.sh) and systemd: what goes into it is validated at the trust boundary, and every
+// written value is single-quoted as a second layer.
+const USER_RE = /^[A-Za-z0-9._@-]{1,64}$/;
+const HOST_RE = /^[A-Za-z0-9.-]{1,253}$/;
+
+export function checkUser(user: string): string {
+  if (!USER_RE.test(user)) throw new Error(tr('invalid username (1-64 of letters, numbers, . _ @ -)'));
+  return user;
+}
+
+function checkName(name: string): string {
+  if (!isValidName(name)) throw new Error(tr('invalid name: "{0}" (letters, numbers and hyphens)', [name]));
+  return name;
+}
+
+function checkDomain(domain: string): string {
+  if (!isValidDomain(domain)) throw new Error(tr('invalid address: "{0}"', [domain]));
+  return domain;
+}
+
+export function checkAllow(allow: string): string {
+  const parts = allow.split(',').map((x) => x.trim());
+  if (!allow.trim() || !parts.every((x) => x === 'terminal' || x === 'none')) throw new Error(tr('invalid --allow "{0}" (only terminal, none)', [allow]));
+  return allow;
+}
+
+/** Existing allowed-hosts entries plus new ones; anything that is not a plain host name is refused. */
+function hostList(current: string, ...names: string[]): string {
+  const list = addToList(readEnvValue(current, 'HABBLAUD_ALLOWED_HOSTS'), ...names);
+  for (const h of list.split(',')) if (h && !HOST_RE.test(h)) throw new Error(tr('invalid host in HABBLAUD_ALLOWED_HOSTS: "{0}"', [h]));
+  return list;
+}
 
 export interface SetupArgs {
   user?: string;
@@ -84,11 +117,11 @@ export function parseArgs(argv: string[]): SetupArgs {
       if (v === undefined) throw new Error(tr('missing value for {0}', [a]));
       return v;
     };
-    if (a === '--user') out.user = val();
-    else if (a === '--name') out.name = val().toLowerCase();
-    else if (a === '--domain') out.domain = val().toLowerCase();
+    if (a === '--user') out.user = checkUser(val());
+    else if (a === '--name') out.name = checkName(val().toLowerCase());
+    else if (a === '--domain') out.domain = checkDomain(val().toLowerCase());
     else if (a === '--port') out.port = Number(val());
-    else if (a === '--allow') out.allow = val();
+    else if (a === '--allow') out.allow = checkAllow(val());
     else if (a === '--behind-proxy') out.behindProxy = true;
     else if (a === '--reset-passkeys') out.resetPasskeys = true;
     else if (a === '--password-stdin') out.passwordStdin = true;
@@ -114,7 +147,11 @@ export function remoteEnv(
   current: string,
   s: { user: string; hash: string; name: string; domain?: string; port: number; httpPort?: number; allow?: string },
 ): string {
-  const hosts = addToList(readEnvValue(current, 'HABBLAUD_ALLOWED_HOSTS'), `${s.name}.local`, ...(s.domain ? [s.domain] : []));
+  checkUser(s.user);
+  checkName(s.name);
+  if (s.domain) checkDomain(s.domain);
+  if (s.allow) checkAllow(s.allow);
+  const hosts = hostList(current, `${s.name}.local`, ...(s.domain ? [s.domain] : []));
   return updateEnv(current, {
     HABBLAUD_REMOTE_USER: s.user,
     HABBLAUD_REMOTE_PASSWORD: null,
@@ -127,11 +164,14 @@ export function remoteEnv(
     HABBLAUD_REMOTE_DOMAIN: null, // LAN mode: a stale proxy domain would switch the server to proxy mode
     HABBLAUD_REMOTE_ALLOW: s.allow ?? readEnvValue(current, 'HABBLAUD_REMOTE_ALLOW') ?? null,
     HABBLAUD_ALLOWED_HOSTS: hosts,
-  });
+  }, { quote: true });
 }
 
-/** hub.env for the Cloudflare hub: loopback HTTP, own domain, no LAN keys. Default allow is terminal (view-only transcripts). */
+/** hub.env for the Cloudflare hub: loopback HTTP, own domain, no LAN keys. Default allow is terminal: a password holder can read transcripts over the Internet. */
 export function proxyEnv(current: string, s: { user: string; hash: string; domain: string; port: number; allow?: string }): string {
+  checkUser(s.user);
+  checkDomain(s.domain);
+  if (s.allow) checkAllow(s.allow);
   return updateEnv(current, {
     HABBLAUD_REMOTE_USER: s.user,
     HABBLAUD_REMOTE_PASSWORD: null,
@@ -139,18 +179,18 @@ export function proxyEnv(current: string, s: { user: string; hash: string; domai
     HABBLAUD_REMOTE_HOST: '127.0.0.1',
     HABBLAUD_REMOTE_PORT: String(s.port),
     HABBLAUD_REMOTE_DOMAIN: s.domain,
-    HABBLAUD_ALLOWED_HOSTS: addToList(readEnvValue(current, 'HABBLAUD_ALLOWED_HOSTS'), s.domain),
+    HABBLAUD_ALLOWED_HOSTS: hostList(current, s.domain),
     HABBLAUD_REMOTE_ALLOW: s.allow ?? readEnvValue(current, 'HABBLAUD_REMOTE_ALLOW') ?? 'terminal',
     HABBLAUD_REMOTE_BIND: null,
     HABBLAUD_REMOTE_NAME: null,
     HABBLAUD_REMOTE_HTTP_PORT: null,
-  });
+  }, { quote: true });
 }
 
 /** Deletes passkeys.json. PasskeyStore reads the file only at start, so the service must be stopped first and started after. */
 export function resetPasskeys(env: NodeJS.ProcessEnv): string {
   rmSync(passkeysPath(env), { force: true });
-  return tr('[remote-setup] Passkeys removed. Run this only with the office stopped (systemctl --user stop bang-hub, or npm run office -- stop), then start it again; a running server keeps its list in memory.');
+  return tr('[remote-setup] Passkeys removed. With bang-hub.service: systemctl --user stop bang-hub BEFORE this command and systemctl --user start bang-hub after (npm run office -- stop/start only when the unit is not enabled); a running server keeps its passkeys in memory and may rewrite the file.');
 }
 
 export function urlFor(host: string, port: number): string {
@@ -217,13 +257,21 @@ function readStdinLine(): Promise<string> {
   });
 }
 
-function writeEnv(content: string): void {
-  const file = hubEnvPath(process.env);
-  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+export function writeHubEnv(env: NodeJS.ProcessEnv, content: string): void {
+  const file = hubEnvPath(env);
+  const dir = dirname(file);
+  const existed = existsSync(dir);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (!existed) chmodSync(dir, 0o700);
+  else if (statSync(dir).mode & 0o002) console.error(tr('warning: {0} is writable by everyone; fix its permissions', [dir]));
   const tmp = `${file}.tmp`;
-  writeFileSync(tmp, content, { mode: 0o600 });
-  chmodSync(tmp, 0o600);
+  rmSync(tmp, { force: true }); // a stale file or symlink must not be followed
+  writeFileSync(tmp, content, { mode: 0o600, flag: 'wx' });
   renameSync(tmp, file);
+}
+
+function writeEnv(content: string): void {
+  writeHubEnv(process.env, content);
 }
 
 function tsxCommand(): string[] {
@@ -319,14 +367,15 @@ async function main(): Promise<void> {
   const current = existsSync(hub) ? readFileSync(hub, 'utf8') : '';
 
   if (args.off) {
-    writeEnv(updateEnv(current, Object.fromEntries(REMOTE_KEYS.map((k) => [k, null]))));
+    if (existsSync(hub)) writeEnv(updateEnv(current, Object.fromEntries(REMOTE_KEYS.map((k) => [k, null])), { quote: true }));
     removeService();
-    console.log(tr('[remote-setup] Phone access turned off (the CA stays in ~/.habblaud/remote-tls). Now: restart the office (systemctl --user restart bang-hub, or npm run office -- restart)'));
+    console.log(tr('[remote-setup] Phone access turned off (the CA stays in ~/.habblaud/remote-tls). Now: restart the office (systemctl --user restart bang-hub; npm run office -- restart only when the unit is not enabled)'));
     return;
   }
 
   const user = args.user ?? (args.passwordStdin ? undefined : await ask(tr('Login username'), readEnvValue(current, 'HABBLAUD_REMOTE_USER') ?? userInfo().username));
-  if (!user || /\s/.test(user)) throw new Error(tr('invalid username (no spaces)'));
+  if (!user) throw new Error(tr('invalid username (1-64 of letters, numbers, . _ @ -)'));
+  checkUser(user);
 
   let password: string;
   if (args.passwordStdin) {
@@ -361,7 +410,8 @@ async function main(): Promise<void> {
         '',
         tr('[remote-setup] Done. Settings are in {0} (mode 600); the repo .env is untouched.', [hub]),
         tr('  user "{0}", password stored only as a hash (scrypt), loopback port {1}, domain {2}', [user, args.port ?? 4748, dom]),
-        ...(allow === 'terminal' ? [tr('  Warning: allow=terminal lets anyone with the password read session transcripts over the Internet. For view-only office use: --allow none.')] : []),
+        ...(allow?.split(',').includes('terminal') ? [tr('  Warning: allow=terminal lets anyone with the password read session transcripts over the Internet. For view-only office use: --allow none.')] : []),
+        tr('  Note: HABBLAUD_ALLOWED_HOSTS is shared with the local port 4747, so it also accepts {0} (low risk: loopback only).', [dom]),
         tr('  Next: docs/deploy.md (go-live runbook).'),
       ].join('\n'),
     );

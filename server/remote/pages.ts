@@ -109,7 +109,7 @@ export function securityPage(): string {
   <button id="add" type="button">${esc(tr('Add a passkey'))}</button>
   <button id="again" type="button" class="ghost" hidden>${esc(tr('Sign in again'))}</button>
   <div id="err" role="alert"></div>
-  <p class="hr">${esc(tr('Lost your only passkey? At the computer: npm run remote:setup -- --reset-passkeys, then restart the office.'))}</p>
+  <p class="hr">${esc(tr('Lost your only passkey? At the computer: stop the service first (systemctl --user stop bang-hub), run npm run remote:setup -- --reset-passkeys, then start it (systemctl --user start bang-hub).'))}</p>
   <p><a href="/">${esc(tr('Back to the office'))}</a></p>`;
   return shell(tr('Habblaud · passkeys'), 'security', { ...common(), none: tr('No passkeys yet.'), remove: tr('Remove'), added: tr('Passkey added.'), removed: tr('Passkey removed.'), loadFail: tr("Couldn't load the passkeys."), defaultName: tr('Passkey') }, body, '/assets/brand/finstar-144.png');
 }

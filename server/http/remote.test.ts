@@ -787,6 +787,7 @@ describe('passkey routes', () => {
     expect(page.body).not.toContain('id="pk"');
     expect(page.body).toMatch(/<form[^>]*method="post"/);
     const native = await request(b, '/login?username=ana&password=secret', { method: 'POST', headers: { ...H, 'Content-Type': 'application/x-www-form-urlencoded' } });
+    expect(native.status).toBe(200);
     expect(native.body).not.toContain('secret');
     await post(b, '/api/remote/passkeys/register/options', {}, { Cookie: await pwCookie(b) });
     await post(b, '/api/remote/passkeys/register/verify', { response: { id: 'cred-1' } }, { Cookie: await pwCookie(b) });
