@@ -14,3 +14,15 @@ await build({
   sourcemap: true,
   logLevel: 'info',
 });
+
+// Browser bundle of the remote sign-in/Passkeys pages. Run after `vite build` (which empties dist/client).
+await build({
+  entryPoints: ['client/src/remote/auth.ts'],
+  outfile: 'dist/client/assets/remote/auth.js',
+  bundle: true,
+  platform: 'browser',
+  format: 'esm',
+  target: 'es2020',
+  minify: true,
+  logLevel: 'info',
+});

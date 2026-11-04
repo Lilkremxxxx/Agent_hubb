@@ -10,6 +10,7 @@ middle one (0.**3**.0).
 
 ### Added
 
+- **New sign-in page and Passkeys page for the remote port** (Ocean Depth look, one small browser bundle); settings link to manage passkeys.
 - **Passkey changes need a sign-in from the last 10 minutes**; the public login challenge map is capped per IP so a flood cannot flush the owner's challenge.
 - **Passkey sign-in on the remote port** (WebAuthn via `@simplewebauthn`, bundled at build time, `/api/remote/passkeys/*`): the first passkey is registered from a password session; once one exists password sign-in is off unless `HABBLAUD_REMOTE_PASSWORD_LOGIN=1`. Passkey attempts have their own per-IP limit. Behind HTTPS the session cookie is `__Host-habblaud_remote`. The server bundle now includes its dependencies.
 - **Remote port behind a proxy** (`HABBLAUD_REMOTE_DOMAIN`): loopback plain HTTP, Secure Lax cookie, Origin check, 5 failed sign-ins per IP in 10 minutes, 7-day sessions (was 30), sign-ins logged.

@@ -563,7 +563,7 @@ describe('remote port', () => {
     expect(page.headers.location).toBe('/login');
     const loginPage = await request(h.remoteBase, '/login');
     expect(loginPage.status).toBe(200);
-    expect(loginPage.body).toContain('/api/remote/login');
+    expect(loginPage.body).toContain('/assets/remote/auth.js');
     expect(loginPage.headers['x-frame-options']).toBe('DENY');
     expect((await request(h.remoteBase, '/api/snapshot')).status).toBe(401);
     expect((await request(h.remoteBase, '/api/stream')).status).toBe(401);
@@ -766,6 +766,18 @@ describe('passkey routes', () => {
     });
     expect(raw).toBe(400);
     expect((await request(b, '/api/remote/passkeys/login/options', { headers: H })).status).toBe(405);
+  });
+
+  it('the login script and the logo load before sign-in; /remote/security needs a session', async () => {
+    const b = await mk();
+    for (const path of ['/assets/remote/auth.js', '/assets/brand/finstar.png']) expect((await request(b, path, { headers: H })).status, path).toBe(204);
+    const anon = await request(b, '/remote/security', { headers: H });
+    expect(anon.status).toBe(302);
+    expect(anon.headers.location).toBe('/login');
+    const page = await request(b, '/remote/security', { headers: { ...H, Cookie: await pwCookie(b) } });
+    expect(page.status).toBe(200);
+    expect(page.body).toContain('data-page="security"');
+    expect((await request(await mk({ passkeys: false }), '/remote/security', { headers: { ...H, Cookie: '' } })).status).toBe(404);
   });
 
   it('a registered passkey turns password sign-in off (403, scrypt not run) unless HABBLAUD_REMOTE_PASSWORD_LOGIN=1; /login hides the form', async () => {

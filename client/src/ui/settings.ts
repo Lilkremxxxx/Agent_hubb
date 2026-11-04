@@ -180,6 +180,17 @@ export class SettingsPopover implements UiComponent {
         ),
         this.logoutBtn,
       ),
+      h(
+        'div',
+        { class: 'ui-set' },
+        h(
+          'div',
+          { class: 'ui-set__text' },
+          h('span', { class: 'ui-set__label', text: tr('Passkeys') }),
+          h('span', { class: 'ui-set__hint', text: tr('Add or remove the passkeys that sign you in from outside.') }),
+        ),
+        h('a', { class: 'ui-btn', attrs: { href: '/remote/security' }, text: tr('Manage') }),
+      ),
     );
 
     this.about = new AboutGroup(ctx);

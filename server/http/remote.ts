@@ -23,6 +23,7 @@
 // Session: HttpOnly + SameSite=Lax cookie (+ Secure with HTTPS) signed with HMAC; key = random secret in
 // <dataDir>/remote-secret mixed with user and password hash: changing password revokes all sessions.
 import { PasskeyService } from '../remote/passkeys';
+import { loginPage, securityPage } from '../remote/pages';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
@@ -33,7 +34,7 @@ import { dirname, join } from 'node:path';
 import { parsePasswordHash, verifyPassword, type PasswordHash } from '../remote/password';
 import { hostAllowed, isLoopbackBind } from './guard';
 import { isValidDomain } from '../remote/tls';
-import { getLocale, tr } from '../../shared/i18n';
+import { tr } from '../../shared/i18n';
 
 export type RemoteFeature = 'terminal';
 
@@ -373,9 +374,9 @@ export function clientIp(req: IncomingMessage, behindProxy: boolean): string {
 
 /** Requests that arrived on remote port and passed login. */
 const remoteRequests = new WeakSet<IncomingMessage>();
-/** Files served by remote port without login: manifest and icons (mobile fetches them before login, without
+/** Files served by remote port without login: manifest, icons and the sign-in script (mobile fetches them before login, without
  *  cookie). No API or office contents. */
-const PUBLIC_STATIC = /^\/(manifest\.webmanifest|assets\/brand\/[\w.@-]+\.png)$/;
+const PUBLIC_STATIC = /^\/(manifest\.webmanifest|assets\/brand\/[\w.@-]+\.png|assets\/remote\/auth\.js)$/;
 
 export function isRemoteRequest(req: IncomingMessage): boolean {
   return remoteRequests.has(req);
@@ -408,83 +409,6 @@ function readBody(req: IncomingMessage, max = 8 * 1024, cut = false): Promise<st
 }
 
 export const CA_PATH = '/remote/ca.crt';
-
-/** Our text (tr) inside HTML: escapes characters HTML would interpret. */
-function esc(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-export function loginPage(opts: { caDownload: boolean; passwordForm?: boolean }): string {
-  const pw = opts.passwordForm !== false;
-  const ca = opts.caDownload
-    ? `<p class="ca">${esc(tr('First time on this phone?'))} <a href="${CA_PATH}" download="habblaud-ca.crt">${esc(tr('Install the Habblaud certificate'))}</a> ${esc(tr('to remove the security warning (check the fingerprint that npm run remote:setup showed).'))}</p>`
-    : '';
-  // Inside <script>: JSON with "<" escaped, so no text closes the tag.
-  const js = (text: string) => JSON.stringify(text).replace(/</g, '\\u003c');
-  return `<!doctype html>
-<html lang="${getLocale()}">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="referrer" content="no-referrer">
-<title>${esc(tr('Habblaud · sign in'))}</title>
-<link rel="manifest" href="/manifest.webmanifest">
-<link rel="apple-touch-icon" href="/assets/brand/apple-touch-icon.png">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Habblaud">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
-<style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #14161f; color: #e8e6df;
-         font: 16px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 16px; }
-  form { width: 100%; max-width: 360px; background: #1e2130; border: 2px solid #3a3f58; border-radius: 10px; padding: 24px; }
-  h1 { margin: 0 0 4px; font-size: 22px; color: #f4c95d; }
-  p { margin: 0 0 20px; color: #9aa0b8; font-size: 13px; }
-  p.ca { margin: 20px 0 0; }
-  a { color: #f4c95d; }
-  code { color: #e8e6df; }
-  label { display: block; font-size: 13px; color: #9aa0b8; margin: 12px 0 6px; }
-  input { width: 100%; padding: 12px; font: inherit; color: inherit; background: #14161f; border: 2px solid #3a3f58; border-radius: 6px; }
-  input:focus { outline: none; border-color: #f4c95d; }
-  button { width: 100%; margin-top: 20px; padding: 12px; font: inherit; font-weight: 700; color: #14161f; background: #f4c95d;
-           border: 0; border-radius: 6px; cursor: pointer; }
-  button:disabled { opacity: .6; cursor: wait; }
-  #err { min-height: 20px; margin-top: 12px; color: #ff8a80; font-size: 13px; }
-</style>
-</head>
-<body>
-<form id="f" autocomplete="on">
-  <h1>Habblaud</h1>
-  <p>${esc(tr('Phone access. Sign in with the username and password you chose in npm run remote:setup.'))}</p>
-  ${pw ? `<label for="u">${esc(tr('Username'))}</label>
-  <input id="u" name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required>
-  <label for="p">${esc(tr('Password'))}</label>
-  <input id="p" name="password" type="password" autocomplete="current-password" required>
-  <button id="b" type="submit">${esc(tr('Sign in'))}</button>` : `<p>${esc(tr('Password sign-in is off while a passkey is registered: use your passkey.'))}</p>`}
-  <div id="err" role="alert"></div>
-  ${ca}
-</form>
-${pw ? `<script>
-  const f = document.getElementById('f'), b = document.getElementById('b'), err = document.getElementById('err');
-  f.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    b.disabled = true; err.textContent = '';
-    try {
-      const r = await fetch('/api/remote/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin', body: JSON.stringify({ user: f.username.value, password: f.password.value }) });
-      if (r.ok) { location.replace('/'); return; }
-      const body = await r.json().catch(() => ({}));
-      err.textContent = body.error || ${js(tr("Couldn't sign in."))};
-    } catch { err.textContent = ${js(tr('No connection to Habblaud.'))}; }
-    b.disabled = false;
-  });
-</script>` : ''}
-</body>
-</html>
-`;
-}
 
 function sendHtml(res: ServerResponse, html: string): void {
   res.writeHead(200, {
@@ -698,7 +622,16 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       if (authed) {
         res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' });
         res.end();
-      } else sendHtml(res, loginPage({ caDownload: caAvailable(), passwordForm: !passwordOff() }));
+      } else sendHtml(res, loginPage({ caDownload: caAvailable(), passkeys: !!deps.passkeys, password: !passwordOff(), caPath: CA_PATH }));
+      return true;
+    }
+
+    if (path === '/remote/security') {
+      req.resume();
+      // shortcut: LAN mode has no passkeys, so the settings link 404s there; hide it if LAN mode is ever used.
+      if (!deps.passkeys) sendJson(res, 404, { error: tr('not found') });
+      else if (!authed) { res.writeHead(302, { Location: '/login', 'Cache-Control': 'no-store' }); res.end(); }
+      else sendHtml(res, securityPage());
       return true;
     }
 
