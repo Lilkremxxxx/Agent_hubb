@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { JobBoardItem, PtyInfo } from '../../shared/types';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
-import { IDLE_CLOSE_MS, LEAN_TOOLS, leanClaudeArgs, TRUST_WAIT_MS, WorkerService, type WorkerPtys, type WorkerTarget } from './service';
+import { IDLE_CLOSE_MS, LEAN_TOOLS, leanClaudeArgs, START_SETTLE_MS, TRUST_WAIT_MS, WorkerService, type WorkerPtys, type WorkerTarget } from './service';
 import { agyTranscriptPath, agyTurn, claudeTranscriptPath, claudeTurn, lastWrite } from './turns';
 
 const T0 = 1_800_000_000_000;
@@ -18,6 +18,8 @@ afterEach(() => {
 
 const step = (o: Record<string, unknown>) => JSON.stringify(o);
 const CONV = '26a99462-96c2-4742-9f6d-a9a3620e7176';
+const CONV2 = '3b094ff8-a5b3-44d7-82d5-ac4ec8b1b6cc';
+const settle = () => new Promise((r) => setImmediate(r));
 
 describe('lastWrite', () => {
   it('the newest of the conversation databases, their transcripts and the log', () => {
@@ -92,7 +94,7 @@ function fakePtys() {
   return { ptys, open, typed };
 }
 
-function setup(workers = ['acc2', 'claude:.claude-w']) {
+function setup(workers = ['W1', 'W2', 'C1']) {
   const root = mkdtempSync(join(tmpdir(), 'habblaud-workers-'));
   dirs.push(root);
   const stateDir = join(root, 'acc2', '.gemini', 'antigravity-cli');
@@ -100,11 +102,14 @@ function setup(workers = ['acc2', 'claude:.claude-w']) {
   const configDir = join(root, '.claude-w');
   let clock = T0;
   const office = new Office({ names: new NameStore(null), version: 'test', startedAt: T0, accounts: () => [], sources: () => [], accountName: () => undefined, now: () => clock });
-  office.addMain({ id: 'agy:acc2', provider: 'agy', account: 'agy:acc2', sessionId: 'agy-acc2', cwd: '/w/agy-hub', role: 'Worker', name: 'two (Agy)', startedAt: T0, status: 'idle' });
+  office.addMain({ id: 'agy:acc2', provider: 'agy', account: 'agy:acc2', sessionId: 'agy-acc2', cwd: '/w/agy-hub', role: 'Worker', name: 'W1', startedAt: T0, status: 'idle' });
+  office.addMain({ id: 'agy:acc2@W2', provider: 'agy', account: 'agy:acc2', sessionId: 'agy-acc2-W2', cwd: '/w/agy-hub', role: 'Worker', name: 'W2', startedAt: T0, status: 'idle' });
   const all: WorkerTarget[] = [
-    { id: 'acc2', kind: 'agy', agentId: 'agy:acc2', account: 'agy:acc2', name: 'two (Agy)', acc: 'acc2', stateDir },
-    { id: 'claude:.claude-w', kind: 'claude', agentId: 'claude-worker:.claude-w', account: '.claude-w', name: 'w (Claude worker)', configDir },
+    { id: 'W1', kind: 'agy', agentId: 'agy:acc2', account: 'agy:acc2', name: 'W1', acc: 'acc2', stateDir },
+    { id: 'W2', kind: 'agy', agentId: 'agy:acc2@W2', account: 'agy:acc2', name: 'W2', acc: 'acc2', stateDir },
+    { id: 'C1', kind: 'claude', agentId: 'claude-worker:C1', account: '.claude-w', name: 'C1', configDir },
   ];
+  let folder = root;
   let registered = workers;
   const f = fakePtys();
   const board: JobBoardItem[] = [];
@@ -116,13 +121,12 @@ function setup(workers = ['acc2', 'claude:.claude-w']) {
     targets: () => all.filter((t) => registered.includes(t.id)),
     agyBin: '/bin/agy-as',
     claudeBin: '/bin/claude',
-    room: root,
+    folder: () => folder,
     logFile,
     onChange: () => void changes++,
     board: (i) => void board.push(i),
     now: () => clock,
     sleep: async () => undefined,
-    offices: { has: (w, o) => o === 'main' || (o === 'two' && w === 'acc2'), of: () => 'main' },
   });
   svc.sync();
   /** agy writes the conversation of the job it just opened. */
@@ -140,6 +144,7 @@ function setup(workers = ['acc2', 'claude:.claude-w']) {
     configDir,
     ...f,
     agyWrites,
+    setFolder: (f: string) => void (folder = f),
     advance: (ms: number) => (clock += ms),
     register: (w: string[]) => (registered = w),
     changes: () => changes,
@@ -152,8 +157,8 @@ const answer = (content: string) => [{ type: 'USER_INPUT', status: 'DONE', conte
 describe('WorkerService', () => {
   it('agy job: the terminal restarts with the request, the answer comes from the new conversation, cut to max', async () => {
     const t = setup();
-    const r = await t.svc.ask({ worker: 'acc2', prompt: 'Say pong', mode: 'plan', effort: 'low', role: 'qa', by: 'boss', callerPid: 41, max: 200 });
-    expect(r).toMatchObject({ ok: true, job: { status: 'working', role: 'qa', by: 'boss' } });
+    const r = await t.svc.ask({ worker: 'W1', prompt: 'Say pong', mode: 'plan', effort: 'low', role: 'qa', max: 200 });
+    expect(r).toMatchObject({ ok: true, job: { status: 'working', role: 'qa' } });
     expect(t.open.get('agy:acc2')).toMatchObject({ file: '/bin/agy-as', args: ['acc2', '-i', 'Say pong', '--mode', 'plan', '--effort', 'low'] });
     expect(t.open.get('agy:acc2')?.env).not.toHaveProperty('AGY_OFFICE');
     t.svc.tick();
@@ -163,12 +168,12 @@ describe('WorkerService', () => {
     const job = t.svc.jobs()[0];
     expect(job).toMatchObject({ status: 'done', tokens: 55 });
     expect(job.answer!.length).toBeLessThanOrEqual(200);
-    expect(t.svc.sessionList()[0]).toMatchObject({ worker: 'acc2' });
-    expect(t.log().map((l) => [l.event, l.status, l.via, l.claude_pid ?? null])).toEqual([
-      ['start', undefined, 'terminal', 41],
-      ['end', 'SUCCESS', 'terminal', null],
+    expect(t.svc.sessionList()[0]).toMatchObject({ worker: 'W1' });
+    expect(t.log().map((l) => [l.event, l.status, l.via])).toEqual([
+      ['start', undefined, 'terminal'],
+      ['end', 'SUCCESS', 'terminal'],
     ]);
-    expect(t.board.at(-1)).toMatchObject({ status: 'done', job: job.id, workerId: 'acc2', by: 'boss', role: 'qa' });
+    expect(t.board.at(-1)).toMatchObject({ status: 'done', job: job.id, workerId: 'W1', role: 'qa' });
     // the terminal stays open after the job
     expect(t.open.has('agy:acc2')).toBe(true);
   });
@@ -176,8 +181,8 @@ describe('WorkerService', () => {
   it('ghost check: a running job reports when its conversation last grew; nothing once it is over', async () => {
     const t = setup();
     expect(t.svc.ghostCandidates()).toEqual([]);
-    await t.svc.ask({ worker: 'acc2', prompt: 'long one' });
-    expect(t.svc.ghostCandidates()).toEqual([{ agentId: 'agy:acc2', name: 'two (Agy)', pid: t.open.get('agy:acc2')!.pid, lastSign: T0 }]);
+    await t.svc.ask({ worker: 'W1', prompt: 'long one' });
+    expect(t.svc.ghostCandidates()).toEqual([{ agentId: 'agy:acc2', name: 'W1', pid: t.open.get('agy:acc2')!.pid, lastSign: T0 }]);
     t.advance(5_000);
     t.svc.tick();
     expect(t.svc.ghostCandidates()[0].lastSign).toBe(T0);
@@ -194,8 +199,8 @@ describe('WorkerService', () => {
 
   it('one job at a time; waitJob returns once it is over', async () => {
     const t = setup();
-    const r = await t.svc.ask({ worker: 'acc2', prompt: 'one' });
-    expect(await t.svc.ask({ worker: 'acc2', prompt: 'two' })).toMatchObject({ ok: false, status: 409, busy: 'job' });
+    const r = await t.svc.ask({ worker: 'W1', prompt: 'one' });
+    expect(await t.svc.ask({ worker: 'W1', prompt: 'two' })).toMatchObject({ ok: false, status: 409, busy: 'job' });
     const id = (r as { job: { id: string } }).job.id;
     const waiting = t.svc.waitJob(id, 30);
     t.agyWrites(answer('pong'));
@@ -207,7 +212,7 @@ describe('WorkerService', () => {
   it('a job waiting for the old terminal to close does not take an old conversation as its own', async () => {
     const t = setup();
     t.agyWrites(answer('an old answer'), '0000aaaa-0000-0000-0000-000000000000');
-    await t.svc.ask({ worker: 'acc2', prompt: 'first' });
+    await t.svc.ask({ worker: 'W1', prompt: 'first' });
     t.agyWrites(answer('first answer'));
     t.svc.tick();
     expect(t.svc.jobs()[0]).toMatchObject({ status: 'done', answer: 'first answer' });
@@ -226,7 +231,7 @@ describe('WorkerService', () => {
       }
       return ofAgent(id);
     };
-    await t.svc.ask({ worker: 'acc2', prompt: 'second' });
+    await t.svc.ask({ worker: 'W1', prompt: 'second' });
     expect(t.svc.jobs()[0]).toMatchObject({ status: 'working' });
     t.svc.tick();
     expect(t.svc.jobs()[0]).toMatchObject({ status: 'working' });
@@ -237,7 +242,7 @@ describe('WorkerService', () => {
 
   it('a job cancelled while the old terminal is closing never starts', async () => {
     const t = setup();
-    await t.svc.ask({ worker: 'acc2', prompt: 'first' });
+    await t.svc.ask({ worker: 'W1', prompt: 'first' });
     t.agyWrites(answer('done'));
     t.svc.tick();
     const firstPty = t.open.get('agy:acc2')!.id;
@@ -252,7 +257,7 @@ describe('WorkerService', () => {
       }
       return ofAgent(id);
     };
-    expect(await t.svc.ask({ worker: 'acc2', prompt: 'second' })).toMatchObject({ ok: true, job: { status: 'cancelled' } });
+    expect(await t.svc.ask({ worker: 'W1', prompt: 'second' })).toMatchObject({ ok: true, job: { status: 'cancelled' } });
     expect(t.open.has('agy:acc2')).toBe(false);
     expect(firstPty).toBeTruthy();
     expect(t.log().filter((l) => l.event === 'start')).toHaveLength(1);
@@ -260,17 +265,17 @@ describe('WorkerService', () => {
 
   it('cancel one job or all; a timeout or a closed terminal fails the job', async () => {
     const t = setup();
-    const a = await t.svc.ask({ worker: 'acc2', prompt: 'a' });
+    const a = await t.svc.ask({ worker: 'W1', prompt: 'a' });
     expect(t.svc.cancel({ job: (a as { job: { id: string } }).job.id })).toBe(1);
     expect(t.svc.jobs()[0]).toMatchObject({ status: 'cancelled' });
-    await t.svc.ask({ worker: 'acc2', prompt: 'b' });
-    await t.svc.ask({ worker: 'claude:.claude-w', prompt: 'c' });
+    await t.svc.ask({ worker: 'W1', prompt: 'b' });
+    await t.svc.ask({ worker: 'C1', prompt: 'c' });
     expect(t.svc.cancel({ all: true })).toBe(2);
-    await t.svc.ask({ worker: 'acc2', prompt: 'd' });
+    await t.svc.ask({ worker: 'W1', prompt: 'd' });
     t.open.delete('agy:acc2');
     t.svc.tick();
     expect(t.svc.jobs()[0]).toMatchObject({ status: 'failed', error: 'the terminal closed before the answer' });
-    await t.svc.ask({ worker: 'acc2', prompt: 'e' });
+    await t.svc.ask({ worker: 'W1', prompt: 'e' });
     t.advance(31 * 60_000);
     t.svc.tick();
     expect(t.svc.jobs()[0]).toMatchObject({ status: 'failed' });
@@ -279,16 +284,16 @@ describe('WorkerService', () => {
 
   it('Claude worker: its own character; the job runs with a chosen session id and its transcript answers', async () => {
     const t = setup();
-    expect(t.office.get('claude-worker:.claude-w')).toMatchObject({ kind: 'main', name: 'w (Claude worker)', status: 'idle' });
-    const r = await t.svc.ask({ worker: 'claude:.claude-w', prompt: 'Review x', mode: 'accept-edits', model: 'haiku', cwd: t.root });
+    expect(t.office.get('claude-worker:C1')).toMatchObject({ kind: 'main', name: 'C1', status: 'idle' });
+    const r = await t.svc.ask({ worker: 'C1', prompt: 'Review x', mode: 'accept-edits', model: 'haiku', cwd: t.root });
     expect(r.ok).toBe(true);
-    const p = t.open.get('claude-worker:.claude-w')!;
+    const p = t.open.get('claude-worker:C1')!;
     expect(p.file).toBe('/bin/claude');
     expect(p.env).toMatchObject({ CLAUDE_CONFIG_DIR: t.configDir });
     const sid = p.args[1];
     expect(p.args).toEqual(['--session-id', sid, '--permission-mode', 'acceptEdits', '--model', 'haiku', 'Review x']);
     expect(t.svc.ownsPid(p.pid)).toBe(true);
-    expect(t.office.get('claude-worker:.claude-w')?.status).toBe('working');
+    expect(t.office.get('claude-worker:C1')?.status).toBe('working');
     const file = claudeTranscriptPath(t.configDir, t.root, sid);
     mkdirSync(join(file, '..'), { recursive: true });
     writeFileSync(
@@ -300,7 +305,7 @@ describe('WorkerService', () => {
     );
     t.svc.tick();
     expect(t.svc.jobs()[0]).toMatchObject({ status: 'done', answer: 'LGTM', tokens: 10 });
-    expect(t.office.get('claude-worker:.claude-w')?.status).toBe('idle');
+    expect(t.office.get('claude-worker:C1')?.status).toBe('idle');
   });
 
   it('Claude worker in a folder its account does not trust: the job fails fast instead of waiting at the dialog', async () => {
@@ -308,17 +313,17 @@ describe('WorkerService', () => {
     mkdirSync(t.configDir, { recursive: true });
     const trust = (dir: string) => writeFileSync(join(t.configDir, '.claude.json'), JSON.stringify({ projects: { [dir]: { hasTrustDialogAccepted: true } } }));
     trust('/elsewhere');
-    await t.svc.ask({ worker: 'claude:.claude-w', prompt: 'Find x', cwd: t.root });
+    await t.svc.ask({ worker: 'C1', prompt: 'Find x', cwd: t.root });
     t.advance(TRUST_WAIT_MS - 1000);
     t.svc.tick();
     expect(t.svc.jobs()[0].status).toBe('working');
     t.advance(2000);
     t.svc.tick();
     expect(t.svc.jobs()[0]).toMatchObject({ status: 'failed', error: expect.stringContaining('does not trust the folder') });
-    expect(t.typed).toContainEqual(['claude-worker:.claude-w', '\x1b']);
+    expect(t.typed).toContainEqual(['claude-worker:C1', '\x1b']);
     // a trusted parent folder: the job keeps waiting
     trust(join(t.root, '..'));
-    await t.svc.ask({ worker: 'claude:.claude-w', prompt: 'Find y', cwd: t.root });
+    await t.svc.ask({ worker: 'C1', prompt: 'Find y', cwd: t.root });
     t.advance(TRUST_WAIT_MS + 1000);
     t.svc.tick();
     expect(t.svc.jobs()[0].status).toBe('working');
@@ -326,8 +331,8 @@ describe('WorkerService', () => {
 
   it('Claude worker, lean job (claude-ask): no MCP, skills or slash commands, few tools, the worker rule with the cap', async () => {
     const t = setup();
-    expect((await t.svc.ask({ worker: 'claude:.claude-w', prompt: 'Find x', max: 500, lean: true, cwd: t.root })).ok).toBe(true);
-    const args = t.open.get('claude-worker:.claude-w')!.args;
+    expect((await t.svc.ask({ worker: 'C1', prompt: 'Find x', max: 500, lean: true, cwd: t.root })).ok).toBe(true);
+    const args = t.open.get('claude-worker:C1')!.args;
     expect(args.slice(2, -1)).toEqual(leanClaudeArgs(500));
     expect(args.at(-1)).toBe('Find x');
     expect(args[args.indexOf('--tools') + 1]).toBe(LEAN_TOOLS);
@@ -336,18 +341,18 @@ describe('WorkerService', () => {
 
   it('a worker that is no longer registered loses its job, terminal and (Claude) character', async () => {
     const t = setup();
-    await t.svc.ask({ worker: 'claude:.claude-w', prompt: 'x' });
-    t.register(['acc2']);
+    await t.svc.ask({ worker: 'C1', prompt: 'x' });
+    t.register(['W1']);
     t.svc.sync();
     expect(t.svc.jobs()[0].status).toBe('cancelled');
-    expect(t.open.has('claude-worker:.claude-w')).toBe(false);
-    expect(t.office.get('claude-worker:.claude-w')?.status).toBe('offline');
-    expect(t.svc.sessionList().map((s) => s.worker)).toEqual(['acc2']);
+    expect(t.open.has('claude-worker:C1')).toBe(false);
+    expect(t.office.get('claude-worker:C1')?.status).toBe('offline');
+    expect(t.svc.sessionList().map((s) => s.worker)).toEqual(['W1']);
   });
 
   it('stopping a job that has just ended does not press Esc (it would quit an idle agy): the job is done', async () => {
     const t = setup();
-    const r = await t.svc.ask({ worker: 'acc2', prompt: 'quick' });
+    const r = await t.svc.ask({ worker: 'W1', prompt: 'quick' });
     t.agyWrites(answer('already'));
     expect(t.svc.cancel({ job: (r as { job: { id: string } }).job.id })).toBe(1);
     expect(t.svc.jobs()[0]).toMatchObject({ status: 'done', answer: 'already' });
@@ -356,7 +361,7 @@ describe('WorkerService', () => {
 
   it('an idle worker terminal closes after a while (not while a job runs or you drive)', async () => {
     const t = setup();
-    await t.svc.ask({ worker: 'acc2', prompt: 'job' });
+    await t.svc.ask({ worker: 'W1', prompt: 'job' });
     t.advance(IDLE_CLOSE_MS + 1);
     t.svc.tick();
     expect(t.open.has('agy:acc2')).toBe(true);
@@ -370,38 +375,63 @@ describe('WorkerService', () => {
     expect(t.open.has('agy:acc2')).toBe(false);
   });
 
-  it('offices: a job carries its office (given, else the first office of the worker); a worker of another office is refused', async () => {
+  it('two seats on one agy account: the second waits for the first conversation, then each reads its own', async () => {
     const t = setup();
-    expect(await t.svc.ask({ worker: 'claude:.claude-w', prompt: 'x', office: 'two' })).toMatchObject({ ok: false, status: 400 });
-    expect(await t.svc.ask({ worker: 'acc2', prompt: 'x', office: 'two' })).toMatchObject({ ok: true, job: { office: 'two' } });
-    expect(t.board.at(-1)).toMatchObject({ office: 'two' });
-    expect(t.log().at(-1)).toMatchObject({ event: 'start', office: 'two' });
-    expect(await t.svc.ask({ worker: 'claude:.claude-w', prompt: 'y' })).toMatchObject({ ok: true, job: { office: 'main' } });
-    expect(t.svc.cancel({ office: 'two' })).toBe(1);
-    expect(t.svc.jobs().find((j) => j.office === 'main')?.status).toBe('working');
+    expect(await t.svc.ask({ worker: 'W1', prompt: 'one' })).toMatchObject({ ok: true, job: { status: 'working' } });
+    expect(await t.svc.ask({ worker: 'W2', prompt: 'two' })).toMatchObject({ ok: true, job: { status: 'queued' } });
+    expect(t.open.has('agy:acc2@W2')).toBe(false);
+    t.agyWrites([{ type: 'USER_INPUT', status: 'DONE', content: 'one' }], CONV);
+    t.svc.tick();
+    await settle();
+    expect(t.svc.jobs().find((j) => j.worker === 'W2')?.status).toBe('working');
+    expect(t.open.get('agy:acc2@W2')?.args).toEqual(['acc2', '-i', 'two']);
+    t.agyWrites(answer('two done'), CONV2);
+    t.svc.tick();
+    expect(t.svc.jobs().find((j) => j.worker === 'W2')).toMatchObject({ status: 'done', answer: 'two done' });
+    expect(t.svc.jobs().find((j) => j.worker === 'W1')?.status).toBe('working');
+    t.agyWrites(answer('one done'), CONV);
+    t.svc.tick();
+    expect(t.svc.jobs().find((j) => j.worker === 'W1')).toMatchObject({ status: 'done', answer: 'one done' });
   });
-
-  it('seats: a Claude worker has one character per office; the job shows on the seat of its office', async () => {
+  it('a seat on a job answers BUSY; the other seat of the account and a Claude seat do not', async () => {
     const t = setup();
-    // give the Claude worker a second seat (office "two")
-    const svc = t.svc as unknown as { opts: { targets: () => WorkerTarget[] } };
-    const targets = svc.opts.targets;
-    svc.opts.targets = () =>
-      targets().map((x) =>
-        x.kind === 'claude'
-          ? { ...x, seats: [{ office: 'main', agentId: x.agentId, name: x.name, room: t.root }, { office: 'two', agentId: `${x.agentId}@two`, name: `${x.name} (2)`, room: `${t.root}@two` }] }
-          : x,
-      );
-    t.svc.sync();
-    expect(t.office.get('claude-worker:.claude-w@two')).toMatchObject({ name: 'w (Claude worker) (2)', status: 'idle' });
-    expect(t.svc.sessionList().find((x) => x.kind === 'claude')?.agentIds).toEqual({ main: 'claude-worker:.claude-w', two: 'claude-worker:.claude-w@two' });
-    // the stub says "claude:.claude-w" is not in office two; let it be for this test
-    (t.svc as unknown as { opts: { offices: unknown } }).opts.offices = { has: () => true, of: () => 'main' };
-    await t.svc.ask({ worker: 'claude:.claude-w', prompt: 'x', office: 'two' });
-    expect(t.office.get('claude-worker:.claude-w@two')?.status).toBe('working');
-    expect(t.office.get('claude-worker:.claude-w')?.status).toBe('idle');
-    expect(t.board.at(-1)).toMatchObject({ agentId: 'claude-worker:.claude-w@two', office: 'two' });
-    expect(t.svc.statusOf('claude:.claude-w', 'two')?.busy).toBe(true);
-    expect(t.svc.statusOf('claude:.claude-w', 'main')?.busy).toBe(false);
+    await t.svc.ask({ worker: 'W1', prompt: 'a' });
+    expect(await t.svc.ask({ worker: 'W1', prompt: 'b' })).toMatchObject({ ok: false, status: 409, busy: 'job' });
+    expect((await t.svc.ask({ worker: 'W2', prompt: 'c' })).ok).toBe(true);
+    expect(await t.svc.ask({ worker: 'C1', prompt: 'd', cwd: t.root })).toMatchObject({ ok: true, job: { status: 'working' } });
+  });
+  it('no conversation within START_SETTLE_MS: the queued seat starts anyway', async () => {
+    const t = setup();
+    await t.svc.ask({ worker: 'W1', prompt: 'a' });
+    await t.svc.ask({ worker: 'W2', prompt: 'b' });
+    t.advance(START_SETTLE_MS - 1);
+    t.svc.tick();
+    await settle();
+    expect(t.open.has('agy:acc2@W2')).toBe(false);
+    t.advance(2);
+    t.svc.tick();
+    await settle();
+    expect(t.open.has('agy:acc2@W2')).toBe(true);
+  });
+  it('a queued job cancelled before its start never opens a terminal', async () => {
+    const t = setup();
+    await t.svc.ask({ worker: 'W1', prompt: 'a' });
+    const r = await t.svc.ask({ worker: 'W2', prompt: 'b' });
+    expect(t.svc.cancel({ job: (r as { job: { id: string } }).job.id })).toBe(1);
+    t.advance(START_SETTLE_MS);
+    t.svc.tick();
+    await settle();
+    expect(t.open.has('agy:acc2@W2')).toBe(false);
+    expect(t.typed).toEqual([]);
+  });
+  it('every job runs in the office folder with BANG_SLOT and BANG_OFFICE; no folder and no cwd = 400', async () => {
+    const t = setup();
+    await t.svc.ask({ worker: 'W1', prompt: 'a' });
+    expect(t.open.get('agy:acc2')).toMatchObject({ cwd: t.root, env: { BANG_SLOT: 'W1', BANG_OFFICE: t.root } });
+    await t.svc.ask({ worker: 'C1', prompt: 'b' });
+    expect(t.open.get('claude-worker:C1')).toMatchObject({ cwd: t.root, env: { BANG_SLOT: 'C1', BANG_OFFICE: t.root, CLAUDE_CONFIG_DIR: t.configDir } });
+    expect(t.office.get('claude-worker:C1')?.name).toBe('C1');
+    t.setFolder('');
+    expect(await t.svc.ask({ worker: 'W2', prompt: 'c' })).toMatchObject({ ok: false, status: 400 });
   });
 });

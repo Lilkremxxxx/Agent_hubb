@@ -1186,7 +1186,6 @@ export const VI: Readonly<Record<string, string>> = {
   "5-hour limit": "giới hạn 5 giờ",
   "Quota of {0}": "Quota của {0}",
   "{0}: reset since the last reading": "{0}: đã làm mới kể từ lần đọc trước",
-  "{0} is not a worker of this office": "{0} không phải worker của office này",
   "Empty: ＋ Boss / ＋ Worker": "Trống: ＋ Boss / ＋ Worker",
   "{0} does not trust the folder {1}: open claude there once with this account and answer yes, or give the job another folder":
     "{0} chưa tin thư mục {1}: mở claude ở đó một lần bằng tài khoản này và trả lời đồng ý, hoặc giao việc ở thư mục khác",
@@ -1242,6 +1241,7 @@ export const VI: Readonly<Record<string, string>> = {
   "Boss overloaded: sessions with a long context, open a new session": "Sếp quá tải: các phiên có context dài, mở phiên mới",
   "expected {boss}": "cần {boss}",
   "the interactive terminal is off (HABBLAUD_PTY=1)": "terminal tương tác đang tắt (HABBLAUD_PTY=1)",
+  "the office has no folder yet: set \"folder\" in ~/.habblaud/team.json": "văn phòng chưa có thư mục: đặt \"folder\" trong ~/.habblaud/team.json",
   "the office has no folder yet: set \"folder\" in {0}": "văn phòng chưa có thư mục: đặt \"folder\" trong {0}",
   "Antigravity account not found: {0}": "không tìm thấy tài khoản Antigravity: {0}",
   "Claude Code account folder not found: {0}": "không tìm thấy thư mục tài khoản Claude Code: {0}",

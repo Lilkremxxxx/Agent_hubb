@@ -207,7 +207,7 @@ const workers = ptys
         }),
       agyBin,
       claudeBin: claudeBin ?? 'claude',
-      room: team.folder || config.home,
+      folder: () => team.folder,
       logFile: join(agyRoot, 'agy-ask.log.jsonl'),
       onChange: () => team.publish(),
       board: (item) => agy?.upsertJob(item),

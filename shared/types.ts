@@ -263,8 +263,6 @@ export interface JobBoardItem {
   /** Request prefix (up to ~140 characters). */
   text: string;
   status: 'working' | 'done' | 'failed' | 'cancelled';
-  /** Who requested: boss (Claude), you (office), or a script. */
-  by: 'boss' | 'you' | 'script';
   at: number;
   endedAt?: number;
   tokens?: number;
@@ -275,8 +273,6 @@ export interface JobBoardItem {
   job?: string;
   /** Worker id (TeamInfo.workers) of that job. */
   workerId?: string;
-  /** OfficeInfo.id of the office that gave it (absent = before offices, or a script). */
-  office?: string;
 }
 
 /** The board: last order given to boss and recent jobs (newest first). */
@@ -381,14 +377,11 @@ export type WorkerKind = 'agy' | 'claude';
 export interface WorkerJob {
   id: string;
   worker: WorkerId;
-  /** OfficeInfo.id of the office that gave it (the caller's boss, or the office selected on the page). */
-  office?: string;
   /** The request, first ~300 characters, secrets masked. */
   prompt: string;
   role?: string;
   mode?: string;
   effort?: string;
-  by: 'boss' | 'you' | 'script';
   /**
    * queued: waiting for the worker; working: running in its terminal; done/failed/cancelled: over.
    */
@@ -407,8 +400,6 @@ export interface WorkerSession {
   kind: WorkerKind;
   /** Its character (stable while it is a seat). */
   agentId: string;
-  /** @deprecated one character per seat now; the server still fills it until it drops multi-office (the client ignores it). */
-  agentIds?: Record<string, string>;
   /** AccountInfo.id. */
   account: string;
   /** Its terminal (PtyInfo.id), while running. */

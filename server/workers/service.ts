@@ -8,12 +8,13 @@
 // `max` characters. After the job the terminal stays open to read until it idles out: every job is a new conversation,
 // so there is nothing to continue in it and nobody types there (only sessions you open in a terminal yourself).
 //
-// One session per account at a time: a worker on a job refuses new ones (BUSY) and the caller asks again later.
+// One job per seat at a time (BUSY); seats on one account start one after another.
 //
 // Jobs go to the agy-ask log (start/end lines with via "terminal": level, tokens and news, as before) and to the room's
 // job board (with their WorkerJob id, so the board can cancel them).
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import type { JobBoardItem, PtyInfo, WorkerJob, WorkerKind, WorkerSession } from '../../shared/types';
 import { maskSecrets, truncate } from '../../shared/activity';
@@ -35,6 +36,11 @@ export const WAIT_MAX_S = 60;
 export const IDLE_CLOSE_MS = 20 * 60_000;
 /** How often running jobs are checked. */
 const TICK_MS = 1_000;
+/**
+ * Seats of one account start one after another: the next one starts once the previous job's conversation exists, or
+ * this long after its terminal opened (agy shows no conversation of its own until then, so two starts would mix up).
+ */
+export const START_SETTLE_MS = 30_000;
 /** Waiting for an old terminal of the same account to close before starting another one. */
 const CLOSE_WAIT_MS = 8_000;
 const ESC = '\x1b';
@@ -69,11 +75,6 @@ export interface WorkerTarget {
   /** Claude Code: config dir (CLAUDE_CONFIG_DIR, unless `isDefault`). */
   configDir?: string;
   isDefault?: boolean;
-  /**
-   * Its character in each office that has it (server/team.ts seats; the first one is `agentId`): a job shows on the
-   * seat of the office that gave it. Absent = one character, `agentId`, in the workers room.
-   */
-  seats?: Array<{ office: string; agentId: string; name: string; room: string }>;
 }
 
 export interface AskInput {
@@ -88,10 +89,6 @@ export interface AskInput {
   max?: number;
   /** Claude Code workers: start lean (no MCP servers, skills or slash commands, LEAN_TOOLS only, worker rule). */
   lean?: boolean;
-  by?: WorkerJob['by'];
-  callerPid?: number;
-  /** OfficeInfo.id of the office giving the job (the worker must be one of its workers). */
-  office?: string;
 }
 
 export type AskResult = { ok: true; job: WorkerJob } | { ok: false; status: number; error: string; busy?: 'job' };
@@ -111,16 +108,14 @@ export interface WorkerServiceOptions {
   targets: () => WorkerTarget[];
   agyBin: string;
   claudeBin: string;
-  /** Folder of a job without `cwd` (the workers room). */
-  room: string;
+  /** The office folder: where every job runs unless it gives a `cwd` ('' = none declared yet). */
+  folder: () => string;
   /** ~/.agy_profiles/agy-ask.log.jsonl. */
   logFile: string;
   /** Remembered conversations per worker (<dataDir>/workers.json). */
   stateFile?: string;
   /** The team in the snapshot changed (sessions, jobs). */
   onChange: () => void;
-  /** Offices (server/team.ts): is the worker one of that office's, and which office a job without one goes to. */
-  offices?: { has: (worker: string, office: string) => boolean; of: (worker: string) => string | undefined };
   /** Adds or updates a job on the room's board. */
   board?: (item: JobBoardItem) => void;
   now?: () => number;
@@ -134,10 +129,11 @@ interface Job extends WorkerJob {
   /** Claude: the folder's trust was checked (TRUST_WAIT_MS after the start, no conversation yet). */
   trustChecked?: boolean;
   cwd: string;
-  callerPid?: number;
   /** Agent id of the worker's character. */
   agentId: string;
   ptyPid?: number;
+  /** When its terminal opened (with `ptyPid`): the start gate of its account measures from here. */
+  launchedAt?: number;
   /** Conversation id (agy: found once its folder appears; Claude: chosen). */
   conv?: string;
   /** Before the conversation shows up: the agy conversations that already existed. */
@@ -166,8 +162,10 @@ export class WorkerService {
   private readonly jobWaiters = new Map<string, Set<Waiter>>();
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
-  /** Workers whose terminal is being (re)started: a second request waits for the first. */
-  private readonly starting = new Set<string>();
+  /** The job that last started on each account: the next seat of that account waits for its conversation. */
+  private readonly starting = new Map<string, Job>();
+  /** Jobs waiting for their account's start gate (FIFO). */
+  private queue: Array<{ s: Session; job: Job; prompt: string }> = [];
 
   constructor(private readonly opts: WorkerServiceOptions) {
     this.now = opts.now ?? Date.now;
@@ -196,7 +194,6 @@ export class WorkerService {
     this.sync();
     return [...this.sessions.values()].map((s) => {
       const out: WorkerSession = { worker: s.t.id, kind: s.t.kind, agentId: s.t.agentId, account: s.t.account };
-      if (s.t.seats?.length) out.agentIds = Object.fromEntries(s.t.seats.map((x) => [x.office, x.agentId]));
       const pty = this.opts.ptys.ofAgent(s.t.agentId);
       if (pty) out.ptyId = pty.id;
       if (s.job && live(s.job)) out.job = s.job.id;
@@ -214,11 +211,10 @@ export class WorkerService {
   }
 
   /** For the worker's character: a job is running. */
-  statusOf(worker: string, office?: string): { busy: boolean; role?: string } | undefined {
+  statusOf(worker: string): { busy: boolean; role?: string } | undefined {
     const s = this.sessions.get(worker);
     if (!s) return undefined;
-    // A job shows on the seat of the office that gave it (office undefined = any).
-    const busy = !!s.job && live(s.job) && (office === undefined || this.officeOfJob(s, s.job) === office);
+    const busy = !!s.job && live(s.job);
     return { busy, ...(busy && s.job!.role ? { role: s.job!.role } : {}) };
   }
 
@@ -243,22 +239,22 @@ export class WorkerService {
     const s = this.sessions.get(input.worker);
     // 400, not 404: agy-ask / claude-ask run a job headless on 404 (an office without worker terminals).
     if (!s) return { ok: false, status: 400, error: tr('{0} is not a registered worker', [input.worker]) };
-    if (input.office && this.opts.offices && !this.opts.offices.has(s.t.id, input.office)) return { ok: false, status: 400, error: tr('{0} is not a worker of this office', [s.t.name]) };
     const prompt = input.prompt.trim();
     if (!prompt || prompt.length > 20_000) return { ok: false, status: 400, error: tr('prompt empty or too long') };
     if (input.cwd !== undefined && (!isAbsolute(input.cwd) || !isDir(input.cwd))) return { ok: false, status: 400, error: tr('folder not found: {0}', [input.cwd]) };
-    if ((s.job && live(s.job)) || this.starting.has(s.t.id)) return { ok: false, status: 409, busy: 'job', error: tr('{0} is busy with another job', [s.t.name]) };
+    const cwd = input.cwd ?? this.opts.folder();
+    if (!cwd) return { ok: false, status: 400, error: tr('the office has no folder yet: set "folder" in ~/.habblaud/team.json') };
+    if (s.job && live(s.job)) return { ok: false, status: 409, busy: 'job', error: tr('{0} is busy with another job', [s.t.name]) };
     const now = this.now();
     const job: Job = {
       id: `w${now.toString(36)}${(++this.seq).toString(36)}`,
       worker: s.t.id,
       agentId: s.t.agentId,
       prompt: truncate(maskSecrets(prompt.replace(/\s+/g, ' ')), 300),
-      by: input.by ?? 'script',
       status: 'working',
       startedAt: now,
       max: Math.max(200, Math.min(input.max ?? ANSWER_MAX, 20_000)),
-      cwd: input.cwd ?? this.opts.room,
+      cwd,
       deadline: now + JOB_TIMEOUT_MS,
       size: -1,
       progressAt: now,
@@ -268,29 +264,41 @@ export class WorkerService {
     if (input.effort) job.effort = input.effort;
     if (input.model) job.model = input.model;
     if (input.lean) job.lean = true;
-    if (input.callerPid) job.callerPid = input.callerPid;
-    const office = input.office ?? this.opts.offices?.of(s.t.id);
-    if (office) job.office = office;
-    // The job shows on the character of the office that gave it.
-    job.agentId = s.t.seats?.find((x) => x.office === office)?.agentId ?? s.t.agentId;
     s.job = job;
     this.jobList = [job, ...this.jobList].slice(0, JOBS_KEPT);
-    this.starting.add(s.t.id);
+    // Another seat of this account is still starting: wait in line (never hold the HTTP request; tick() starts it).
+    if (!this.gateFree(s.t.account)) {
+      job.status = 'queued';
+      this.queue.push({ s, job, prompt });
+      this.toBoard(job);
+      this.changed(s);
+      return { ok: true, job: view(job) };
+    }
+    this.starting.set(s.t.account, job);
     try {
-      // Cancelled while the old terminal was closing: nothing to start.
-      await this.restart(s, () => (live(job) ? this.jobProgram(s, job, prompt) : undefined));
+      await this.launch(s, job, prompt);
     } catch (err) {
       this.finish(job, 'failed', 'ERROR', errMsg(err));
       return { ok: false, status: 500, error: errMsg(err) };
-    } finally {
-      this.starting.delete(s.t.id);
     }
-    if (!live(job)) return { ok: true, job: view(job) };
-    this.writeLog({ event: 'start', ts: job.startedAt / 1000, acc: s.t.id, role: job.role, mode: job.mode, effort: job.effort, claude_pid: job.by === 'boss' ? (job.callerPid ?? null) : null, pid: job.ptyPid, prompt: prompt.slice(0, 200), via: 'terminal', worker: s.t.id, job: job.id, ...(job.office ? { office: job.office } : {}) });
-    this.toBoard(job);
-    this.opts.office.addActivity(s.t.agentId, { id: `${job.id}:start`, at: now, kind: 'prompt', icon: '📋', text: truncate(job.prompt, 40), detail: job.prompt }, true);
-    this.changed(s);
     return { ok: true, job: view(job) };
+  }
+
+  /** Can another seat of this account start? Not while the last one started has no conversation yet and is within START_SETTLE_MS. */
+  private gateFree(account: string): boolean {
+    const g = this.starting.get(account);
+    return !g || !live(g) || !!g.conv || (g.launchedAt !== undefined && this.now() - g.launchedAt >= START_SETTLE_MS);
+  }
+
+  /** Opens the job's terminal (the old one of the seat closes first) and records the start. */
+  private async launch(s: Session, job: Job, prompt: string): Promise<void> {
+    // Cancelled while the old terminal was closing: nothing to start.
+    await this.restart(s, () => (live(job) ? this.jobProgram(s, job, prompt) : undefined));
+    if (!live(job)) return;
+    this.writeLog({ event: 'start', ts: job.startedAt / 1000, acc: s.t.id, role: job.role, mode: job.mode, effort: job.effort, pid: job.ptyPid, prompt: prompt.slice(0, 200), via: 'terminal', worker: s.t.id, job: job.id });
+    this.toBoard(job);
+    this.opts.office.addActivity(s.t.agentId, { id: `${job.id}:start`, at: job.startedAt, kind: 'prompt', icon: '📋', text: truncate(job.prompt, 40), detail: job.prompt }, true);
+    this.changed(s);
   }
 
   /** The job, once it is over or after `waitS` seconds (whichever comes first). */
@@ -302,11 +310,11 @@ export class WorkerService {
   }
 
   /** Cancels a job, every job of a worker, or every job. Returns how many were running. */
-  cancel(p: { job?: string; worker?: string; office?: string; all?: boolean }): number {
+  cancel(p: { job?: string; worker?: string; all?: boolean }): number {
     let n = 0;
     for (const j of this.jobList) {
       if (!live(j)) continue;
-      if (!(p.all || (p.job && j.id === p.job) || (p.worker && j.worker === p.worker) || (p.office && j.office === p.office))) continue;
+      if (!(p.all || (p.job && j.id === p.job) || (p.worker && j.worker === p.worker))) continue;
       const s = this.sessions.get(j.worker);
       if (s) this.interrupt(s, j, 'cancelled', 'CANCELLED', tr('cancelled by you'));
       else this.finish(j, 'cancelled', 'CANCELLED', tr('cancelled by you'));
@@ -339,19 +347,14 @@ export class WorkerService {
     this.syncClaudeCharacters();
   }
 
-  /** The seats of a target: its offices' characters, else its one character in the workers room. */
-  private seatsOf(t: WorkerTarget): Array<{ office?: string; agentId: string; name: string; room: string }> {
-    return t.seats?.length ? t.seats : [{ agentId: t.agentId, name: t.name, room: this.opts.room }];
-  }
-
   /** Claude workers' characters, one per seat: added when a seat appears, sent away when it goes. */
   private syncClaudeCharacters(): void {
-    const want = new Map<string, { s: Session; seat: { office?: string; agentId: string; name: string; room: string } }>();
-    for (const s of this.sessions.values()) if (s.t.kind === 'claude') for (const seat of this.seatsOf(s.t)) want.set(seat.agentId, { s, seat });
-    for (const [agentId, { s, seat }] of want) {
+    const want = new Map<string, Session>();
+    for (const s of this.sessions.values()) if (s.t.kind === 'claude') want.set(s.t.agentId, s);
+    for (const [agentId, s] of want) {
       if (this.claudeShown.has(agentId)) continue;
       this.claudeShown.add(agentId);
-      this.opts.office.addMain({ id: agentId, account: s.t.account, sessionId: agentId, cwd: seat.room, role: tr('Worker'), name: seat.name, startedAt: this.now(), status: 'idle' });
+      this.opts.office.addMain({ id: agentId, account: s.t.account, sessionId: agentId, cwd: this.opts.folder() || homedir(), role: tr('Worker'), name: s.t.name, startedAt: this.now(), status: 'idle' });
       this.showClaude(s);
     }
     for (const agentId of [...this.claudeShown]) {
@@ -364,21 +367,14 @@ export class WorkerService {
   /** Claude worker characters in the office now. */
   private readonly claudeShown = new Set<string>();
 
-  /** The office a job belongs to (its own, else the worker's first seat). */
-  private officeOfJob(s: Session, j: Job): string | undefined {
-    return j.office ?? s.t.seats?.[0]?.office;
-  }
-
   /** Status and subtitle of a Claude worker's character. */
   private showClaude(s: Session): void {
     if (s.t.kind !== 'claude') return;
     const office = this.opts.office;
-    for (const seat of this.seatsOf(s.t)) {
-      const busy = !!s.job && live(s.job) && (seat.office === undefined || this.officeOfJob(s, s.job) === seat.office);
-      if (office.get(seat.agentId)?.status !== (busy ? 'working' : 'idle')) office.setStatus(seat.agentId, busy ? 'working' : 'idle');
-      const title = busy ? (s.job!.role ?? tr('job')) : tr('free');
-      office.applyTranscript(seat.agentId, { title, tasks: [], stats: { toolCalls: 0, tokensIn: 0, tokensOut: busy ? (s.job?.tokens ?? 0) : 0, subagents: 0 } });
-    }
+    const busy = !!s.job && live(s.job);
+    if (office.get(s.t.agentId)?.status !== (busy ? 'working' : 'idle')) office.setStatus(s.t.agentId, busy ? 'working' : 'idle');
+    const title = busy ? (s.job!.role ?? tr('job')) : tr('free');
+    office.applyTranscript(s.t.agentId, { title, tasks: [], stats: { toolCalls: 0, tokensIn: 0, tokensOut: busy ? (s.job?.tokens ?? 0) : 0, subagents: 0 } });
   }
 
   tick(): void {
@@ -403,6 +399,17 @@ export class WorkerService {
         continue;
       }
       this.check(s, j);
+    }
+    // After the checks above, so a conversation that just appeared opens the gate in this same tick.
+    this.queue = this.queue.filter((q) => live(q.job));
+    for (const q of [...this.queue]) {
+      if (!this.gateFree(q.s.t.account)) continue;
+      this.queue.splice(this.queue.indexOf(q), 1);
+      this.starting.set(q.s.t.account, q.job);
+      q.job.status = 'working';
+      q.job.deadline = now + JOB_TIMEOUT_MS;
+      q.job.progressAt = now;
+      void this.launch(q.s, q.job, q.prompt).catch((err) => this.finish(q.job, 'failed', 'ERROR', errMsg(err)));
     }
   }
 
@@ -446,6 +453,8 @@ export class WorkerService {
    * is done (with its answer), and Esc at an idle agy prompt quits agy.
    */
   private interrupt(s: Session, j: Job, status: WorkerJob['status'], logStatus: string, error: string): void {
+    // No terminal yet (queued, or the old one is closing): nothing to interrupt, and Esc would hit the seat's idle agy.
+    if (j.ptyPid === undefined) return this.finish(j, status, logStatus, error);
     this.check(s, j);
     if (!live(j)) return;
     this.opts.ptys.typeTo(s.t.agentId, ESC);
@@ -465,7 +474,7 @@ export class WorkerService {
     return agyTranscriptPath(s.t.stateDir!, j.conv);
   }
 
-  /** Closes the worker's terminal (waiting for it to end: one agy per profile) and opens another. */
+  /** Closes the seat's terminal (waiting for it to end: one terminal per seat) and opens another. */
   private async restart(s: Session, open: () => PtyInfo | undefined): Promise<void> {
     const agentId = s.t.agentId;
     s.activeAt = this.now();
@@ -488,6 +497,7 @@ export class WorkerService {
       if (j.model) args.push('--model', j.model);
       const info = this.open(s, args, j.cwd);
       j.ptyPid = info.pid;
+      j.launchedAt = this.now();
       return info;
     }
     j.conv = randomUUID();
@@ -499,12 +509,13 @@ export class WorkerService {
     args.push(prompt);
     const info = this.open(s, args, j.cwd);
     j.ptyPid = info.pid;
+    j.launchedAt = this.now();
     return info;
   }
 
-  private open(s: Session, args: string[], cwd: string, extraEnv?: Record<string, string>): PtyInfo {
+  private open(s: Session, args: string[], cwd: string): PtyInfo {
     const t = s.t;
-    const env: Record<string, string> = { ...extraEnv };
+    const env: Record<string, string> = { BANG_SLOT: t.id, BANG_OFFICE: this.opts.folder() };
     if (t.kind === 'claude' && !t.isDefault && t.configDir) env.CLAUDE_CONFIG_DIR = t.configDir;
     return this.opts.ptys.openProgram({
       agentId: t.agentId,
@@ -524,7 +535,7 @@ export class WorkerService {
     if (error) j.error = error;
     if (j.turn?.tokens) j.tokens = j.turn.tokens;
     const sec = Math.round((j.endedAt - j.startedAt) / 1000);
-    const end: Record<string, unknown> = { event: 'end', ts: j.endedAt / 1000, acc: j.worker, pid: j.ptyPid, status: logStatus, sec, via: 'terminal', worker: j.worker, job: j.id, ...(j.office ? { office: j.office } : {}) };
+    const end: Record<string, unknown> = { event: 'end', ts: j.endedAt / 1000, acc: j.worker, pid: j.ptyPid, status: logStatus, sec, via: 'terminal', worker: j.worker, job: j.id };
     if (j.tokens) end.usage = { ...(j.turn?.usage ?? {}), total_tokens: j.tokens };
     if (error && status === 'failed') end.error = error;
     this.writeLog(end);
@@ -547,12 +558,10 @@ export class WorkerService {
       worker: s?.t.name ?? j.worker,
       text: j.prompt || tr('New job'),
       status: j.status === 'queued' ? 'working' : j.status,
-      by: j.by,
       at: j.startedAt,
       job: j.id,
       workerId: j.worker,
     };
-    if (j.office) item.office = j.office;
     if (j.role) item.role = j.role;
     if (j.endedAt) item.endedAt = j.endedAt;
     if (j.tokens) item.tokens = j.tokens;
@@ -610,8 +619,8 @@ export class WorkerError extends Error {
 const live = (j: WorkerJob): boolean => j.status === 'queued' || j.status === 'working';
 
 function view(j: Job): WorkerJob {
-  const out: WorkerJob = { id: j.id, worker: j.worker, prompt: j.prompt, by: j.by, status: j.status, startedAt: j.startedAt };
-  for (const k of ['office', 'role', 'mode', 'effort', 'endedAt', 'answer', 'error', 'tokens'] as const) if (j[k] !== undefined) (out as unknown as Record<string, unknown>)[k] = j[k];
+  const out: WorkerJob = { id: j.id, worker: j.worker, prompt: j.prompt, status: j.status, startedAt: j.startedAt };
+  for (const k of ['role', 'mode', 'effort', 'endedAt', 'answer', 'error', 'tokens'] as const) if (j[k] !== undefined) (out as unknown as Record<string, unknown>)[k] = j[k];
   return out;
 }
 

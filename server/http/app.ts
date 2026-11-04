@@ -219,9 +219,8 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       const worker = str(b.worker);
       const prompt = typeof b.prompt === 'string' ? b.prompt : '';
       if (!worker) throw new HttpError(400, tr('expected {worker, prompt}'));
-      const by = b.by === 'boss' || b.by === 'you' || b.by === 'script' ? b.by : undefined;
       const input: AskInput = { worker, prompt };
-      for (const k of ['cwd', 'role', 'mode', 'effort', 'office'] as const) {
+      for (const k of ['cwd', 'role', 'mode', 'effort'] as const) {
         const v = str(b[k]);
         if (v) input[k] = v;
       }
@@ -235,8 +234,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       }
       if (typeof b.max === 'number') input.max = b.max;
       if (b.lean === true) input.lean = true;
-      if (by) input.by = by;
-      if (typeof b.callerPid === 'number') input.callerPid = b.callerPid;
       const r = await w.ask(input);
       if (r.ok) return sendJson(res, 200, { job: r.job });
       if (r.busy) return sendJson(res, 409, { status: 'BUSY', reason: r.busy, message: r.error, error: r.error });

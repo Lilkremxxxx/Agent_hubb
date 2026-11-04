@@ -8,6 +8,10 @@ middle one (0.**3**.0).
 
 ## [Unreleased]
 
+### Changed
+
+- Worker jobs: one job per seat (BUSY per seat); seats on one agy account start one after another (a second job answers `queued`); every job runs in the office folder with `BANG_SLOT` and `BANG_OFFICE`.
+
 ### Removed
 
 - Release tooling, Docker (`docker:up`, compose files), the legacy statusline and permission-hook installers and the statusline tap.

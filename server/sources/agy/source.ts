@@ -73,8 +73,6 @@ export interface AgyAskLine {
   usage?: { input_tokens?: number; output_tokens?: number; thinking_tokens?: number; total_tokens?: number; cache_read_tokens?: number };
   /** "terminal": a job run in the worker's terminal by server/workers (it puts it on the board itself). */
   via?: string;
-  /** Start line: OfficeInfo.id of the office that gave the job. */
-  office?: string;
 }
 
 /** A character to show for a profile (server/team.ts seat, or an Antigravity boss). */
@@ -517,12 +515,10 @@ export class AgySource implements AgentSource {
       worker: workerName(w.profile),
       text: boardText(line.prompt),
       status: 'working',
-      by: this.manual.has(line.pid!) ? 'you' : typeof line.claude_pid === 'number' ? 'boss' : 'script',
       at: (line.ts ?? 0) * 1000,
     };
     const role = line.role;
     if (role) item.role = role;
-    if (line.office) item.office = line.office;
     this.upsertBoard(item);
   }
 
@@ -612,7 +608,6 @@ export class AgySource implements AgentSource {
     const id = this.boardId(w, job);
     const known = this.board.find((x) => x.id === id);
     if (known) {
-      if (mine) known.by = 'you';
       if (job.prompt?.trim()) known.text = boardText(job.prompt);
     } else {
       this.newBoardItem(w, job, id, mine, role);
@@ -630,12 +625,9 @@ export class AgySource implements AgentSource {
       worker: workerName(w.profile),
       text: boardText(job.prompt),
       status: 'working',
-      by: mine ? 'you' : job.claudePid ? 'boss' : 'script',
       at: Math.min(job.startedAt, this.now()),
     };
     if (role) item.role = role;
-    const office = job.ppid !== undefined ? this.starts.get(job.ppid)?.office : undefined;
-    if (office) item.office = office;
     this.upsertBoard(item);
   }
 

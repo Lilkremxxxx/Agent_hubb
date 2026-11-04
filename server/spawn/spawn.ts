@@ -31,7 +31,7 @@ export const HOST_PRESENCE_MS = 10_000;
 /**
  * Polled request unconfirmed becomes a failure; unpolled requests also fail. Runner may execute `claude --bg`
  * plus `open` (CLI_TIMEOUT_MS + OPEN_TIMEOUT_MS): "sent" timeout covers both with margin, and UI waits
- * longer than the sum of both timeouts (client/src/ui/spawn.ts), to avoid false timeouts while still opening.
+ * longer than the sum of both timeouts, to avoid false timeouts while still opening.
  */
 export const SENT_TIMEOUT_MS = CLI_TIMEOUT_MS + OPEN_TIMEOUT_MS + 10_000;
 export const QUEUED_TIMEOUT_MS = 30_000;

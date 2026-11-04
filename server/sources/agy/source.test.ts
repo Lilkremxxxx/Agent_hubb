@@ -460,7 +460,7 @@ describe('AgySource', () => {
     t.source.poll();
     let board = t.office.commit().snapshot.rooms.find((r) => r.id === '/w/agy-hub')?.board;
     expect(board?.order).toMatchObject({ text: 'Split the PR review among the workers', boss: expect.any(String) });
-    expect(board?.items).toEqual([expect.objectContaining({ worker: 'acc2', role: 'review', text: 'Review the PR diff', status: 'working', by: 'boss' })]);
+    expect(board?.items).toEqual([expect.objectContaining({ worker: 'acc2', role: 'review', text: 'Review the PR diff', status: 'working' })]);
     t.end(31, 'acc2', { status: 'SUCCESS', usage: { total_tokens: 4_200 } });
     t.source.poll();
     board = t.office.commit().snapshot.rooms.find((r) => r.id === '/w/agy-hub')?.board;
@@ -471,7 +471,7 @@ describe('AgySource', () => {
     const t = setup();
     const at = (BOOT_MS + 50_000) / 1000;
     const log = [
-      { event: 'start', acc: 'acc2', pid: 7, ts: at, role: 'review', claude_pid: 10, prompt: 'Review the diff', office: 'o1' },
+      { event: 'start', acc: 'acc2', pid: 7, ts: at, role: 'review', claude_pid: 10, prompt: 'Review the diff' },
       { event: 'end', acc: 'acc2', pid: 7, ts: at + 30, status: 'SUCCESS', sec: 30, usage: { total_tokens: 1_500 } },
       { event: 'start', acc: 'acc3', pid: 8, ts: at + 40, prompt: 'Killed hard' },
     ];
@@ -479,8 +479,8 @@ describe('AgySource', () => {
     t.source.start();
     const board = t.office.commit().snapshot.rooms.find((r) => r.id === '/w/agy-hub')?.board;
     expect(board?.items).toEqual([
-      expect.objectContaining({ id: 'agy:acc3#8', text: 'Killed hard', status: 'failed', by: 'script' }),
-      expect.objectContaining({ id: 'agy:acc2#7', text: 'Review the diff', role: 'review', status: 'done', by: 'boss', tokens: 1_500, office: 'o1' }),
+      expect.objectContaining({ id: 'agy:acc3#8', text: 'Killed hard', status: 'failed' }),
+      expect.objectContaining({ id: 'agy:acc2#7', text: 'Review the diff', role: 'review', status: 'done', tokens: 1_500 }),
     ]);
   });
 
