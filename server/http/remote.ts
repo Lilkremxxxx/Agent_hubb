@@ -22,6 +22,7 @@
 //
 // Session: HttpOnly + SameSite=Lax cookie (+ Secure with HTTPS) signed with HMAC; key = random secret in
 // <dataDir>/remote-secret mixed with user and password hash: changing password revokes all sessions.
+import { PasskeyService } from '../remote/passkeys';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
@@ -67,6 +68,9 @@ export function isSecureRemote(cfg: Pick<RemoteConfig, 'tls' | 'domain'>): boole
 
 export const DEFAULT_REMOTE_PORT = 4748;
 export const COOKIE = 'habblaud_remote';
+// `__Host-` (Secure, Path=/, no Domain) stops a sibling subdomain under a public suffix (pp.ua) from overwriting it;
+// browsers drop it without Secure, so the plain-HTTP LAN mode keeps the bare name.
+export const cookieName = (secure: boolean): string => (secure ? `__Host-${COOKIE}` : COOKIE);
 export const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 /** Timeout for first byte of a connection on remote port (before knowing if HTTPS). */
 const FIRST_BYTE_MS = 15_000;
@@ -401,7 +405,8 @@ function esc(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-export function loginPage(opts: { caDownload: boolean }): string {
+export function loginPage(opts: { caDownload: boolean; passwordForm?: boolean }): string {
+  const pw = opts.passwordForm !== false;
   const ca = opts.caDownload
     ? `<p class="ca">${esc(tr('First time on this phone?'))} <a href="${CA_PATH}" download="habblaud-ca.crt">${esc(tr('Install the Habblaud certificate'))}</a> ${esc(tr('to remove the security warning (check the fingerprint that npm run remote:setup showed).'))}</p>`
     : '';
@@ -444,15 +449,15 @@ export function loginPage(opts: { caDownload: boolean }): string {
 <form id="f" autocomplete="on">
   <h1>Habblaud</h1>
   <p>${esc(tr('Phone access. Sign in with the username and password you chose in npm run remote:setup.'))}</p>
-  <label for="u">${esc(tr('Username'))}</label>
+  ${pw ? `<label for="u">${esc(tr('Username'))}</label>
   <input id="u" name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required>
   <label for="p">${esc(tr('Password'))}</label>
   <input id="p" name="password" type="password" autocomplete="current-password" required>
-  <button id="b" type="submit">${esc(tr('Sign in'))}</button>
+  <button id="b" type="submit">${esc(tr('Sign in'))}</button>` : `<p>${esc(tr('Password sign-in is off while a passkey is registered: use your passkey.'))}</p>`}
   <div id="err" role="alert"></div>
   ${ca}
 </form>
-<script>
+${pw ? `<script>
   const f = document.getElementById('f'), b = document.getElementById('b'), err = document.getElementById('err');
   f.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -466,7 +471,7 @@ export function loginPage(opts: { caDownload: boolean }): string {
     } catch { err.textContent = ${js(tr('No connection to Habblaud.'))}; }
     b.disabled = false;
   });
-</script>
+</script>` : ''}
 </body>
 </html>
 `;
@@ -485,7 +490,7 @@ function sendHtml(res: ServerResponse, html: string): void {
 }
 
 function cookieHeader(value: string, maxAgeS: number, secure: boolean): string {
-  return `${COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeS}${secure ? '; Secure' : ''}`;
+  return `${cookieName(secure)}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeS}${secure ? '; Secure' : ''}`;
 }
 
 export interface RemoteGateDeps {
@@ -503,6 +508,10 @@ export interface RemoteGateDeps {
   log?: { info(m: string): void; warn(m: string): void };
   /** Password check (injectable in tests; default: scrypt). */
   verify?: (password: string, hash: PasswordHash) => Promise<boolean>;
+  /** Passkeys (only behind a proxy, where the domain is the WebAuthn rpID). */
+  passkeys?: PasskeyService;
+  /** HABBLAUD_REMOTE_PASSWORD_LOGIN: keep password sign-in on after a passkey exists. */
+  passwordLogin?: boolean;
 }
 
 /**
@@ -513,7 +522,53 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
   const throttle = deps.throttle ?? new LoginThrottle(Date.now, deps.domain ? 30 : 300);
   const failures = deps.failures ?? new FailureWindow();
   const verify = deps.verify ?? verifyPassword;
+  const cname = cookieName(deps.secure);
+  const passwordOff = () => !!deps.passkeys && deps.passkeys.count() > 0 && !deps.passwordLogin;
   const caAvailable = () => !!deps.caFile && existsSync(deps.caFile);
+  const passkeyRoute = (req: IncomingMessage, res: ServerResponse, route: string, authed: boolean): void => {
+    const pk = deps.passkeys;
+    const POST = ['/login/options', '/login/verify', '/register/options', '/register/verify', '/delete'];
+    if (!pk || !(route === '' || POST.includes(route))) { req.resume(); return sendJson(res, 404, { error: tr('not found') }); }
+    if (req.method !== (route === '' ? 'GET' : 'POST')) { req.resume(); return sendJson(res, 405, { error: tr('method not allowed') }, { Allow: route === '' ? 'GET' : 'POST' }); }
+    const isLogin = route.startsWith('/login/');
+    if (!isLogin && !authed) { req.resume(); return sendJson(res, 401, { error: tr('sign in: open Habblaud on this port in your browser and enter your username and password') }); }
+    if (route === '') { req.resume(); return sendJson(res, 200, { passkeys: pk.list() }); }
+    const ip = clientIp(req, !!deps.domain);
+    const ua = (req.headers['user-agent'] ?? '-').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 80) || '-';
+    if (isLogin) {
+      // Own per-IP window, NOT the global LoginThrottle: a stranger must not be able to lock the owner out.
+      const wait = failures.retryAfter(ip);
+      if (wait > 0) {
+        req.resume();
+        if (failures.noteBlocked(ip)) deps.log?.warn(tr('Remote sign-in blocked ({0}) from {1}, {2}', ['passkey', ip, ua]));
+        return sendJson(res, 429, { error: tr('Too many attempts. Try again in {0} s.', [wait]) }, { 'Retry-After': String(wait) });
+      }
+    }
+    readBody(req, 32 * 1024)
+      .then(async (raw) => {
+        const body: unknown = JSON.parse(raw);
+        if (route === '/login/options') return sendJson(res, 200, await pk.loginOptions());
+        if (route === '/register/options') return sendJson(res, 200, await pk.registerOptions());
+        if (route === '/login/verify') {
+          if (!(await pk.verifyLogin(body))) {
+            failures.fail(ip);
+            deps.log?.warn(tr('Remote sign-in failed ({0}) from {1}, {2}', ['passkey', ip, ua]));
+            return sendJson(res, 401, { error: tr('Passkey not recognized.') });
+          }
+          failures.clear(ip);
+          deps.log?.info(tr('Remote sign-in ok ({0}) from {1}, {2}', ['passkey', ip, ua]));
+          const { token, maxAgeS } = deps.sessions.issue();
+          return sendJson(res, 200, { ok: true }, { 'Set-Cookie': cookieHeader(token, maxAgeS, deps.secure) });
+        }
+        if (route === '/register/verify') {
+          const r = await pk.verifyRegister(body);
+          return r.ok ? sendJson(res, 200, { passkey: r.passkey }) : sendJson(res, 400, { error: r.error });
+        }
+        const id = !!body && typeof body === 'object' && typeof (body as { id?: unknown }).id === 'string' ? (body as { id: string }).id : '';
+        return pk.remove(id) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: tr('not found') });
+      })
+      .catch(() => { if (!res.headersSent) sendJson(res, 400, { error: tr('invalid request') }); });
+  };
   return (req, res, url) => {
     const path = url.pathname;
     const method = req.method ?? 'GET';
@@ -522,11 +577,16 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       sendJson(res, 403, { error: tr('cross-site request refused') });
       return true;
     }
-    const authed = deps.sessions.verify(readCookie(req.headers.cookie, COOKIE));
+    const authed = deps.sessions.verify(readCookie(req.headers.cookie, cname));
 
     if (path === '/api/remote/login') {
       if (method !== 'POST') {
         sendJson(res, 405, { error: tr('method not allowed') }, { Allow: 'POST' });
+        return true;
+      }
+      if (passwordOff()) {
+        req.resume();
+        sendJson(res, 403, { error: tr('Password sign-in is off while a passkey is registered: use your passkey.') });
         return true;
       }
       const tooMany = () => {
@@ -582,11 +642,16 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       return true;
     }
 
+    if (path === '/api/remote/passkeys' || path.startsWith('/api/remote/passkeys/')) {
+      passkeyRoute(req, res, path.slice('/api/remote/passkeys'.length), authed);
+      return true;
+    }
+
     if (path === '/api/remote/logout') {
       req.resume();
       if (method !== 'POST') sendJson(res, 405, { error: tr('method not allowed') }, { Allow: 'POST' });
       else {
-        deps.sessions.revoke(readCookie(req.headers.cookie, COOKIE));
+        deps.sessions.revoke(readCookie(req.headers.cookie, cname));
         sendJson(res, 200, { ok: true }, { 'Set-Cookie': cookieHeader('', 0, deps.secure) });
       }
       return true;
@@ -615,7 +680,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       if (authed) {
         res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' });
         res.end();
-      } else sendHtml(res, loginPage({ caDownload: caAvailable() }));
+      } else sendHtml(res, loginPage({ caDownload: caAvailable(), passwordForm: !passwordOff() }));
       return true;
     }
 

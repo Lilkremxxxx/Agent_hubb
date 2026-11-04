@@ -2,7 +2,8 @@ import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'n
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { tempDir } from '../test/fixtures';
-import { CHALLENGE_TTL_MS, Challenges, cleanName, MAX_CHALLENGES, MAX_PASSKEYS, NAME_MAX, PasskeyStore, type StoredPasskey } from './passkeys';
+import * as webauthn from '@simplewebauthn/server';
+import { CHALLENGE_TTL_MS, Challenges, cleanName, MAX_CHALLENGES, MAX_PASSKEYS, NAME_MAX, PasskeyService, PasskeyStore, type StoredPasskey, type WebAuthnLib } from './passkeys';
 
 const pk = (id: string): StoredPasskey => ({ id, publicKey: 'AQID', counter: 0, transports: ['internal'], name: id, createdAt: 1 });
 let t = tempDir();
@@ -95,5 +96,71 @@ describe('names', () => {
     expect(cleanName('x'.repeat(100), 0)).toHaveLength(NAME_MAX);
     expect(cleanName('', Date.UTC(2026, 10, 4))).toBe('Passkey 2026-11-04');
     expect(cleanName(42, Date.UTC(2026, 10, 4))).toBe('Passkey 2026-11-04');
+  });
+});
+
+describe('PasskeyService', () => {
+  const DOMAIN = 'hub.finstar.pp.ua';
+  const mk = (lib?: WebAuthnLib, now = () => clock) => new PasskeyService({ domain: DOMAIN, user: 'bang', store: new PasskeyStore(file()), lib, now });
+  let clock = 1_000_000;
+  let last = '';
+  const fake = (ok = true): WebAuthnLib => ({
+    ...webauthn,
+    generateRegistrationOptions: (async (o: any) => { const r = await webauthn.generateRegistrationOptions(o); last = r.challenge; return r; }) as never,
+    generateAuthenticationOptions: (async (o: any) => { const r = await webauthn.generateAuthenticationOptions(o); last = r.challenge; return r; }) as never,
+    verifyRegistrationResponse: (async (o: any) => {
+      if (!(await o.expectedChallenge(last))) throw new Error('challenge');
+      expect(o).toMatchObject({ expectedOrigin: `https://${DOMAIN}`, expectedRPID: DOMAIN, requireUserVerification: true });
+      return { verified: ok, registrationInfo: { credential: { id: 'cred-1', publicKey: new Uint8Array([1, 2, 3]), counter: 0, transports: ['internal'] } } };
+    }) as never,
+    verifyAuthenticationResponse: (async (o: any) => {
+      if (!(await o.expectedChallenge(last))) throw new Error('challenge');
+      expect(o.credential).toMatchObject({ id: 'cred-1' });
+      expect(o).toMatchObject({ expectedOrigin: `https://${DOMAIN}`, expectedRPID: DOMAIN, requireUserVerification: true });
+      return { verified: ok, authenticationInfo: { newCounter: 7 } };
+    }) as never,
+  });
+
+  it('options from the real library: rpID, user verification required, discoverable, nothing allowed by id', async () => {
+    const s = mk();
+    const reg = (await s.registerOptions()) as any;
+    expect(reg.rp.id).toBe(DOMAIN);
+    expect(reg.authenticatorSelection).toMatchObject({ residentKey: 'required', userVerification: 'required' });
+    const login = (await s.loginOptions()) as any;
+    expect(login).toMatchObject({ rpId: DOMAIN, userVerification: 'required' });
+    expect(login.allowCredentials ?? []).toEqual([]);
+  });
+
+  it('register then sign in: named, counter advances, each challenge works once, registered ids are excluded', async () => {
+    const s = mk(fake());
+    await s.registerOptions();
+    const r = await s.verifyRegister({ response: { id: 'cred-1' }, name: ' Phone ' });
+    expect(r).toMatchObject({ ok: true, passkey: { id: 'cred-1', name: 'Phone' } });
+    expect(await s.verifyRegister({ response: { id: 'cred-1' } })).toMatchObject({ ok: false }); // same challenge
+    expect(s.count()).toBe(1);
+    expect(((await s.registerOptions()) as any).excludeCredentials.map((c: any) => c.id)).toEqual(['cred-1']);
+    await s.loginOptions();
+    expect(await s.verifyLogin({ id: 'cred-1' })).toBe(true);
+    expect(new PasskeyStore(file()).get('cred-1')).toMatchObject({ counter: 7, lastUsedAt: clock });
+    expect(await s.verifyLogin({ id: 'cred-1' })).toBe(false); // replay
+  });
+
+  it('unknown credential, wrong-kind or expired challenge, bad body, verified=false, throwing library: false/error, never a throw', async () => {
+    const s = mk(fake());
+    await s.registerOptions();
+    await s.verifyRegister({ response: { id: 'cred-1' } });
+    expect(await s.verifyLogin({ id: 'nope' })).toBe(false);
+    expect(await s.verifyLogin(null)).toBe(false);
+    await s.loginOptions();
+    expect(await s.verifyRegister({ response: {} })).toMatchObject({ ok: false }); // login challenge, register kind
+    await s.loginOptions();
+    clock += CHALLENGE_TTL_MS + 1;
+    expect(await s.verifyLogin({ id: 'cred-1' })).toBe(false);
+    const bad = mk(fake(false));
+    await bad.loginOptions();
+    expect(await bad.verifyLogin({ id: 'cred-1' })).toBe(false);
+    const boom = mk({ ...fake(), verifyAuthenticationResponse: (async () => { throw new Error('x'); }) as never });
+    await boom.loginOptions();
+    expect(await boom.verifyLogin({ id: 'cred-1' })).toBe(false);
   });
 });

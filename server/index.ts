@@ -10,6 +10,7 @@ import { AccountsService } from './accounts/service';
 import { isTruthy, loadConfig, terminalOffReason } from './config';
 import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard } from './http/guard';
+import { PasskeyService, PasskeyStore } from './remote/passkeys';
 import { createRemoteGate, FailureWindow, isRemoteRequest, isSecureRemote, loadSecret, RemoteSessions, startRemoteListener, type RemoteListener } from './http/remote';
 import { Hub } from './http/sse';
 import { createStaticHandler } from './http/static';
@@ -404,11 +405,16 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 let remoteListener: RemoteListener | undefined;
 if (config.remote) {
   const remote = config.remote;
+  const passkeys = remote.domain
+    ? new PasskeyService({ domain: remote.domain, user: remote.user, store: new PasskeyStore(join(config.dataDir, 'remote', 'passkeys.json'), log) })
+    : undefined;
   const gate = createRemoteGate({
     config: remote,
     sessions: new RemoteSessions(loadSecret(join(config.dataDir, 'remote-secret')), remote, Date.now, join(config.dataDir, 'remote-revoked.json')),
     secure: isSecureRemote(remote),
     domain: remote.domain,
+    passkeys,
+    passwordLogin: remote.passwordLogin,
     failures: new FailureWindow(),
     log,
     caFile: remote.tls?.caFile,
@@ -434,6 +440,7 @@ if (config.remote) {
     const allow = [...remote.allow].join(', ') || tr('view only');
     const scheme = remote.domain ? tr('HTTP behind a proxy for {0}', [remote.domain]) : remote.tls ? 'HTTPS' : tr('HTTP WITHOUT encryption (HABBLAUD_REMOTE_INSECURE_HTTP)');
     if (/\bspawn\b/i.test(process.env.HABBLAUD_REMOTE_ALLOW ?? '')) log.warn(tr('   Remote access: "spawn" is no longer a remote feature and is ignored (only "terminal").'));
+    if (passkeys) log.info(tr('   Remote access: {0} passkey(s); password sign-in {1}.', [passkeys.count(), passkeys.count() > 0 && !remote.passwordLogin ? tr('off') : tr('on')]));
     log.info(tr('   Remote access: on at port {0} ({1}), {2}, with login; allows: {3}.', [remote.port, remote.host, scheme, allow]));
   });
 } else if (config.remoteWarning) {

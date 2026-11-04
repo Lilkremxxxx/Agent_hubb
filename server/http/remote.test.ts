@@ -29,7 +29,9 @@ import {
 import type { SessionLookup } from '../sources/source';
 import { Hub } from './sse';
 import { TerminalStreams } from './terminal';
+import * as webauthn from '@simplewebauthn/server';
 import { hashPassword, parsePasswordHash } from '../remote/password';
+import { PasskeyService, PasskeyStore, type WebAuthnLib } from '../remote/passkeys';
 import { SpawnService } from '../spawn/spawn';
 
 setQuiet(true);
@@ -699,5 +701,95 @@ describe('Secure cookie and CA download', () => {
     expect(ca.status).toBe(200);
     expect(ca.headers['content-type']).toBe('application/x-x509-ca-cert');
     expect((await request(base, '/login')).body).toContain('/remote/ca.crt');
+  });
+});
+
+describe('passkey routes', () => {
+  const DOMAIN = 'hub.finstar.pp.ua';
+  const H = { Connection: 'close', Host: DOMAIN, Origin: `https://${DOMAIN}`, 'CF-Connecting-IP': '203.0.113.7' };
+  let verifyCalls = 0;
+  const lib = (ok = true): WebAuthnLib => ({
+    ...webauthn,
+    verifyRegistrationResponse: (async () => ({ verified: true, registrationInfo: { credential: { id: 'cred-1', publicKey: new Uint8Array([1]), counter: 0 } } })) as never,
+    verifyAuthenticationResponse: (async () => { verifyCalls++; return { verified: ok, authenticationInfo: { newCounter: 1 } }; }) as never,
+  });
+  async function mk(o: { passkeys?: boolean; ok?: boolean; passwordLogin?: boolean; limit?: number } = {}) {
+    const tmp = tempDir();
+    verifyCalls = 0;
+    const passkeys = o.passkeys === false ? undefined : new PasskeyService({ domain: DOMAIN, user: 'ana', store: new PasskeyStore(join(tmp.dir, 'pk.json')), lib: lib(o.ok) });
+    const guard = createRequestGuard({ allowedHosts: new Set([DOMAIN]) });
+    const gate = createRemoteGate({ config: CFG, sessions: new RemoteSessions(SECRET, CFG), secure: true, domain: DOMAIN, passkeys, passwordLogin: o.passwordLogin, failures: new FailureWindow(o.limit ?? 5, 600_000) });
+    const server = http.createServer((req, res) => {
+      if (guard(req, res)) return;
+      if (!gate(req, res, new URL(req.url ?? '/', 'http://x'))) res.writeHead(204).end();
+    });
+    await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+    closers.push(() => new Promise<void>((ok) => server.close(() => { tmp.cleanup(); ok(); })));
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  }
+  const post = (b: string, path: string, body: unknown = {}, headers: Record<string, string> = {}) => request(b, path, { method: 'POST', headers: { ...H, ...headers }, body });
+  const pwCookie = async (b: string) => (await post(b, '/api/remote/login', CREDS)).headers['set-cookie']?.[0].split(';')[0] ?? '';
+
+  it('options are public, registration needs a session, verify signs in with a __Host- Secure Lax cookie', async () => {
+    const b = await mk();
+    expect((await post(b, '/api/remote/passkeys/login/options')).status).toBe(200);
+    expect((await request(b, '/api/remote/passkeys', { headers: H })).status).toBe(401);
+    expect((await post(b, '/api/remote/passkeys/register/options')).status).toBe(401);
+    expect((await post(b, '/api/remote/passkeys/register/verify', { response: {} })).status).toBe(401);
+    const cookie = await pwCookie(b);
+    expect(cookie).toMatch(/^__Host-habblaud_remote=/);
+    const C = { Cookie: cookie };
+    expect((await post(b, '/api/remote/passkeys/register/options', {}, C)).status).toBe(200);
+    const reg = await post(b, '/api/remote/passkeys/register/verify', { response: { id: 'cred-1' }, name: 'Phone' }, C);
+    // fake verify ignores the challenge, so this passes; the challenge itself is covered in passkeys.test.ts
+    expect(reg.status).toBe(200);
+    expect(JSON.parse((await request(b, '/api/remote/passkeys', { headers: { ...H, ...C } })).body).passkeys).toHaveLength(1);
+    const v = await post(b, '/api/remote/passkeys/login/verify', { id: 'cred-1' });
+    expect(v.status).toBe(200);
+    expect(v.headers['set-cookie']?.[0]).toMatch(/^__Host-habblaud_remote=.*SameSite=Lax.*Secure/);
+    expect((await post(b, '/api/remote/passkeys/delete', { id: 'nope' }, C)).status).toBe(404);
+    expect((await post(b, '/api/remote/passkeys/delete', { id: 'cred-1' }, C)).status).toBe(200);
+  });
+
+  it('state-changing routes need the Origin and a JSON body; bad body is 400; wrong method 405', async () => {
+    const b = await mk();
+    const { Origin: _o, ...noOrigin } = H;
+    expect((await request(b, '/api/remote/passkeys/login/options', { method: 'POST', headers: noOrigin, body: {} })).status).toBe(403);
+    expect((await request(b, '/api/remote/passkeys/login/options', { method: 'POST', headers: { ...H, 'Content-Type': 'text/plain' }, body: undefined })).status).toBe(415);
+    const raw = await new Promise<number>((ok, fail) => {
+      const r = http.request(new URL('/api/remote/passkeys/login/verify', b), { method: 'POST', headers: { ...H, 'Content-Type': 'application/json' } }, (res) => { res.resume(); ok(res.statusCode ?? 0); });
+      r.on('error', fail);
+      r.end('{nope');
+    });
+    expect(raw).toBe(400);
+    expect((await request(b, '/api/remote/passkeys/login/options', { headers: H })).status).toBe(405);
+  });
+
+  it('a registered passkey turns password sign-in off (403, scrypt not run) unless HABBLAUD_REMOTE_PASSWORD_LOGIN=1; /login hides the form', async () => {
+    for (const passwordLogin of [false, true]) {
+      const b = await mk({ passwordLogin });
+      const cookie = await pwCookie(b);
+      expect(cookie).not.toBe('');
+      await post(b, '/api/remote/passkeys/register/options', {}, { Cookie: cookie });
+      await post(b, '/api/remote/passkeys/register/verify', { response: { id: 'cred-1' } }, { Cookie: cookie });
+      const r = await post(b, '/api/remote/login', CREDS);
+      expect(r.status).toBe(passwordLogin ? 200 : 403);
+      const page = await request(b, '/login', { headers: H });
+      expect(page.body.includes('id="p"')).toBe(passwordLogin);
+    }
+  });
+
+  it('failed passkey sign-ins hit the per-IP window only (password sign-in elsewhere keeps working); without a domain every route is 404', async () => {
+    const b = await mk({ ok: false, limit: 3 });
+    for (let i = 0; i < 3; i++) await post(b, '/api/remote/passkeys/register/options'); // no-ops, unauthenticated
+    await post(b, '/api/remote/passkeys/login/options');
+    // 'cred-1' is not stored, so verifyLogin is false without calling the library: still counts as a failure
+    for (let i = 0; i < 3; i++) expect((await post(b, '/api/remote/passkeys/login/verify', { id: 'cred-1' })).status).toBe(401);
+    expect((await post(b, '/api/remote/passkeys/login/verify', { id: 'cred-1' })).status).toBe(429);
+    expect((await post(b, '/api/remote/passkeys/login/options')).status).toBe(429);
+    expect((await post(b, '/api/remote/passkeys/login/options', {}, { 'CF-Connecting-IP': '198.51.100.1' })).status).toBe(200);
+    expect((await post(b, '/api/remote/login', CREDS, { 'CF-Connecting-IP': '198.51.100.1' })).status).toBe(200);
+    const none = await mk({ passkeys: false });
+    expect((await post(none, '/api/remote/passkeys/login/options')).status).toBe(404);
   });
 });

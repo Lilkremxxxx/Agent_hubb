@@ -10,6 +10,7 @@ middle one (0.**3**.0).
 
 ### Added
 
+- **Passkey sign-in on the remote port** (WebAuthn via `@simplewebauthn`, bundled at build time, `/api/remote/passkeys/*`): the first passkey is registered from a password session; once one exists password sign-in is off unless `HABBLAUD_REMOTE_PASSWORD_LOGIN=1`. Passkey attempts have their own per-IP limit. Behind HTTPS the session cookie is `__Host-habblaud_remote`. The server bundle now includes its dependencies.
 - **Remote port behind a proxy** (`HABBLAUD_REMOTE_DOMAIN`): loopback plain HTTP, Secure Lax cookie, Origin check, 5 failed sign-ins per IP in 10 minutes, 7-day sessions (was 30), sign-ins logged.
 - **`advisor "<question>"` for worker seats**: the office types the question into the boss's terminal (opened or taken over from the page), passes back the reply that starts with `[ADVISOR <seat> <job>]`, shows the question and the answer in the feed and on the seat, notes it on the running job and adds a row to "Hỏi đáp" in `task_board.md`; exits 2-5 say why there is no answer (no boss terminal, boss waiting for you, 9-minute timeout, reply without the tag).
 - **`skills/`** with `giao-viec`, `advisor` and `bang-task` (the `task_board.md` rules); `giao-viec` says how the boss answers a seat's question, and **`templates/`** with `task_board.md` and `project_proposal.md`.
