@@ -126,12 +126,15 @@ says so: add it.
 5. **Give jobs.** Talk to the boss, or run it yourself. `tools/install.sh` links `worker-ask`, `agy-ask`, `claude-ask` (the same command) and `agy-as` into `~/.local/bin`. Until you run it, use `tools/agy/bin/worker-ask W1 "…"` from the repo (an `agy-ask` already on your PATH may belong to another install and does not know seats):
 
    ```bash
-   worker-ask W1 "Read src/ and list the TODOs" --mode plan
+   worker-ask W1 "Read src/ and list the TODOs" --raw --mode plan
    ```
 
    One job per seat at a time (a busy seat answers exit code 3). Seats on the same Antigravity account start one after
    another. Every terminal and job runs in `folder` with `BANG_SLOT` and `BANG_OFFICE` set. Anyone may give jobs. Claude
-   seats run full; add `--lean` for a light run. See [`tools/agy/README.md`](tools/agy/README.md).
+   seats run full; add `--lean` for a light run. A job for project work is written in the 6 parts of the `giao-viec`
+   skill (worker-ask refuses one without them; `--raw` sends a quick question as is). Every job starts with the seat's
+   preamble and the board's "Bài học" lines. Antigravity seats run `auto` unless the job or the page's defaults say
+   otherwise. See [`tools/agy/README.md`](tools/agy/README.md).
 
 ## Start a project: `bang-init <folder>`
 

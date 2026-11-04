@@ -10,14 +10,21 @@ middle one (0.**3**.0).
 
 ### Added
 
-- **`skills/`** with `giao-viec` (for now the old `agy-orchestrator` guide, rewritten in a later plan), `advisor` (a placeholder until the command exists) and `bang-task` (the `task_board.md` rules), and **`templates/`** with `task_board.md` and `project_proposal.md`.
+- **`skills/`** with `giao-viec`, `advisor` (a placeholder until the command exists) and `bang-task` (the `task_board.md` rules), and **`templates/`** with `task_board.md` and `project_proposal.md`.
 - **`bang-init <folder>`** prepares a project folder: the two templates with the name and folder filled in, `.agents/skills.json` for Antigravity (absolute paths plus this repo's `skills/`), `include_only` from `skills.list`, three links in `.claude/skills/`, `GEMINI.md` linked to `CLAUDE.md`, a placeholder `CLAUDE.md` when there is none, and `folder` in `team.json` when it is empty. It does not create `team.json` and keeps another folder.
 - **An Antigravity seat job in a folder its account does not trust is refused before it starts**, saying to run `agy-as <acc>` there once and answer yes (otherwise agy runs the job behind its trust dialog, with no Bang skills). The server only reads agy's trust list (`trustedWorkspaces` in the account's `settings.json`) and never answers trust. `bang-init` prints the one-time step.
 - **`tools/install.sh --worker`** links the skills into `~/.claude-worker/skills` and prints the login command.
+- **`worker-ask` refuses a job that lacks the title or one of the 6 parts of the `giao-viec` skill** (exit 1, naming the missing part); `--raw` skips this check.
+- **Every `worker-ask` job starts with the seat's preamble** (seat, folder, worker rules, the "Bài học" lines of `task_board.md`), in the office and headless paths.
+- **The `giao-viec` skill is rewritten:** the 6-part template, background jobs, review by command, at most 2 fix rounds, lessons, and an exit-code table that includes the refused-job case.
 - **`npm run office -- stop|restart`**; they only stop this repo's own server on the port (exact command and folder check).
 
 ### Changed
 
+- **Antigravity seats run `auto` when no `--mode` is given** (it was `plan`); the page's "Defaults for jobs" table has Automatic.
+- **The prompt cap is 100 kB of UTF-8** (it was 20,000 characters), and `worker-ask` reports at once when a job goes over. Known edge: a page "Send a job" prompt close to 100 kB plus the preamble can exceed the cap, and the page ignores `worker-ask`'s exit 1.
+- **The job board and the feed show the boss's own text**, not the preamble. A job sent from the page to a seat without a terminal runs `--raw`.
+- **`bang-init` writes a `task_board.md` with the real boss and seats and no example rows**, and warns when an older board still has the example rows.
 - **A typo in `boss` in `team.json` keeps the boss it had** (logged once), so a live Antigravity boss terminal is no longer closed; leaving `boss` out is still the Claude default.
 - **Trust check, `bang-init`, `install.sh`, `office.sh` fixes**: an agy trust list in a layout we do not know (not only absolute paths) no longer refuses jobs; `CDPATH` cannot redirect `bang-init` or `office.sh`; `bang-init` mentions `skills.list` and ignores a comments-only list; `install.sh` keeps its own links when the repo sits under a `Vi-Habblaud` path; `skill-dirs` takes the newest version that has `skills/`.
 - **`tools/install.sh`** replaces `tools/agy/install.sh`. It also links `bang-init`, no longer links skills into `~/.claude/skills`, never replaces a real file, and removes the Vi-Habblaud leftovers (`~/.local/bin` links into it, the `agy-orchestrator` and `office-rules` links in `~/.claude/skills`, the `office-rules` plugin links in each Antigravity profile). Running it again changes nothing.

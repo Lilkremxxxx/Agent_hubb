@@ -18,13 +18,13 @@ then.)
 
 ## Giving a job (one shell command per job)
 ```bash
-agy-ask acc2 "<prompt>" --role <label> --mode <plan|accept-edits|default> --effort <low|medium|high> --cwd <project dir>
+agy-ask acc2 "<prompt>" --role <label> --mode <auto|plan|accept-edits|default> --effort <low|medium|high> --cwd <project dir>
 claude-ask .claude-work "<prompt>" --role <label> --mode <default|plan|accept-edits> --effort <low|medium|high> --cwd <project dir>
 ```
 - The command waits until the worker is done and prints only its final answer (up to `--max` characters, default
   2000). Several jobs at once: start each in the background with its output in a file, then wait, e.g.
   `agy-ask acc2 "..." --role impl ... > /tmp/job-acc2.txt 2>&1 & agy-ask acc4 "..." --role review ... > /tmp/job-acc4.txt 2>&1 & wait`.
-- `--mode`: `plan` = read only; `accept-edits` = may edit files inside `--cwd`; `default` = answers directly (good for
+- `--mode`: `auto` = edits and runs commands on its own (the default for Antigravity seats); `plan` = read only, on request; `accept-edits` = may edit files inside `--cwd`; `default` = answers directly (good for
   data in the prompt). `--effort`: `low` for lookups and simple edits, `medium` for code from a clear spec, `high` for
   review and debugging. Always pass `--role`, `--mode`, `--effort` and `--cwd`.
 - Write each prompt in English and make it self-contained (workers share nothing with you): goal, exact files, limits,
