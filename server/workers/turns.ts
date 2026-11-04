@@ -8,7 +8,7 @@
 // - Claude Code: <config>/projects/<cwd>/<session>.jsonl. The turn is over when the last assistant message stopped with
 //   `end_turn` and no tool is pending; the answer is the text of that message.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 export interface TurnState {
   /** The prompts typed so far (USER_INPUT steps / real user messages). */
@@ -81,6 +81,22 @@ export function claudeTrusts(configDir: string, isDefault: boolean, cwd: string)
   for (let dir = cwd; ; dir = dirname(dir)) {
     if (projects[dir]?.hasTrustDialogAccepted === true) return true;
     if (dirname(dir) === dir) return false;
+  }
+}
+
+/**
+ * Does the agy account trust this folder? agy keeps the folders it was told to trust in
+ * `<stateDir>/settings.json` (`trustedWorkspaces`, absolute paths) and matches the exact path, not ancestors. An
+ * interactive agy in another folder stops at a trust dialog. undefined when the list cannot be read (never written here).
+ */
+export function agyTrusts(stateDir: string, folder: string): boolean | undefined {
+  try {
+    const list = (JSON.parse(readFileSync(join(stateDir, 'settings.json'), 'utf8')) as { trustedWorkspaces?: unknown }).trustedWorkspaces;
+    if (!Array.isArray(list)) return undefined;
+    const want = resolve(folder);
+    return list.some((p) => typeof p === 'string' && resolve(p) === want);
+  } catch {
+    return undefined;
   }
 }
 

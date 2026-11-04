@@ -60,6 +60,7 @@ Next:
   3. Hand out work with the giao-viec skill (worker-ask <seat> "...").""")
 if os.path.isdir(f"{home}/.claude-worker"):
     print(f"  4. Once: cd {folder} && CLAUDE_CONFIG_DIR={home}/.claude-worker claude  (log in, trust the folder, /exit);\n     without it every job on a Claude seat stops at TRUST_WAIT.")
-print(f"  Antigravity seats: once per account ({', '.join(accs) if accs else 'every agy account in team.json'}): cd {folder} && agy-as <acc>\n     (answer yes to the trust question, then /exit); without it a job there stops at the trust question.")
+if accs or not os.path.exists(team):
+    print(f"  Antigravity seats: BEFORE the first job in this folder, once per account ({', '.join(accs) if accs else 'each agy account in team.json'}): cd {folder} && agy-as <acc>\n     (answer yes to the trust question, then /exit); until then worker-ask refuses the job.")
 PY
 exit $rc

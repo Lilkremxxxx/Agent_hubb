@@ -303,11 +303,6 @@ export class PtyManager {
     return true;
   }
 
-  /** What this agent's terminal shows now (its stored screen, escape sequences included); undefined when it has none. */
-  screenText(agentId: string): string | undefined {
-    return this.byAgent(agentId)?.screen.serialize();
-  }
-
   /** Closes the running terminal of this agent (if any). */
   closeAgent(agentId: string): void {
     const t = this.byAgent(agentId);

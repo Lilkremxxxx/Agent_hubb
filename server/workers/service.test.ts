@@ -8,7 +8,7 @@ import type { JobBoardItem, PtyInfo } from '../../shared/types';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import { IDLE_CLOSE_MS, LEAN_TOOLS, leanClaudeArgs, START_SETTLE_MS, TRUST_WAIT_MS, WorkerService, type WorkerPtys, type WorkerTarget } from './service';
-import { agyTranscriptPath, agyTurn, claudeTranscriptPath, claudeTurn, lastWrite } from './turns';
+import { agyTranscriptPath, agyTrusts, agyTurn, claudeTranscriptPath, claudeTurn, lastWrite } from './turns';
 
 const T0 = 1_800_000_000_000;
 const dirs: string[] = [];
@@ -74,10 +74,33 @@ describe('turns', () => {
   });
 });
 
+describe('agyTrusts', () => {
+  const state = () => {
+    const d = mkdtempSync(join(tmpdir(), 'habblaud-agytrust-'));
+    dirs.push(d);
+    return d;
+  };
+  it('true/false by the exact normalized path; undefined when unknown', () => {
+    const d = state();
+    expect(agyTrusts(d, '/w/a')).toBeUndefined();
+    writeFileSync(join(d, 'settings.json'), JSON.stringify({ trustedWorkspaces: ['/tmp', '/w/a/', '/w/b/../c'] }));
+    expect(agyTrusts(d, '/w/a')).toBe(true);
+    expect(agyTrusts(d, '/w/a/')).toBe(true);
+    expect(agyTrusts(d, '/w/x/../c')).toBe(true);
+    expect(agyTrusts(d, '/w/a/sub')).toBe(false); // agy matches the exact path, not ancestors
+    expect(agyTrusts(d, '/w')).toBe(false);
+    writeFileSync(join(d, 'settings.json'), '{bad');
+    expect(agyTrusts(d, '/w/a')).toBeUndefined();
+    writeFileSync(join(d, 'settings.json'), JSON.stringify({ trustedWorkspaces: 'x' }));
+    expect(agyTrusts(d, '/w/a')).toBeUndefined();
+    writeFileSync(join(d, 'settings.json'), '{}');
+    expect(agyTrusts(d, '/w/a')).toBeUndefined();
+  });
+});
+
 function fakePtys() {
   const open = new Map<string, PtyInfo & { args: string[]; env?: Record<string, string>; file: string }>();
   const typed: Array<[string, string]> = [];
-  const screens = new Map<string, string>();
   let pid = 100;
   const ptys: WorkerPtys = {
     openProgram: (p) => {
@@ -91,9 +114,8 @@ function fakePtys() {
       return open.has(id);
     },
     closeAgent: (id) => void open.delete(id),
-    screenText: (id) => (open.has(id) ? screens.get(id) ?? '' : undefined),
   };
-  return { ptys, open, typed, screens };
+  return { ptys, open, typed };
 }
 
 function setup(workers = ['W1', 'W2', 'C1']) {
@@ -340,43 +362,43 @@ describe('WorkerService', () => {
     expect(t.svc.jobs()[0].status).toBe('working');
   });
 
-  describe('agy job at the folder-trust prompt', () => {
-    const TRUST_SCREEN = '\x1b[1mDo you trust the contents\x1b[0m of\r\n this project?\r\n > Yes, I trust this folder';
+  describe('agy job in a folder the account does not trust (read from agy\'s own trust list)', () => {
+    const trusted = (t: ReturnType<typeof setup>, list: unknown) => writeFileSync(join(t.stateDir, 'settings.json'), JSON.stringify({ trustedWorkspaces: list }));
 
-    it('no conversation after TRUST_WAIT_MS and the screen asks about trust: the terminal closes, nothing is typed, the job fails saying what to do', async () => {
+    it('folder not in trustedWorkspaces: refused with what to do, no terminal, nothing queued', async () => {
       const t = setup();
-      await t.svc.ask({ worker: 'W1', prompt: 'Say pong', cwd: t.root });
-      t.screens.set('agy:acc2', TRUST_SCREEN);
-      t.advance(TRUST_WAIT_MS - 1000);
-      t.svc.tick();
-      expect(t.svc.jobs()[0].status).toBe('working');
-      t.advance(2000);
-      t.svc.tick();
-      expect(t.svc.jobs()[0]).toMatchObject({ status: 'failed', error: expect.stringContaining(`Antigravity account acc2 does not trust the folder ${t.root}: run "agy-as acc2"`) });
-      expect(t.open.has('agy:acc2')).toBe(false);
+      trusted(t, ['/tmp', '/elsewhere']);
+      const r = await t.svc.ask({ worker: 'W1', prompt: 'Say pong', cwd: t.root });
+      expect(r).toMatchObject({ ok: false, status: 400, error: `Antigravity account acc2 does not trust the folder ${t.root}: run "agy-as acc2" there once, answer yes, then give the job again` });
+      expect(t.open.size).toBe(0);
       expect(t.typed).toEqual([]);
+      expect(t.svc.jobs()).toEqual([]);
     });
 
-    it('the conversation appeared before the wait: no failure', async () => {
+    it('folder listed (trailing slash or .. in the job path too): the job starts', async () => {
       const t = setup();
-      await t.svc.ask({ worker: 'W1', prompt: 'Say pong', cwd: t.root });
-      t.screens.set('agy:acc2', TRUST_SCREEN);
-      t.agyWrites([{ type: 'USER_INPUT', status: 'DONE', content: 'q' }]);
-      t.advance(TRUST_WAIT_MS + 1000);
-      t.svc.tick();
-      expect(t.svc.jobs()[0].status).toBe('working');
-      expect(t.open.has('agy:acc2')).toBe(true);
+      trusted(t, [t.root + '/']);
+      expect((await t.svc.ask({ worker: 'W1', prompt: 'a', cwd: t.root })).ok).toBe(true);
+      const sub = join(t.root, 'sub');
+      mkdirSync(sub);
+      trusted(t, [t.root]);
+      expect((await t.svc.ask({ worker: 'W2', prompt: 'b', cwd: `${sub}/../` })).ok).toBe(true);
+      expect(t.svc.jobs().map((j) => j.status)).toEqual(['queued', 'working']); // same account: the second waits its turn
     });
 
-    it('a screen without the question after the wait: keeps waiting', async () => {
+    it('settings.json missing, broken or without the key: unknown, the job starts', async () => {
+      const t = setup(['W1', 'W2', 'W3']);
+      expect((await t.svc.ask({ worker: 'W1', prompt: 'a', cwd: t.root })).ok).toBe(true);
+      writeFileSync(join(t.stateDir, 'settings.json'), '{bad');
+      expect((await t.svc.ask({ worker: 'W2', prompt: 'b', cwd: t.root })).ok).toBe(true);
+      writeFileSync(join(t.stateDir, 'settings.json'), '{"other":1}');
+      expect((await t.svc.ask({ worker: 'W3', prompt: 'c', cwd: t.root })).ok).toBe(true);
+    });
+
+    it('a Claude seat is not affected by agy settings', async () => {
       const t = setup();
-      await t.svc.ask({ worker: 'W1', prompt: 'Say pong', cwd: t.root });
-      t.screens.set('agy:acc2', 'Antigravity CLI\r\n> thinking...');
-      t.advance(TRUST_WAIT_MS + 1000);
-      t.svc.tick();
-      expect(t.svc.jobs()[0].status).toBe('working');
-      expect(t.open.has('agy:acc2')).toBe(true);
-      expect(t.typed).toEqual([]);
+      trusted(t, ['/elsewhere']);
+      expect((await t.svc.ask({ worker: 'C1', prompt: 'a', cwd: t.root })).ok).toBe(true);
     });
   });
 

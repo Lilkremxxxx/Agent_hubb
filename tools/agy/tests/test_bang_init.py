@@ -136,9 +136,12 @@ def test_next_steps_say_each_agy_account_trusts_the_folder_once(env):
     env.team({"folder": "", "workers": [{"name": "W1", "kind": "agy", "account": "acc2"}, {"name": "W2", "kind": "agy", "account": "acc1"},
                                         {"name": "W3", "kind": "agy", "account": "acc2"}, {"name": "C1", "kind": "claude", "account": ".claude-w"}]})
     _, out, _ = env.run([env.proj])
-    assert f"Antigravity seats: once per account (acc1, acc2): cd {env.real(env.proj)} && agy-as <acc>" in out and ".claude-w" not in out
+    assert f"Antigravity seats: BEFORE the first job in this folder, once per account (acc1, acc2): cd {env.real(env.proj)} && agy-as <acc>" in out and ".claude-w" not in out
     _, out, _ = env.run([env.proj], data=env.tmp + "/none")  # no team.json: generic wording
-    assert "every agy account in team.json" in out
+    assert "each agy account in team.json" in out and "BEFORE the first job" in out
+    env.team({"folder": "", "workers": [{"name": "C1", "kind": "claude", "account": ".claude-w"}]})
+    _, out, _ = env.run([env.proj])
+    assert "Antigravity seats" not in out  # a Claude-only team
 
 
 def test_blank_data_dir_means_home_habblaud(env):

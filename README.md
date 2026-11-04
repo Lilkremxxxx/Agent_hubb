@@ -142,8 +142,11 @@ It makes `<folder>` an office folder and is safe to run again: the templates and
 - `folder` in `team.json`, only when it is empty (another folder is kept and reported). It does not create `team.json`:
   start the office once first.
 
-An Antigravity seat also needs a one-time trust per account in the office folder: `cd <folder> && agy-as <acc>`, answer yes, `/exit`
-(`bang-init` lists the accounts of `team.json`). Without it a job there fails after 15 s saying so, instead of waiting at the trust question.
+An Antigravity seat needs a one-time trust per account and folder, before its first job there: `cd <folder> && agy-as <acc>`,
+answer yes, `/exit` (`bang-init` lists the accounts of `team.json`). The server reads agy's own trust list
+(`trustedWorkspaces` in the account's `settings.json`, read-only) and refuses the job before starting it when the folder
+is not in it; it never answers the trust question for you. Without that step agy would run the job behind the dialog,
+with no Bang skills.
 
 To limit which skills Antigravity sees, put their names in `<folder>/skills.list` (one per line, `#` for comments) and
 run `bang-init` again: every folder in `skills.json` then gets `include_only`, except this repo's `skills/`. Run it
