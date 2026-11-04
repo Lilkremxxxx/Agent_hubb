@@ -42,6 +42,13 @@ middle one (0.**3**.0).
 
 - **Seats:** one office, one `folder`, one boss and workers in `team.json`; edit the file to add or remove seats (re-read every second).
 - **The boss button:** ＋ next to Boss opens the boss (`boss.kind`) in `folder` (`POST /api/team {openBoss: true}`; no folder answers 400 and points at `team.json`). 👑 Make boss on an open Claude session still works.
+- **Job board in the workers room:** the wall board shows the latest order given to the boss and the recent jobs (seat, role, status); a new job sends the worker to the board to "hear" it before it heads to its desk.
+- **Workers have a terminal of their own:** a job (`worker-ask`, or "Send a job") restarts the seat's terminal with the request as its first message, so every job is a fresh conversation. The caller waits without spending tokens and gets only the final answer. The terminal is read-only to watch, closes after 20 minutes idle, and a seat on a job refuses another (BUSY).
+- **"Send a job" and "Defaults for jobs":** every worker's drawer can send a job with mode and effort (low, medium, high), and keeps defaults for jobs without `--mode`/`--effort` in `~/.agy_profiles/defaults.json`.
+- **The boss, appointed by you:** one Claude Code session wears the crown and a gold BOSS badge ("👑 Make boss" / "Step down" in its drawer); the choice survives restarts. A closed boss stays named in the Boss group.
+- **The sidebar by role:** Boss, Workers and Others (folded by default); each Claude row says its folder.
+- **"Boss overloaded" warns you:** when the boss passes a threshold a notice appears once per level and suggests a new session; an overloaded boss's notice stays until dismissed.
+- **Antigravity workers' usage and jobs:** each account's 5-hour and weekly `/usage` every 15 min (`HABBLAUD_AGY_USAGE_MIN`; 0 disables; `HABBLAUD_AGY=0` turns the Antigravity workers off), and a finished job shows its duration and tokens from the `agy-ask` log.
 - claude-mem observer sessions are hidden from the office (and from the source's session count).
 - **Accounts window (👤 on the toolbar):** every Claude Code and Antigravity account on this computer, apart from
   sessions: e-mail, 5-hour and week usage, and "Sign in again". "＋ Add Claude account" asks for a name, makes

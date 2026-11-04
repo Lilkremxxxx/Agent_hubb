@@ -8,7 +8,8 @@ skills="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
 mkdir -p "$bin" "$skills"
 
 for f in agy-as; do ln -sfn "$here/bin/$f" "$bin/$f"; done
-ln -sfn "$here/bin/worker-ask" "$bin/agy-ask"
+ln -sfn "$here/bin/worker-ask" "$bin/worker-ask"
+ln -sfn worker-ask "$bin/agy-ask"
 ln -sfn agy-ask "$bin/claude-ask"
 for s in "$here"/skills/*/; do ln -sfn "${s%/}" "$skills/$(basename "$s")"; done
 

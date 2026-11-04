@@ -230,7 +230,7 @@ class AgentView {
   private actTime: HTMLElement;
   private actDetails: HTMLDetailsElement;
   private actDetail: HTMLElement;
-  /** Antigravity worker in manual mode: "Send a job" (ui/agy-panel.ts). */
+  /** Antigravity worker: "Send a job" (ui/agy-panel.ts). */
   private agyPanel: AgyPanel;
   /** Antigravity worker: mode and effort for jobs that do not say (every worker, local only). */
   private agyDefaults: AgyDefaultsPanel;
@@ -572,7 +572,7 @@ class AgentView {
     const following = this.ctx.world.getOptions().followSelected;
     setAttr(this.followBtn, 'aria-pressed', String(following));
     this.followBtn.classList.toggle('is-on', following);
-    // Antigravity worker: no conversation to open or messages; in manual mode, "Send a job" (local only). An Antigravity
+    // Antigravity worker: no conversation to open or messages; "Send a job" (local only). An Antigravity
     // boss has its terminal (where you talk to it).
     const agy = providerOf(a) === 'agy';
     // A worker's terminal opens from its "Terminal" section (watch-only), not from here.

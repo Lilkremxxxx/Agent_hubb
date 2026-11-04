@@ -71,7 +71,7 @@ You need:
 # clone this repository, then enter its folder
 cd <folder>
 npm install && npm run build && npm run office
-tools/agy/install.sh     # worker-ask (also as agy-ask and claude-ask), agy-as and the skills
+tools/agy/install.sh     # worker-ask (also agy-ask, claude-ask), agy-as and the skills
 ```
 
 `npm install` fetches build tools only: the server has no required runtime dependencies. `npm run office` builds and
@@ -111,7 +111,7 @@ says so: add it.
 3. **Open the boss.** In the sidebar, the **＋** next to Boss opens the boss (`boss.kind`) in `folder`. A Claude session
    you already have open can become the boss with **👑 Make boss** in its drawer.
 
-4. **Give jobs.** Talk to the boss, or run it yourself (`tools/agy/install.sh` links `bin/worker-ask` as `agy-ask` and `claude-ask`; they are the same command):
+4. **Give jobs.** Talk to the boss, or run it yourself. `tools/agy/install.sh` links `worker-ask`, `agy-ask`, `claude-ask` (the same command) and `agy-as` into `~/.local/bin`. Until you run it, use `tools/agy/bin/worker-ask W1 "…"` from the repo (an `agy-ask` already on your PATH may belong to another install and does not know seats):
 
    ```bash
    worker-ask W1 "Read src/ and list the TODOs" --mode plan
