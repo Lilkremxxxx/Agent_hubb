@@ -814,4 +814,14 @@ Bàn giao Kế hoạch 1: I5 visit Task 1; dòng `vi.ts --allow` Task 1; M1, M2,
 
 ## Kết quả
 
-(Task 10 điền.)
+Chạy trên worktree `~/bang-ver-accept` (HEAD e83d5ba), server thử cổng 4749, data dir `~/.bang-test-data`.
+
+- **Bước 1 (Step 2–4):** build xong; HTTP 200; log không có stack trace; bốn nhân vật `W1` (`agy:acc1`), `W2` (`agy:acc1@W2`), `C1`, `C2` (`claude-worker:*`) đều ở phòng `~/bang-test-office`; hai phiên Claude khác của máy ở phòng `Agent_4_me`; `observer rooms: []`; team folder đúng. Đạt.
+- **Boss (Step 5):** `openBoss` trả `pty.cwd` = `~/bang-test-office`, `readlink /proc/<pid>/cwd` giống; lần gọi thứ hai trả cùng `pty.id`; boss đã đóng lại qua `POST /api/pty/<id>/close` (204). Vương miện (boss `boss: true` sau khi tin cậy thư mục): chờ người dùng.
+- **Ảnh chụp (Step 6):** `plan2-office.png`: một office, không có thanh tab, nhóm Boss có nút ＋, nhóm Workers có W1 W2 C1 C2; `pageerrors []`. Đạt.
+- **Bước 2 (Step 7):** W1, W2 song song trên acc1. T3 vào W1 đang bận: `exit=3` (BUSY). `w1.out` có `T1-OK`, `w2.out` có `T2-OK`, mỗi việc 12.5 s thật, chồng nhau. Hai hội thoại khác nhau: `eed0b4f9-...` (T1-OK) và `cace978a-...` (T2-OK). Env terminal: `BANG_SLOT=W1/W2`, `BANG_OFFICE=~/bang-test-office`, cwd = folder. Khoảng chờ W2: job W2 `queued` ở giây 2 và `working` ở giây 4 (mẫu 2 giây), tức dưới 4 s, xa trần `START_SETTLE_MS` 30 s; chưa cần chỉnh. Đạt.
+- **Bước 3 (Step 8, C1/C2):** chờ người dùng (chưa đăng nhập `~/.claude-worker`, chưa tin cậy thư mục).
+- **Bước 8 (Step 9):** typecheck xanh; vitest 79 file, 938 test xanh; i18n 1253/1253; pytest 16 passed. RSS chưa việc nào (Step 4): 108876 kB (≤112640, đạt); RSS sau khi chạy hết việc: 91512 kB (tham khảo). Dòng thêm ròng không-test: +745 −3694 = −2949 (≤ +300, đạt).
+- **Dọn:** server 4749 dừng, server 4747 vẫn chạy (1 listener), worktree đã xoá; giữ `~/bang-test-office` và `~/.bang-test-data`.
+- **Còn chờ người dùng:** Step 1 (tin cậy thư mục cho boss, đăng nhập `~/.claude-worker`), vương miện boss, C1/C2 song song.
+- **Lưu ý:** `echo $!` sau `setsid nohup ... &` lưu pid của `setsid` (đã thoát), không phải server; đã sửa tay file pid bằng pid listener cổng 4749.
