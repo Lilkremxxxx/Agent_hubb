@@ -684,4 +684,23 @@ Người dùng cần làm: tin cậy `~/bang-test-office` cho tài khoản Claud
 
 ## Để lại cho Kế hoạch 6
 
-(Task 7 ghi.)
+Mỗi mục một dòng, nguồn trong ngoặc.
+
+1. **Deploy (Kế hoạch 6) phải giữ rào `/api/advisor`**: `isRemote(req) || !trusted(req)` -> 403, giống `/api/pty` và `/api/workers/`; route này KHÔNG có tính năng từ xa. Cho qua từ xa = bất kỳ ai gõ chữ tuỳ ý vào terminal boss = chạy lệnh trên máy. Thêm test 403 qua cổng remote (Quyết định 3, Task 3).
+2. **Nghiệm thu Bước 4-5 còn chờ người dùng**: tin cậy `~/bang-test-office` cho tài khoản Claude mặc định (mở `claude` một lần ở đó, chọn "Yes, I trust this folder"), rồi chạy lại Bước 4-5, đo: ngôn ngữ khung boss nhận, tuân thủ thẻ, gõ lại, dòng Hỏi đáp thật (`## Kết quả` Bước 4-5).
+3. **Bước 6 / M2 (boss agy, worker tráo hội thoại)**: tuỳ chọn, tốn quota acc1; chạy hay bỏ do người dùng quyết (`## Kết quả` Bước 6). Chưa có thì ghi "chưa kiểm".
+4. **Số dòng vượt trần**: ròng +465 dòng không-test so với trần mềm ~380 (`advisor.ts` 284, CLI 94). Nếu người dùng muốn cắt, chỗ co lại được: xếp hàng/thẻ `#n`, bộ đếm (`## Kết quả` Bước 7).
+5. **Vặt còn mở từ review**:
+   - Ctrl-C trong CLI advisor in traceback (CLI advisor).
+   - Bộ đếm reset khi server khởi động lại: thẻ muộn từ trước khi restart có thể bị khớp nhầm (`advisor.ts`).
+   - `record()` dùng `folder()` tại lúc kết thúc, file tmp mất mode/symlink của bảng (`advisor.ts`).
+   - `maskSecrets` chưa áp lên feed/bảng.
+   - Đường dẫn transcript cố định lúc hỏi: `/clear` trong boss thành timeout.
+6. **Ghế agy chạy `advisor`** cần người dùng duyệt trong terminal W2 (Bước 5); cách cho phép lệnh trong profile agy chưa có (cú pháp `command(...)` của allow không chạy, Kế hoạch 4).
+7. **Boss agy**: advisor từ chối (exit 2), không có đọc transcript boss agy; kết quả M2 xem mục 3.
+8. **Tuân thủ thẻ** bằng ngôn ngữ thật của server (Bước 4); nếu boss bỏ thẻ: dùng khung tiếng Anh hoặc thêm câu "No preface, no footer".
+9. **Giết CLI không huỷ câu hỏi**; ghế Claude cần `timeout: 600000` (chưa có lần chạy C1 thật).
+10. **Còn mở từ Kế hoạch 4**: ghế Claude `auto` (câu hỏi mở 1), việc gõ trên trang không có lời mở đầu (câu hỏi mở 2), Step 9 boss tự đọc skill (một phần chạy ở Bước 4 nếu có boss).
+11. **RSS rảnh 112.4 MB** (HEAD Kế hoạch 4: 113.1 MB), đo khi chưa mở boss; đo lại khi có boss.
+12. **Ngoài v1**: mô hình advisor headless (khi boss hay vắng).
+13. **Các mục "Spec cần sửa"** ở trên chưa sửa trong spec.
