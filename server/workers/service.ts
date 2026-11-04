@@ -227,6 +227,22 @@ export class WorkerService {
     return { busy, ...(busy && s.job!.role ? { role: s.job!.role } : {}) };
   }
 
+  /** For the advisor: the seat's character and the job reference of its tag (title ID, else job id, else '-'). */
+  seatRef(worker: string): { agentId: string; ref: string } | undefined {
+    const s = this.sessions.get(worker);
+    if (!s) return undefined;
+    const j = s.job && live(s.job) ? s.job : undefined;
+    return { agentId: s.t.agentId, ref: (j && (/^#\s*Việc\s+([\w.-]{1,20})/u.exec(j.prompt.normalize('NFC'))?.[1] ?? j.id)) || '-' };
+  }
+
+  /** The seat's last question to the boss, kept on its running job. */
+  noteQuestion(worker: string, text: string): void {
+    const j = this.sessions.get(worker)?.job;
+    if (!j || !live(j)) return;
+    j.question = truncate(maskSecrets(text.replace(/\s+/g, ' ')), 300);
+    this.opts.onChange();
+  }
+
   /** Is this PID the program of a worker terminal? (ClaudeWatcher leaves those sessions to this service.) */
   ownsPid(pid: number): boolean {
     for (const s of this.sessions.values()) if (this.opts.ptys.ofAgent(s.t.agentId)?.pid === pid) return true;
@@ -643,7 +659,7 @@ const live = (j: WorkerJob): boolean => j.status === 'queued' || j.status === 'w
 
 function view(j: Job): WorkerJob {
   const out: WorkerJob = { id: j.id, worker: j.worker, prompt: j.prompt, status: j.status, startedAt: j.startedAt };
-  for (const k of ['role', 'mode', 'effort', 'endedAt', 'answer', 'error', 'tokens'] as const) if (j[k] !== undefined) (out as unknown as Record<string, unknown>)[k] = j[k];
+  for (const k of ['role', 'mode', 'effort', 'endedAt', 'answer', 'error', 'tokens', 'question'] as const) if (j[k] !== undefined) (out as unknown as Record<string, unknown>)[k] = j[k];
   return out;
 }
 

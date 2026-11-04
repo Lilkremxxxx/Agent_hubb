@@ -648,3 +648,15 @@ describe('WorkerService', () => {
     expect(t.svc.jobs().find((j) => j.worker === 'C1')?.prompt).toBe('do it');
   });
 });
+
+it('a seat question goes on its running job; the tag reference is the job title ID, else the job id, else "-"', async () => {
+  const t = setup();
+  expect(t.svc.seatRef('W1')).toEqual({ agentId: 'agy:acc2', ref: '-' });
+  expect(t.svc.seatRef('nobody')).toBeUndefined();
+  await t.svc.ask({ worker: 'W1', prompt: 'Bạn là ghế W1…\n---\n# Việc T7 — đếm', task: '# Việc T7 — đếm\n## Bối cảnh x' });
+  expect(t.svc.seatRef('W1')?.ref).toBe('T7');
+  t.svc.noteQuestion('W1', 'which file?\nthe first');
+  expect(t.svc.jobs().find((j) => j.worker === 'W1')?.question).toBe('which file? the first');
+  await t.svc.ask({ worker: 'C1', prompt: 'no title' });
+  expect(t.svc.seatRef('C1')?.ref).toBe(t.svc.jobs().find((j) => j.worker === 'C1')?.id);
+});

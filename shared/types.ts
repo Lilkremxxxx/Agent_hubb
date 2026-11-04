@@ -389,6 +389,8 @@ export interface WorkerJob {
   answer?: string;
   error?: string;
   tokens?: number;
+  /** The seat's last question to the boss during this job (advisor), ≤300 characters. */
+  question?: string;
 }
 
 /** A seat's terminal session (server/workers). */
