@@ -3,8 +3,8 @@
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import * as webauthn from '@simplewebauthn/server';
 import { tr } from '../../shared/i18n';
+import { normalizeIp } from '../http/guard';
 
 export interface StoredPasskey { id: string; publicKey: string /* base64url */; counter: number; transports?: string[]; name: string; createdAt: number; lastUsedAt?: number }
 
@@ -87,14 +87,16 @@ export class Challenges {
 
   private static key(c: string): string { return createHash('sha256').update(c).digest('hex'); }
 
-  add(kind: Kind, challenge: string, owner = ''): void {
+  /** False when the map is full after the owner's own trim: a new owner is refused, never allowed to evict another's challenge. */
+  add(kind: Kind, challenge: string, rawOwner = ''): boolean {
+    const owner = normalizeIp(rawOwner); // one IPv6 /64 is one owner
     const t = this.now();
     for (const [k, v] of this.m) if (v.exp <= t) this.m.delete(k);
-    // One owner (client IP) can only displace its own oldest challenges, never somebody else's.
     const mine = [...this.m].filter(([, v]) => v.owner === owner).map(([k]) => k);
     for (const k of mine.slice(0, Math.max(0, mine.length - this.perOwner + 1))) this.m.delete(k);
-    while (this.m.size >= this.max) this.m.delete(this.m.keys().next().value as string);
+    if (this.m.size >= this.max) return false;
     this.m.set(Challenges.key(challenge), { kind, exp: t + CHALLENGE_TTL_MS, owner });
+    return true;
   }
 
   take(kind: Kind, challenge: string): boolean {
@@ -106,7 +108,17 @@ export class Challenges {
   }
 }
 
-export type WebAuthnLib = Pick<typeof webauthn, 'generateRegistrationOptions' | 'verifyRegistrationResponse' | 'generateAuthenticationOptions' | 'verifyAuthenticationResponse'>;
+type Webauthn = typeof import('@simplewebauthn/server');
+export type WebAuthnLib = Pick<Webauthn, 'generateRegistrationOptions' | 'verifyRegistrationResponse' | 'generateAuthenticationOptions' | 'verifyAuthenticationResponse'>;
+
+// Loaded on the first ceremony, not at start: the library costs ~7 MB of RAM that an office without passkeys never needs
+// (esbuild puts it in its own chunk, see scripts/build-server.mjs).
+const lazyLib: WebAuthnLib = {
+  generateRegistrationOptions: async (o) => (await import('@simplewebauthn/server')).generateRegistrationOptions(o),
+  verifyRegistrationResponse: async (o) => (await import('@simplewebauthn/server')).verifyRegistrationResponse(o),
+  generateAuthenticationOptions: async (o) => (await import('@simplewebauthn/server')).generateAuthenticationOptions(o),
+  verifyAuthenticationResponse: async (o) => (await import('@simplewebauthn/server')).verifyAuthenticationResponse(o),
+};
 export interface PasskeyView { id: string; name: string; createdAt: number; lastUsedAt?: number }
 
 const TRANSPORTS = new Set(['internal', 'hybrid', 'usb', 'nfc', 'ble', 'smart-card', 'cable']);
@@ -129,19 +141,19 @@ export class PasskeyService {
   private readonly user: string;
 
   constructor(o: { domain: string; user: string; store: PasskeyStore; lib?: WebAuthnLib; now?: () => number }) {
-    this.domain = o.domain; this.user = o.user; this.store = o.store; this.lib = o.lib ?? webauthn; this.now = o.now ?? Date.now;
+    this.domain = o.domain; this.user = o.user; this.store = o.store; this.lib = o.lib ?? lazyLib; this.now = o.now ?? Date.now;
     this.loginCh = new Challenges(this.now, MAX_LOGIN_CHALLENGES, MAX_LOGIN_CHALLENGES_PER_IP);
-    this.registerCh = new Challenges(this.now, MAX_REGISTER_CHALLENGES);
+    this.registerCh = new Challenges(this.now, MAX_REGISTER_CHALLENGES, MAX_REGISTER_CHALLENGES);
   }
 
   count(): number { return this.store.count(); }
   list(): PasskeyView[] { return this.store.list().map(view); }
   remove(id: string): boolean { return this.store.remove(id); }
 
-  async loginOptions(ip: string): Promise<object> {
+  /** null: the public challenge map is full (the caller answers 429). */
+  async loginOptions(ip: string): Promise<object | null> {
     const o = await this.lib.generateAuthenticationOptions({ rpID: this.domain, allowCredentials: [], userVerification: 'required', timeout: CHALLENGE_TTL_MS });
-    this.loginCh.add('login', o.challenge, ip);
-    return o;
+    return this.loginCh.add('login', o.challenge, ip) ? o : null;
   }
 
   async verifyLogin(body: unknown): Promise<boolean> {

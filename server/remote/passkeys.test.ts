@@ -77,9 +77,27 @@ describe('challenges', () => {
     c.add('login', 'y');
     now += CHALLENGE_TTL_MS + 1;
     expect(c.take('login', 'y')).toBe(false);
-    for (let i = 0; i <= MAX_CHALLENGES; i++) c.add('login', `c${i}`);
-    expect(c.take('login', 'c0')).toBe(false);
-    expect(c.take('login', `c${MAX_CHALLENGES}`)).toBe(true);
+    for (let i = 0; i < MAX_CHALLENGES; i++) expect(c.add('login', `c${i}`)).toBe(true);
+    expect(c.add('login', 'over')).toBe(false); // full: refused, nothing evicted
+    expect(c.take('login', 'c0')).toBe(true);
+  });
+
+  it('a full map refuses a new owner instead of evicting someone else\'s challenge; an owner only displaces its own', () => {
+    const c = new Challenges(() => 0, 3, 2);
+    expect(c.add('login', 'owner', '198.51.100.2')).toBe(true);
+    expect(c.add('login', 'a1', '203.0.113.1')).toBe(true);
+    expect(c.add('login', 'a2', '203.0.113.1')).toBe(true);
+    expect(c.add('login', 'a3', '203.0.113.1')).toBe(true); // a1 (its own) is dropped
+    expect(c.take('login', 'a1')).toBe(false);
+    expect(c.add('login', 'b1', '203.0.113.9')).toBe(false); // full: refused
+    expect(c.take('login', 'owner')).toBe(true);
+  });
+
+  it('IPv6 hosts of one /64 share one owner', () => {
+    const c = new Challenges(() => 0, 100, 2);
+    for (let i = 0; i < 10; i++) c.add('login', `v${i}`, `2001:db8:1:2::${i.toString(16)}`);
+    expect([0, 1, 2, 3, 4, 5, 6, 7].filter((i) => c.take('login', `v${i}`))).toEqual([]);
+    expect([c.take('login', 'v8'), c.take('login', 'v9')]).toEqual([true, true]);
   });
 
   it('a wrong-kind attempt does not burn the challenge', () => {
@@ -171,6 +189,21 @@ describe('PasskeyService', () => {
     await s.loginOptions('198.51.100.2');
     const mine = last;
     for (let i = 0; i < 100; i++) await s.loginOptions('203.0.113.99');
+    last = mine;
+    expect(await s.verifyLogin({ id: 'cred-1' })).toBe(true);
+  });
+
+  it('the owner\'s challenge survives 5000 options from one IPv6 /64 and the cap of distinct IPv4s, then new ones are refused (null)', async () => {
+    let n = 0;
+    const lib = { ...fake(), generateAuthenticationOptions: (async () => ({ challenge: `ch${n++}` })) as never };
+    const s = mk(lib);
+    await s.registerOptions();
+    await s.verifyRegister({ response: { id: 'cred-1' } });
+    expect(await s.loginOptions('198.51.100.2')).not.toBeNull();
+    const mine = `ch${n - 1}`;
+    for (let i = 0; i < 5000; i++) await s.loginOptions(`2001:db8:1:2:${(i + 1).toString(16)}::${i.toString(16)}`);
+    for (let i = 0; i < 6000; i++) await s.loginOptions(`10.${i >> 8}.${i & 255}.1`);
+    expect(await s.loginOptions('10.200.1.1')).toBeNull();
     last = mine;
     expect(await s.verifyLogin({ id: 'cred-1' })).toBe(true);
   });

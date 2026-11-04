@@ -73,7 +73,9 @@ describe('.env', () => {
     expect(readEnvValue(out, 'HABBLAUD_REMOTE_HOST')).toBe('127.0.0.1');
     expect(readEnvValue(out, 'HABBLAUD_REMOTE_DOMAIN')).toBe('hub.finstar.pp.ua');
     expect(readEnvValue(out, 'HABBLAUD_REMOTE_ALLOW')).toBe('terminal');
-    expect(readEnvValue(out, 'HABBLAUD_ALLOWED_HOSTS')).toBe('habblaud.local,hub.finstar.pp.ua');
+    expect(readEnvValue(out, 'HABBLAUD_ALLOWED_HOSTS')).toBe('habblaud.local'); // the hub domain is the remote port's own, never the main port's
+    expect(readEnvValue(proxyEnv('HABBLAUD_ALLOWED_HOSTS=a.lan,hub.finstar.pp.ua\n', { user: 'b', hash: 'h', domain: 'hub.finstar.pp.ua', port: 4748 }), 'HABBLAUD_ALLOWED_HOSTS')).toBe('a.lan');
+    expect(readEnvValue(proxyEnv('', { user: 'b', hash: 'h', domain: 'hub.finstar.pp.ua', port: 4748 }), 'HABBLAUD_ALLOWED_HOSTS')).toBeUndefined();
     for (const k of ['HABBLAUD_REMOTE_BIND', 'HABBLAUD_REMOTE_NAME', 'HABBLAUD_REMOTE_PASSWORD']) expect(readEnvValue(out, k)).toBeUndefined();
     expect(readEnvValue(proxyEnv('HABBLAUD_REMOTE_ALLOW=none\n', { user: 'b', hash: 'h', domain: 'd.example', port: 4748 }), 'HABBLAUD_REMOTE_ALLOW')).toBe('none');
     expect(readEnvValue(proxyEnv('HABBLAUD_REMOTE_ALLOW=none\n', { user: 'b', hash: 'h', domain: 'd.example', port: 4748, allow: 'terminal' }), 'HABBLAUD_REMOTE_ALLOW')).toBe('terminal');

@@ -95,7 +95,7 @@ export interface SetupArgs {
 const USAGE = tr(`Usage: npm run remote:setup [-- options]
 
 Turns on phone access (https://<name>.local) with username, password and HTTPS. Settings go to hub.env in the data dir (never the repo .env).
-HABBLAUD_ALLOWED_HOSTS is shared with the local port 4747, so the hub domain is accepted there too (low risk: it listens on loopback).
+With --behind-proxy the hub domain is accepted only on the remote port, never on 4747.
 
   --user <name>        login username (default: your system username)
   --name <name>        address <name>.local (default: habblaud)
@@ -179,7 +179,8 @@ export function proxyEnv(current: string, s: { user: string; hash: string; domai
     HABBLAUD_REMOTE_HOST: '127.0.0.1',
     HABBLAUD_REMOTE_PORT: String(s.port),
     HABBLAUD_REMOTE_DOMAIN: s.domain,
-    HABBLAUD_ALLOWED_HOSTS: hostList(current, s.domain),
+    // The hub domain belongs to the remote port only (the server adds it there); drop a copy left by an older setup.
+    HABBLAUD_ALLOWED_HOSTS: hostList(current).split(',').filter((h) => h && h !== s.domain).join(',') || null,
     HABBLAUD_REMOTE_ALLOW: s.allow ?? readEnvValue(current, 'HABBLAUD_REMOTE_ALLOW') ?? 'terminal',
     HABBLAUD_REMOTE_BIND: null,
     HABBLAUD_REMOTE_NAME: null,
@@ -411,7 +412,6 @@ async function main(): Promise<void> {
         tr('[remote-setup] Done. Settings are in {0} (mode 600); the repo .env is untouched.', [hub]),
         tr('  user "{0}", password stored only as a hash (scrypt), loopback port {1}, domain {2}', [user, args.port ?? 4748, dom]),
         ...(allow?.split(',').includes('terminal') ? [tr('  Warning: allow=terminal lets anyone with the password read session transcripts over the Internet. For view-only office use: --allow none.')] : []),
-        tr('  Note: HABBLAUD_ALLOWED_HOSTS is shared with the local port 4747, so it also accepts {0} (low risk: loopback only).', [dom]),
         tr('  Next: docs/deploy.md (go-live runbook).'),
       ].join('\n'),
     );

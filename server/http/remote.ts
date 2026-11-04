@@ -18,7 +18,7 @@
 //   HABBLAUD_REMOTE_DOMAIN  behind a proxy (Cloudflare Tunnel): plain HTTP on loopback only (any certificate on
 //                           disk is ignored), Secure cookie, every POST needs Origin https://<domain>, client IP
 //                           from CF-Connecting-IP (only on a loopback connection).
-//   HABBLAUD_REMOTE_PASSWORD_LOGIN  allow password sign-in even when passkeys exist (later plan).
+//   HABBLAUD_REMOTE_PASSWORD_LOGIN  allow password sign-in even when passkeys exist (default: off once a passkey exists; passwords are the way back in).
 //
 // Session: HttpOnly + SameSite=Lax cookie (+ Secure with HTTPS) signed with HMAC; key = random secret in
 // <dataDir>/remote-secret mixed with user and password hash: changing password revokes all sessions.
@@ -32,7 +32,7 @@ import net, { isIP } from 'node:net';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parsePasswordHash, verifyPassword, type PasswordHash } from '../remote/password';
-import { hostAllowed, isLoopbackBind } from './guard';
+import { hostAllowed, isLoopbackBind, normalizeIp } from './guard';
 import { isValidDomain } from '../remote/tls';
 import { tr } from '../../shared/i18n';
 
@@ -311,15 +311,7 @@ export class FailureWindow {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /** IPv6 clients own a whole /64: key by its first four groups so rotating the host part buys nothing. */
-  private norm(key: string): string {
-    if (isIP(key) !== 6 || /^::ffff:/i.test(key)) return key;
-    const [head, tail = ''] = key.split('::');
-    const a = head ? head.split(':') : [];
-    const b = key.includes('::') && tail ? tail.split(':') : [];
-    const groups = key.includes('::') ? [...a, ...Array(8 - a.length - b.length).fill('0'), ...b] : a;
-    return groups.slice(0, 4).map((g) => g.toLowerCase().replace(/^0+(?=.)/, '')).join(':') + '::/64';
-  }
+  private norm(key: string): string { return normalizeIp(key); }
 
   private live(raw: string): number[] {
     const key = this.norm(raw);
@@ -376,7 +368,12 @@ export function clientIp(req: IncomingMessage, behindProxy: boolean): string {
 const remoteRequests = new WeakSet<IncomingMessage>();
 /** Files served by remote port without login: manifest, icons and the sign-in script (mobile fetches them before login, without
  *  cookie). No API or office contents. */
-const PUBLIC_STATIC = /^\/(manifest\.webmanifest|assets\/brand\/[\w.@-]+\.png|assets\/remote\/auth\.js)$/;
+const PUBLIC_STATIC = /^\/(manifest\.webmanifest|assets\/brand\/(?:finstar-144|apple-touch-icon|icon-192|icon-512)\.png|assets\/remote\/auth\.js)$/;
+
+/** Hosts the remote port accepts: the shared ALLOWED_HOSTS plus the hub domain. The main port never gets the domain, so a tunnel pointed at it by mistake is refused. */
+export function remoteAllowedHosts(allowed: ReadonlySet<string>, domain?: string): Set<string> {
+  return new Set([...allowed, ...(domain ? [domain] : [])]);
+}
 
 export function isRemoteRequest(req: IncomingMessage): boolean {
   return remoteRequests.has(req);
@@ -470,7 +467,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
     const ip = clientIp(req, !!deps.domain);
     const ua = (req.headers['user-agent'] ?? '-').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 80) || '-';
     if (isLogin) {
-      // Own per-IP window, NOT the global LoginThrottle: a stranger must not be able to lock the owner out.
+      // Shares the per-IP FailureWindow with password sign-in, NOT the global LoginThrottle: a stranger must not be able to lock the owner out.
       const wait = failures.retryAfter(ip);
       if (wait > 0) {
         req.resume();
@@ -487,7 +484,10 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
     readBody(req, 32 * 1024, true)
       .then(async (raw) => {
         const body: unknown = raw.trim() === '' && route.endsWith('/options') ? {} : JSON.parse(raw);
-        if (route === '/login/options') return sendJson(res, 200, await pk.loginOptions(ip));
+        if (route === '/login/options') {
+          const o = await pk.loginOptions(ip);
+          return o ? sendJson(res, 200, o) : sendJson(res, 429, { error: tr('Too many attempts. Try again in {0} s.', [30]) }, { 'Retry-After': '30' });
+        }
         if (route === '/register/options') return sendJson(res, 200, await pk.registerOptions());
         if (route === '/login/verify') {
           if (!(await pk.verifyLogin(body))) {

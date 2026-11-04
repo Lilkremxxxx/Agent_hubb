@@ -15,6 +15,7 @@ import {
   COOKIE,
   createRemoteGate,
   FailureWindow,
+  remoteAllowedHosts,
   isRemoteRequest,
   isSecureRemote,
   loadSecret,
@@ -43,6 +44,22 @@ const HASH_TEXT = await hashPassword(PASSWORD, 10);
 const CFG = { user: 'ana', passwordHash: parsePasswordHash(HASH_TEXT)!, passwordHashText: HASH_TEXT };
 const CREDS = { user: 'ana', password: PASSWORD };
 const TLS_FILES = (p: string) => p.endsWith('server.key') || p.endsWith('server.crt');
+
+describe('hub domain and the two guards', () => {
+  const reqFor = (host: string) => ({ headers: { host }, method: 'GET', url: '/' }) as never;
+  const res = () => { const r = { code: 0, writeHead(c: number) { r.code = c; }, end() {} }; return r; };
+  it('the main port (ALLOWED_HOSTS only) refuses Host = the hub domain; the remote port accepts it', () => {
+    const allowed = new Set(['casa.lan']);
+    const main = createRequestGuard({ allowedHosts: allowed });
+    const remote = createRequestGuard({ allowedHosts: remoteAllowedHosts(allowed, 'hub.finstar.pp.ua') });
+    const a = res(); expect(main(reqFor('hub.finstar.pp.ua'), a as never)).toBe(true); expect(a.code).toBe(403);
+    expect(main(reqFor('casa.lan'), res() as never)).toBe(false);
+    expect(remote(reqFor('hub.finstar.pp.ua'), res() as never)).toBe(false);
+    expect(remote(reqFor('casa.lan'), res() as never)).toBe(false);
+    expect(remote(reqFor('evil.example'), res() as never)).toBe(true);
+    expect(allowed.has('hub.finstar.pp.ua')).toBe(false); // the shared set is not mutated
+  });
+});
 
 describe('parseRemoteConfig', () => {
   const base = { HABBLAUD_REMOTE_USER: 'ana', HABBLAUD_REMOTE_PASSWORD_HASH: HASH_TEXT };
@@ -514,6 +531,12 @@ describe('remote port', () => {
       ['POST', '/api/pty/x/input', {}],
       ['POST', '/api/agents/a1/stop', {}],
       ['POST', '/api/agents/a1/takeover', {}],
+      ['POST', '/api/rooms/rename', { id: 'r', name: 'n' }],
+      ['POST', '/api/agy/jobs', { agentId: 'a1', prompt: 'x', mode: 'plan' }],
+      ['POST', '/api/agy/stop', { agentId: 'a1' }],
+      ['POST', '/api/agy/defaults', { agentId: 'a1' }],
+      ['GET', '/api/accounts'],
+      ['POST', '/api/accounts/add', {}],
     ];
     for (const [method, path, body] of blocked) {
       const r = await request(s.remoteBase, path, { method, headers, ...(body ? { body } : {}) });
@@ -575,7 +598,7 @@ describe('remote port', () => {
     for (const path of ['/manifest.webmanifest', '/assets/brand/icon-192.png']) {
       expect((await request(h.remoteBase, path)).status, path).not.toBe(302);
     }
-    for (const path of ['/sw.js', '/manifest.webmanifest.map', '/assets/brand/../index.html', '/assets/app.js']) {
+    for (const path of ['/assets/brand/logo-detailed.png', '/assets/brand/signage@4x.png', '/assets/brand/favicon-32.png', '/sw.js', '/manifest.webmanifest.map', '/assets/brand/../index.html', '/assets/app.js']) {
       expect((await request(h.remoteBase, path)).status, path).toBe(302);
     }
   });
@@ -770,7 +793,7 @@ describe('passkey routes', () => {
 
   it('the login script and the logo load before sign-in; /remote/security needs a session', async () => {
     const b = await mk();
-    for (const path of ['/assets/remote/auth.js', '/assets/brand/finstar.png']) expect((await request(b, path, { headers: H })).status, path).toBe(204);
+    for (const path of ['/assets/remote/auth.js', '/assets/brand/finstar-144.png']) expect((await request(b, path, { headers: H })).status, path).toBe(204);
     const anon = await request(b, '/remote/security', { headers: H });
     expect(anon.status).toBe(302);
     expect(anon.headers.location).toBe('/login');

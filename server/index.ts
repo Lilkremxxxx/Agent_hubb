@@ -11,7 +11,7 @@ import { isTruthy, loadConfig, terminalOffReason } from './config';
 import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard } from './http/guard';
 import { PasskeyService, PasskeyStore } from './remote/passkeys';
-import { createRemoteGate, FailureWindow, isRemoteRequest, isSecureRemote, loadSecret, RemoteSessions, startRemoteListener, type RemoteListener } from './http/remote';
+import { createRemoteGate, FailureWindow, isRemoteRequest, isSecureRemote, loadSecret, remoteAllowedHosts, RemoteSessions, startRemoteListener, type RemoteListener } from './http/remote';
 import { Hub } from './http/sse';
 import { createStaticHandler } from './http/static';
 import { TerminalStreams } from './http/terminal';
@@ -419,12 +419,14 @@ if (config.remote) {
     log,
     caFile: remote.tls?.caFile,
   });
+  const remoteHosts = remoteAllowedHosts(config.allowedHosts, remote.domain);
+  const remoteGuard = createRequestGuard({ allowedHosts: remoteHosts });
   remoteListener = startRemoteListener(
     remote,
     (req, res) => {
       const url = parseUrl(req);
       try {
-        if (guard(req, res)) return;
+        if (remoteGuard(req, res)) return;
         if (gate(req, res, url)) return;
         if (!api(req, res, url)) fallback(req, res, url);
       } catch (err) {
@@ -434,7 +436,7 @@ if (config.remote) {
       }
     },
     log,
-    config.allowedHosts,
+    remoteHosts,
   );
   remoteListener.server.once('listening', () => {
     const allow = [...remote.allow].join(', ') || tr('view only');

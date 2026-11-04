@@ -1,9 +1,11 @@
-// Bundles the server (TypeScript) into a single ESM file in dist/server.
+// Bundles the server (TypeScript) into dist/server/index.js plus one lazy chunk (@simplewebauthn, loaded on the first passkey ceremony).
 import { build } from 'esbuild';
 
 await build({
   entryPoints: ['server/index.ts'],
-  outfile: 'dist/server/index.js',
+  outdir: 'dist/server',
+  chunkNames: 'chunks/[name]-[hash]',
+  splitting: true,
   bundle: true,
   platform: 'node',
   target: 'node20',

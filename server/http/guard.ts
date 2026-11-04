@@ -80,6 +80,16 @@ export function isLoopbackBind(value: string | undefined): boolean {
  * (browsers always resolve to loopback), or a name in HABBLAUD_ALLOWED_HOSTS.
  * Without Host header (HTTP/1.0, CLI tools): accepted — browsers always send it.
  */
+/** IPv6 clients own a whole /64: key by its first four groups so rotating the host part buys nothing. */
+export function normalizeIp(key: string): string {
+  if (isIP(key) !== 6 || /^::ffff:/i.test(key)) return key;
+  const [head, tail = ''] = key.split('::');
+  const a = head ? head.split(':') : [];
+  const b = key.includes('::') && tail ? tail.split(':') : [];
+  const groups = key.includes('::') ? [...a, ...Array(8 - a.length - b.length).fill('0'), ...b] : a;
+  return groups.slice(0, 4).map((g) => g.toLowerCase().replace(/^0+(?=.)/, '')).join(':') + '::/64';
+}
+
 export function hostAllowed(host: string | undefined, allowed: ReadonlySet<string>): boolean {
   if (host === undefined) return true;
   const name = hostnameOf(host);
