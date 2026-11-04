@@ -363,5 +363,9 @@ describe('POST /api/team {openBoss}', () => {
     const b = await fetch(`${bad.base}/api/team`, { method: 'POST', headers: JSON_HEADERS, body: '{"openBoss":true}' });
     expect([b.status, ((await b.json()) as { error: string }).error]).toEqual([400, 'no folder']);
     await bad.close(); bad.cleanup();
+    const foe = await start({ team: { appoint: () => ({ ok: true }), openBoss: async () => ({ ok: true, pty }) } });
+    const port = new URL(foe.base).port;
+    expect((await raw(foe.base, '/api/team', { method: 'POST', headers: { ...JSON_HEADERS, Host: `habblaud.lan:${port}` }, body: '{"openBoss":true}' })).status).toBe(403);
+    await foe.close(); foe.cleanup();
   });
 });

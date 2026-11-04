@@ -179,7 +179,7 @@ const ptys = spawnPty
       },
       onChange: () => office.markDirty(),
       reopen: (id) => {
-        return team.boss.kind === 'agy' && id === agyBossId(team.boss.account) ? openAgyBossTerminal(team.boss.account) : undefined;
+        return team.folder && team.boss.kind === 'agy' && id === agyBossId(team.boss.account) ? openAgyBossTerminal(team.boss.account) : undefined;
       },
       createScreen: ptyScreen,
     })
@@ -220,18 +220,21 @@ if (workers) {
   workers.start();
 }
 
+const noFolderMsg = () => tr('the office has no folder yet: set "folder" in {0}', [join(config.dataDir, 'team.json')]);
+
 /** The Antigravity boss's terminal (the open one, or a new idle agy: no prompt, no quota), in the team's folder; AGY_BOSS=1 marks the boss. */
 function openAgyBossTerminal(acc: string): PtyInfo {
+  if (!team.folder) throw new PtyError(400, noFolderMsg());
   const agentId = agyBossId(acc);
   const open = ptys!.ofAgent(agentId);
   if (open) return open;
-  return ptys!.openProgram({ agentId, account: agentId, file: agyBin, args: [acc], cwd: team.folder || config.home, env: { AGY_BOSS: '1' } });
+  return ptys!.openProgram({ agentId, account: agentId, file: agyBin, args: [acc], cwd: team.folder, env: { AGY_BOSS: '1' } });
 }
 /** "Mở boss": the boss's terminal by boss.kind, in the office folder (an empty folder is a 400 before anything opens). */
 async function openBoss(): Promise<{ ok: true; pty: PtyInfo } | { ok: false; status: number; error: string }> {
   const fail = (status: number, error: string) => ({ ok: false as const, status, error });
   if (!ptys) return fail(503, tr('the interactive terminal is off (HABBLAUD_PTY=1)'));
-  if (!team.folder) return fail(400, tr('the office has no folder yet: set "folder" in {0}', [join(config.dataDir, 'team.json')]));
+  if (!team.folder) return fail(400, noFolderMsg());
   try {
     const { kind, account: acc } = team.boss;
     const open = ptys.ofAgent(team.bossAgentId() ?? '');
