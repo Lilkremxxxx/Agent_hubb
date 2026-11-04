@@ -160,7 +160,7 @@ repository, so they stay on your machine.
 | Default mode and effort of a worker | A worker's drawer › "Defaults for jobs" |
 | Display name of a seat | The seat's name in `team.json` |
 | Reference for the boss and worker rules (kept for a later plan; nothing loads it yet) | `docs/boss-rules-from-fork.md` |
-| The skills a Claude Code boss uses | `tools/agy/skills/` |
+| The skills a Claude Code boss uses | `skills/` |
 | The scripts | `tools/agy/bin/`. They are linked, so an edit applies at once |
 | How it starts | `scripts/office.sh`; for the port, `HABBLAUD_PORT=4800 npm run office` |
 | Interface text | `tr('English text')` in the code, with its line in `shared/locales/vi.ts` |

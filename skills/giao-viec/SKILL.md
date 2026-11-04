@@ -1,21 +1,23 @@
 ---
-name: agy-orchestrator
-description: Give jobs to worker agents with `agy-ask` (seats of the office, Antigravity or Claude Code), within the team in team.json. Use when the user asks to delegate/giao việc/chia việc to other agents, check what a worker returned, or run work in parallel across accounts.
+name: giao-viec
+description: Give jobs to the office's seats with worker-ask <seat> (Antigravity or Claude Code), check what a worker returned, run work in parallel. Use when the user asks to delegate/giao việc/chia việc, or before splitting project work among seats.
 ---
 
-# agy orchestrator
+# giao-viec
 
 Workers are Antigravity accounts (one Google account per profile, `~/.agy_profiles/accN`) and Claude Code accounts. Hard work stays with you; workers get heavy-but-routine work (bulk edits, reading many files, tests from a spec, searching). Trivial one-liners: do them yourself.
 
 ## Golden rule: never run bare `agy`
-A bare `agy` uses the machine's real account and can mix tokens. Always go through `agy-ask` / `claude-ask` (or `agy-as accN` for a one-off): each account gets its own HOME, D-Bus session and keyring.
+A bare `agy` uses the machine's real account and can mix tokens. Always go through `worker-ask` (or `agy-as accN` for a one-off): each account gets its own HOME, D-Bus session and keyring.
 
 ## Giving jobs
+One job = one row in task_board.md (create it first; see the bang-task skill).
+
 ```bash
-agy-ask W1 "<prompt>" --role <label> --mode <plan|accept-edits|default> --effort <low|medium|high> [--cwd DIR] [--max 2000] [--timeout 900]
-claude-ask C1 "<prompt>" --role <label> --mode <default|plan|accept-edits> --effort <low..max> [--model sonnet] [--lean] [--cwd DIR] [--max 2000] [--timeout 900]
+worker-ask <seat> "<prompt>" --role … --mode … --effort … [--model M] [--lean] [--cwd DIR] [--max 2000] [--timeout 900]
 ```
-Both print only the worker's final answer (capped at `--max` chars). Workers are named by seat (`agy-ask team` lists them; the seat decides the agent). A Claude Code seat is far more expensive than an Antigravity one, so give it only what Flash cannot do well. Each call blocks until done (30s-3min): run it with `run_in_background`, several in parallel on different workers.
+`--model` is for Claude seats only.
+It prints only the worker's final answer (capped at `--max` chars). Workers are named by seat (`worker-ask team` lists them; the seat decides the agent). A Claude Code seat is far more expensive than an Antigravity one, so give it only what Flash cannot do well. Each call blocks until done (30s-3min): run it with `run_in_background`, several in parallel on different workers.
 
 - With the office running (Habblaud) the job goes into the worker's own terminal as a fresh conversation; never read or type into a worker's terminal. Without it the job runs headless (`agy -p` / `claude -p`): same answer, same exit codes.
 - Killing the command cancels the job; `--timeout` (seconds) cancels it too and exits 1.
@@ -31,7 +33,7 @@ Both print only the worker's final answer (capped at `--max` chars). Workers are
 | 4 | the user cancelled the job | do not resend it unasked; tell the user |
 
 ## Seats
-The office has one folder and named seats in `team.json` (`~/.habblaud/team.json`). Run `agy-ask team` before delegating: it lists the folder, the boss and the seats. Anyone may give jobs to any seat; the job runs in the office folder unless you pass `--cwd`.
+The office has one folder and named seats in `team.json` (`~/.habblaud/team.json`). Run `worker-ask team` before delegating: it lists the folder, the boss and the seats. Anyone may give jobs to any seat; the job runs in the office folder unless you pass `--cwd`.
 
 ## Mode and effort (you choose per job)
 Antigravity workers run Gemini 3.8 Flash only: never pass `--model`.
@@ -46,7 +48,7 @@ Antigravity workers run Gemini 3.8 Flash only: never pass `--model`.
 `plan` is read-only; `accept-edits` may edit files in `--cwd`; `auto` is not available on these accounts.
 
 ## Pitfalls
-- Preflight an account before real work: `agy-ask W1 "Run: echo ok && pwd" --mode accept-edits --cwd DIR --max 200`. A missing `permissions.allow` in its settings makes the worker exit at once with `auto-denied`; give the user the fix, do not edit those settings yourself.
+- Preflight an account before real work: `worker-ask W1 "Run: echo ok && pwd" --mode accept-edits --cwd DIR --max 200`. A missing `permissions.allow` in its settings makes the worker exit at once with `auto-denied`; give the user the fix, do not edit those settings yourself.
 - Never let two workers edit the same file; have each write its own fragment and merge yourself.
 - Verify judgement-heavy output: Flash over-claims on audits. Re-check every high finding before reporting.
 - Name exact files or paste the snippet in the prompt so the worker does not explore (steps, not mode, drive cost).
