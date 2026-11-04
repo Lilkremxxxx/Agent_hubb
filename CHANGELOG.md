@@ -10,6 +10,7 @@ middle one (0.**3**.0).
 
 ### Added
 
+- **`npm run remote:setup` writes `<data dir>/hub.env`** (never the repo `.env`; mode 600); `--behind-proxy` for the Cloudflare hub (default allow `terminal`, `--allow none` for view only), `--reset-passkeys` (stop the service first). `npm run office` loads `hub.env` and defers to `bang-hub.service` when it is enabled. The sign-in CSP now allows the page manifest (`manifest-src 'self'`).
 - **Sign-in page hardening**: strict Content-Security-Policy, the password form never submits natively (no password in the URL), clearer passkey errors.
 - **New sign-in page and Passkeys page for the remote port** (Ocean Depth look, one small browser bundle); settings link to manage passkeys.
 - **Passkey changes need a sign-in from the last 10 minutes**; the public login challenge map is capped per IP so a flood cannot flush the owner's challenge.

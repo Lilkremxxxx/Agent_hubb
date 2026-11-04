@@ -783,7 +783,7 @@ describe('passkey routes', () => {
   it('login page: CSP header, no passkey button until one exists, password never read from the URL', async () => {
     const b = await mk();
     const page = await request(b, '/login', { headers: H });
-    expect(page.headers['content-security-policy']).toBe("default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+    expect(page.headers['content-security-policy']).toBe("default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     expect(page.body).not.toContain('id="pk"');
     expect(page.body).toMatch(/<form[^>]*method="post"/);
     const native = await request(b, '/login?username=ana&password=secret', { method: 'POST', headers: { ...H, 'Content-Type': 'application/x-www-form-urlencoded' } });

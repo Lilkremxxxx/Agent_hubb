@@ -1,13 +1,13 @@
 import { spawnSync } from 'node:child_process';
 import { X509Certificate } from 'node:crypto';
-import { readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mdnsCommand } from '../../scripts/remote-mdns';
-import { parseArgs, passwordProblem, remoteEnv, urlFor } from '../../scripts/remote-setup';
+import { dataDirOf, hubEnvPath, parseArgs, passwordProblem, passkeysPath, proxyEnv, remoteEnv, resetPasskeys, urlFor } from '../../scripts/remote-setup';
 import { startRemoteListener, type RemoteListener } from '../http/remote';
 import { setQuiet } from '../log';
 import { tempDir } from '../test/fixtures';
@@ -47,7 +47,7 @@ describe('.env', () => {
     expect(readEnvValue('X="a b"\n', 'X')).toBe('a b');
     expect(addToList('a.lan, b', 'b', 'c.local')).toBe('a.lan,b,c.local');
   });
-  it('setup remoteEnv: hash instead of password, allowed names in Host, open bind', () => {
+  it('setup remoteEnv: hash instead of password, allowed names in Host, no legacy bind', () => {
     const env = remoteEnv('HABBLAUD_REMOTE_PASSWORD=old\nHABBLAUD_ALLOWED_HOSTS=casa.lan\n', {
       user: 'ana',
       hash: 'scrypt:15:8:1:salt:hash',
@@ -58,8 +58,53 @@ describe('.env', () => {
     expect(env).not.toContain('HABBLAUD_REMOTE_PASSWORD=');
     expect(readEnvValue(env, 'HABBLAUD_REMOTE_PASSWORD_HASH')).toBe('scrypt:15:8:1:salt:hash');
     expect(readEnvValue(env, 'HABBLAUD_ALLOWED_HOSTS')).toBe('casa.lan,myclaude.local,myclaude.home');
-    expect(readEnvValue(env, 'HABBLAUD_REMOTE_BIND')).toBe('0.0.0.0');
+    expect(readEnvValue(env, 'HABBLAUD_REMOTE_BIND')).toBeUndefined();
     expect(readEnvValue(env, 'HABBLAUD_REMOTE_PORT')).toBe('443');
+    expect(readEnvValue(env, 'HABBLAUD_REMOTE_DOMAIN')).toBeUndefined();
+    const plain = remoteEnv('HABBLAUD_REMOTE_DOMAIN=old.example\nHABBLAUD_REMOTE_BIND=0.0.0.0\n', { user: 'a', hash: 'h', name: 'x', port: 443 });
+    expect(readEnvValue(plain, 'HABBLAUD_REMOTE_DOMAIN')).toBeUndefined();
+  });
+
+  it('behind a proxy: loopback, domain, view-only terminal by default, LAN keys removed, the rest kept', () => {
+    const cur = '# mine\nHABBLAUD_REMOTE_BIND=0.0.0.0\nHABBLAUD_REMOTE_NAME=habblaud\nHABBLAUD_ALLOWED_HOSTS=habblaud.local\nOTHER=1\n';
+    const out = proxyEnv(cur, { user: 'bang', hash: 'scrypt:x', domain: 'hub.finstar.pp.ua', port: 4748 });
+    expect(out).toContain('# mine\n');
+    expect(out).toContain('OTHER=1');
+    expect(readEnvValue(out, 'HABBLAUD_REMOTE_HOST')).toBe('127.0.0.1');
+    expect(readEnvValue(out, 'HABBLAUD_REMOTE_DOMAIN')).toBe('hub.finstar.pp.ua');
+    expect(readEnvValue(out, 'HABBLAUD_REMOTE_ALLOW')).toBe('terminal');
+    expect(readEnvValue(out, 'HABBLAUD_ALLOWED_HOSTS')).toBe('habblaud.local,hub.finstar.pp.ua');
+    for (const k of ['HABBLAUD_REMOTE_BIND', 'HABBLAUD_REMOTE_NAME', 'HABBLAUD_REMOTE_PASSWORD']) expect(readEnvValue(out, k)).toBeUndefined();
+    expect(readEnvValue(proxyEnv('HABBLAUD_REMOTE_ALLOW=none\n', { user: 'b', hash: 'h', domain: 'd.example', port: 4748 }), 'HABBLAUD_REMOTE_ALLOW')).toBe('none');
+    expect(readEnvValue(proxyEnv('HABBLAUD_REMOTE_ALLOW=none\n', { user: 'b', hash: 'h', domain: 'd.example', port: 4748, allow: 'terminal' }), 'HABBLAUD_REMOTE_ALLOW')).toBe('terminal');
+  });
+
+  it('files live in the data dir, never in the repo .env', () => {
+    expect(dataDirOf({ HOME: '/h' })).toBe('/h/.habblaud');
+    expect(hubEnvPath({ HOME: '/h' })).toBe('/h/.habblaud/hub.env');
+    expect(hubEnvPath({ HOME: '/h', HABBLAUD_DATA_DIR: '/t/d ' })).toBe('/t/d/hub.env');
+    expect(passkeysPath({ HOME: '/h' })).toBe('/h/.habblaud/remote/passkeys.json');
+    expect(readFileSync(new URL('../../scripts/remote-setup.ts', import.meta.url), 'utf8')).not.toMatch(/['"]\.env['"]/);
+  });
+
+  it('--reset-passkeys deletes only passkeys.json in the data dir and says to stop the service first', () => {
+    const tmp = tempDir();
+    closers.push(tmp.cleanup);
+    const env = { HOME: '/nonexistent', HABBLAUD_DATA_DIR: tmp.dir };
+    mkdirSync(join(tmp.dir, 'remote'), { recursive: true });
+    writeFileSync(passkeysPath(env), '[]');
+    writeFileSync(hubEnvPath(env), 'X=1\n');
+    const msg = resetPasskeys(env);
+    expect(existsSync(passkeysPath(env))).toBe(false);
+    expect(existsSync(hubEnvPath(env))).toBe(true);
+    expect(msg).toMatch(/stop bang-hub/i);
+    expect(msg).toMatch(/restart|start/i);
+    expect(() => resetPasskeys(env)).not.toThrow();
+  });
+
+  it('flags: --behind-proxy, --reset-passkeys', () => {
+    expect(parseArgs(['--behind-proxy', '--domain', 'Hub.Finstar.pp.ua'])).toMatchObject({ behindProxy: true, domain: 'hub.finstar.pp.ua' });
+    expect(parseArgs(['--reset-passkeys']).resetPasskeys).toBe(true);
   });
 });
 

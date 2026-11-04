@@ -3,13 +3,13 @@
 // Prompts for (or takes as options) username, password (hidden, twice), address name (<name>.local) and,
 // optionally, a custom address (e.g. myclaude.home); and then:
 //   1. creates the local CA and server certificate (server/remote/tls.ts) in ~/.habblaud/remote-tls;
-//   2. writes ONLY the scrypt hash of the password to .env (never the password), name, port and
-//      HABBLAUD_REMOTE_BIND=0.0.0.0;
+//   2. writes ONLY the scrypt hash of the password (never the password) to <data dir>/hub.env (default
+//      ~/.habblaud/hub.env; never the repo .env), with name and port;
 //   3. keeps the <name>.local announcement running as a service (npm run remote:mdns; LaunchAgent/systemd);
 //   4. prints the addresses, CA fingerprint and phone setup instructions.
 // Afterwards: npm run office. To disable: npm run remote:setup -- --off.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { homedir, userInfo } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -21,8 +21,14 @@ import { tr } from '../shared/i18n';
 import { caFingerprint, ensureServerCert, isValidDomain, isValidName, primaryIp, remoteTargets, remoteTlsBase, tlsPaths } from '../server/remote/tls';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const ENV_FILE = join(ROOT, '.env');
 const HOME = process.env.HOME || homedir();
+
+/** Data dir (HABBLAUD_DATA_DIR, default ~/.habblaud). Tests point it at a temp dir. */
+export function dataDirOf(env: NodeJS.ProcessEnv): string {
+  return env.HABBLAUD_DATA_DIR?.trim() || join(env.HOME || homedir(), '.habblaud');
+}
+export const hubEnvPath = (env: NodeJS.ProcessEnv): string => join(dataDirOf(env), 'hub.env');
+export const passkeysPath = (env: NodeJS.ProcessEnv): string => join(dataDirOf(env), 'remote', 'passkeys.json');
 export const MIN_PASSWORD = 10;
 const SERVICE_LABEL = 'com.habblaud.remote-mdns';
 const REMOTE_KEYS = [
@@ -35,6 +41,8 @@ const REMOTE_KEYS = [
   'HABBLAUD_REMOTE_NAME',
   'HABBLAUD_REMOTE_DOMAIN',
   'HABBLAUD_REMOTE_ALLOW',
+  'HABBLAUD_REMOTE_HOST',
+  'HABBLAUD_REMOTE_PASSWORD_LOGIN',
 ];
 
 export interface SetupArgs {
@@ -43,6 +51,8 @@ export interface SetupArgs {
   domain?: string;
   port?: number;
   allow?: string;
+  behindProxy: boolean;
+  resetPasskeys: boolean;
   passwordStdin: boolean;
   service: boolean;
   off: boolean;
@@ -51,19 +61,22 @@ export interface SetupArgs {
 
 const USAGE = tr(`Usage: npm run remote:setup [-- options]
 
-Turns on phone access (https://<name>.local) with username, password and HTTPS.
+Turns on phone access (https://<name>.local) with username, password and HTTPS. Settings go to hub.env in the data dir (never the repo .env).
+HABBLAUD_ALLOWED_HOSTS is shared with the local port 4747, so the hub domain is accepted there too (low risk: it listens on loopback).
 
   --user <name>        login username (default: your system username)
   --name <name>        address <name>.local (default: habblaud)
   --domain <address>   own address, e.g. myclaude.home (needs an entry in the router's DNS)
   --port <n>           port on the computer (default: 443 if free, otherwise 4748)
-  --allow <list>       what the phone can do: terminal, none (default: none, view only)
+  --allow <list>       what the phone can do: terminal, none (default: none; with --behind-proxy: terminal, which lets a password holder read transcripts over the Internet; use --allow none for view only)
+  --behind-proxy       Cloudflare Tunnel hub: plain HTTP on loopback, needs --domain, no certificate, no mDNS (default port 4748)
+  --reset-passkeys     deletes the registered passkeys (stop the service first; the command tells you the steps)
   --password-stdin     reads the password from standard input (automation) instead of asking
   --no-service         doesn't install the <name>.local announcement service (run npm run remote:mdns yourself)
-  --off                turns off phone access (removes the lines from .env and the service; keeps the CA)`);
+  --off                turns off phone access (removes the lines from hub.env and the service; keeps the CA)`);
 
 export function parseArgs(argv: string[]): SetupArgs {
-  const out: SetupArgs = { passwordStdin: false, service: true, off: false, help: false };
+  const out: SetupArgs = { passwordStdin: false, service: true, off: false, help: false, behindProxy: false, resetPasskeys: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const val = () => {
@@ -76,6 +89,8 @@ export function parseArgs(argv: string[]): SetupArgs {
     else if (a === '--domain') out.domain = val().toLowerCase();
     else if (a === '--port') out.port = Number(val());
     else if (a === '--allow') out.allow = val();
+    else if (a === '--behind-proxy') out.behindProxy = true;
+    else if (a === '--reset-passkeys') out.resetPasskeys = true;
     else if (a === '--password-stdin') out.passwordStdin = true;
     else if (a === '--no-service') out.service = false;
     else if (a === '--off') out.off = true;
@@ -104,14 +119,38 @@ export function remoteEnv(
     HABBLAUD_REMOTE_USER: s.user,
     HABBLAUD_REMOTE_PASSWORD: null,
     HABBLAUD_REMOTE_PASSWORD_HASH: s.hash,
-    HABBLAUD_REMOTE_BIND: '0.0.0.0',
+    HABBLAUD_REMOTE_BIND: null, // old Docker-era key
+    HABBLAUD_REMOTE_HOST: null,
     HABBLAUD_REMOTE_PORT: String(s.port),
     HABBLAUD_REMOTE_HTTP_PORT: s.httpPort ? String(s.httpPort) : null,
     HABBLAUD_REMOTE_NAME: s.name,
-    HABBLAUD_REMOTE_DOMAIN: s.domain ?? null,
+    HABBLAUD_REMOTE_DOMAIN: null, // LAN mode: a stale proxy domain would switch the server to proxy mode
     HABBLAUD_REMOTE_ALLOW: s.allow ?? readEnvValue(current, 'HABBLAUD_REMOTE_ALLOW') ?? null,
     HABBLAUD_ALLOWED_HOSTS: hosts,
   });
+}
+
+/** hub.env for the Cloudflare hub: loopback HTTP, own domain, no LAN keys. Default allow is terminal (view-only transcripts). */
+export function proxyEnv(current: string, s: { user: string; hash: string; domain: string; port: number; allow?: string }): string {
+  return updateEnv(current, {
+    HABBLAUD_REMOTE_USER: s.user,
+    HABBLAUD_REMOTE_PASSWORD: null,
+    HABBLAUD_REMOTE_PASSWORD_HASH: s.hash,
+    HABBLAUD_REMOTE_HOST: '127.0.0.1',
+    HABBLAUD_REMOTE_PORT: String(s.port),
+    HABBLAUD_REMOTE_DOMAIN: s.domain,
+    HABBLAUD_ALLOWED_HOSTS: addToList(readEnvValue(current, 'HABBLAUD_ALLOWED_HOSTS'), s.domain),
+    HABBLAUD_REMOTE_ALLOW: s.allow ?? readEnvValue(current, 'HABBLAUD_REMOTE_ALLOW') ?? 'terminal',
+    HABBLAUD_REMOTE_BIND: null,
+    HABBLAUD_REMOTE_NAME: null,
+    HABBLAUD_REMOTE_HTTP_PORT: null,
+  });
+}
+
+/** Deletes passkeys.json. PasskeyStore reads the file only at start, so the service must be stopped first and started after. */
+export function resetPasskeys(env: NodeJS.ProcessEnv): string {
+  rmSync(passkeysPath(env), { force: true });
+  return tr('[remote-setup] Passkeys removed. Run this only with the office stopped (systemctl --user stop bang-hub, or npm run office -- stop), then start it again; a running server keeps its list in memory.');
 }
 
 export function urlFor(host: string, port: number): string {
@@ -179,8 +218,12 @@ function readStdinLine(): Promise<string> {
 }
 
 function writeEnv(content: string): void {
-  writeFileSync(ENV_FILE, content, { mode: 0o600 });
-  chmodSync(ENV_FILE, 0o600);
+  const file = hubEnvPath(process.env);
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  const tmp = `${file}.tmp`;
+  writeFileSync(tmp, content, { mode: 0o600 });
+  chmodSync(tmp, 0o600);
+  renameSync(tmp, file);
 }
 
 function tsxCommand(): string[] {
@@ -271,12 +314,14 @@ function removeService(): void {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) return void console.log(USAGE);
-  const current = existsSync(ENV_FILE) ? readFileSync(ENV_FILE, 'utf8') : '';
+  if (args.resetPasskeys) return void console.log(resetPasskeys(process.env));
+  const hub = hubEnvPath(process.env);
+  const current = existsSync(hub) ? readFileSync(hub, 'utf8') : '';
 
   if (args.off) {
     writeEnv(updateEnv(current, Object.fromEntries(REMOTE_KEYS.map((k) => [k, null]))));
     removeService();
-    console.log(tr('[remote-setup] Phone access turned off (the CA stays in ~/.habblaud/remote-tls). Now: npm run office'));
+    console.log(tr('[remote-setup] Phone access turned off (the CA stays in ~/.habblaud/remote-tls). Now: restart the office (systemctl --user restart bang-hub, or npm run office -- restart)'));
     return;
   }
 
@@ -302,6 +347,25 @@ async function main(): Promise<void> {
       }
       break;
     }
+  }
+
+  if (args.behindProxy) {
+    const dom = (args.domain ?? (args.passwordStdin ? '' : await ask(tr('Public domain (e.g. hub.example.com)')))).trim().toLowerCase();
+    if (!dom || !isValidDomain(dom)) throw new Error(tr('--behind-proxy needs a valid --domain'));
+    console.log(tr('[remote-setup] Generating the password hash…'));
+    const proxyHash = await hashPassword(password);
+    writeEnv(proxyEnv(current, { user, hash: proxyHash, domain: dom, port: args.port ?? 4748, allow: args.allow }));
+    const allow = readEnvValue(readFileSync(hub, 'utf8'), 'HABBLAUD_REMOTE_ALLOW');
+    console.log(
+      [
+        '',
+        tr('[remote-setup] Done. Settings are in {0} (mode 600); the repo .env is untouched.', [hub]),
+        tr('  user "{0}", password stored only as a hash (scrypt), loopback port {1}, domain {2}', [user, args.port ?? 4748, dom]),
+        ...(allow === 'terminal' ? [tr('  Warning: allow=terminal lets anyone with the password read session transcripts over the Internet. For view-only office use: --allow none.')] : []),
+        tr('  Next: docs/deploy.md (go-live runbook).'),
+      ].join('\n'),
+    );
+    return;
   }
 
   const name = args.name ?? (args.passwordStdin ? 'habblaud' : await ask(tr('Address name (becomes <name>.local)'), readEnvValue(current, 'HABBLAUD_REMOTE_NAME') ?? 'habblaud')).toLowerCase();
