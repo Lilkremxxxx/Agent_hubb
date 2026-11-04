@@ -140,7 +140,7 @@ npm install
 npm run office
 ```
 
-Sessions closed this way come back with `claude --resume`. The log is `~/.habblaud/office.log`.
+Sessions closed this way come back with `claude --resume`. The log is `${HABBLAUD_DATA_DIR:-~/.habblaud}/office.log`.
 
 ## Make it yours
 
@@ -299,7 +299,7 @@ in the clear on the network). Also: `HABBLAUD_REMOTE_PORT` and `HABBLAUD_REMOTE_
 ### Uninstalling
 
 ```bash
-kill "$(ss -ltnp | grep ':4747' | grep -o 'pid=[0-9]*' | cut -d= -f2 | head -1)"   # stops the office
+npm run office -- stop                       # stops the office
 rm -rf ~/.habblaud                          # deletes local data (names and rooms)
 ```
 

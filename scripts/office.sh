@@ -18,29 +18,33 @@ launch() {
 }
 
 stop_office() {
+  command -v ss > /dev/null || { echo "ss is not installed: cannot tell what listens on port $port"; return 1; }
   pid="$(listener)"
   if [ -z "$pid" ]; then
+    if ss -Hltn "sport = :$port" | grep -q .; then
+      echo "port $port has a listener whose pid is not visible: not stopped"
+      return 1
+    fi
     echo "The office is not running on port $port"
     return 0
   fi
   cwd="$(readlink "/proc/$pid/cwd" || true)"
   cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" | sed 's/ $//' || true)"
-  case "$cmd" in
-    *dist/server/index.js) [ "$cwd" = "$root" ] || cmd="" ;;
-    *) cmd="" ;;
-  esac
-  if [ -z "$cmd" ]; then
+  if [ "$cwd" != "$root" ] || [ "$cmd" != "node dist/server/index.js" ]; then
     echo "port $port belongs to another server (pid $pid, $cwd): not stopped"
     return 1
   fi
-  kill "$pid"
+  kill "$pid" || { echo "could not signal pid $pid"; return 1; }
   i=0
   while [ "$i" -lt 20 ]; do
-    [ -z "$(listener)" ] && { echo "The office is stopped (pid $pid)"; return 0; }
+    if ! kill -0 "$pid" 2> /dev/null && [ -z "$(listener)" ]; then
+      echo "The office is stopped (pid $pid)"
+      return 0
+    fi
     sleep 0.5
     i=$((i + 1))
   done
-  echo "The office (pid $pid) is still listening on port $port after 10 s"
+  echo "The office (pid $pid) is still running after 10 s"
   return 1
 }
 
