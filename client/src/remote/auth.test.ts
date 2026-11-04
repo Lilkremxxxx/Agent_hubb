@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { addPasskey, signInWithPasskey, signInWithPassword, type Post } from './auth';
 
-const T = { failed: 'F', cancelled: 'C', offline: 'O' };
+const T = { failed: 'F', cancelled: 'C', offline: 'O', unusable: 'U', exists: 'E' };
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body });
 
 describe('remote auth client', () => {
@@ -14,7 +14,7 @@ describe('remote auth client', () => {
 
   it('a cancelled ceremony, a server refusal and no network become texts, never throws', async () => {
     const ok: Post = async () => res(200, {});
-    expect(await signInWithPasskey(ok, async () => { throw new Error('NotAllowedError'); }, T)).toBe('C');
+    expect(await signInWithPasskey(ok, async () => { throw Object.assign(new Error('x'), { name: 'NotAllowedError' }); }, T)).toBe('C');
     expect(await signInWithPasskey(async (p) => (p.endsWith('/options') ? res(200, {}) : res(401, { error: 'Passkey not recognized.' })), async () => ({}), T)).toBe('Passkey not recognized.');
     expect(await signInWithPassword('u', 'p', async () => { throw new TypeError('fetch'); }, T)).toBe('O');
   });
@@ -25,5 +25,14 @@ describe('remote auth client', () => {
     expect(await addPasskey('Phone', post, async () => ({ id: 'n' }), T)).toBeUndefined();
     expect(calls[1]).toEqual(['/api/remote/passkeys/register/verify', { response: { id: 'n' }, name: 'Phone' }]);
     expect(await addPasskey('x', async () => res(403, { error: 'sign in again to change passkeys' }), async () => ({}), T)).toBe('sign in again to change passkeys');
+  });
+
+  it('only NotAllowed/Abort mean cancelled; a used authenticator is "exists"; anything else is "unusable"', async () => {
+    const ok: Post = async () => res(200, {});
+    const boom = (name: string): (() => Promise<never>) => async () => { throw Object.assign(new Error('x'), { name }); };
+    expect(await signInWithPasskey(ok, boom('NotAllowedError'), T)).toBe('C');
+    expect(await signInWithPasskey(ok, boom('AbortError'), T)).toBe('C');
+    expect(await addPasskey('n', ok, boom('InvalidStateError'), T)).toBe('E');
+    expect(await signInWithPasskey(ok, boom('SecurityError'), T)).toBe('U');
   });
 });

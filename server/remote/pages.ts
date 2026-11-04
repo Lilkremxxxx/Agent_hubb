@@ -45,7 +45,7 @@ const CSS = `
   .hr { margin: 20px 0 0; font-size: 12px; }
 `;
 
-function shell(title: string, page: string, texts: Record<string, string>, body: string): string {
+function shell(title: string, page: string, texts: Record<string, string>, body: string, logo: string): string {
   return `<!doctype html>
 <html lang="${getLocale()}">
 <head>
@@ -63,9 +63,10 @@ function shell(title: string, page: string, texts: Record<string, string>, body:
 </head>
 <body data-page="${page}">
 <main>
-  <img src="/assets/brand/finstar.png" alt="">
+  <img src="${logo}" alt="" width="72" height="72">
 ${body}
 </main>
+<noscript>${esc(tr('JavaScript is required to sign in.'))}</noscript>
 ${jsonBlock(texts)}
 <script type="module" src="/assets/remote/auth.js"></script>
 </body>
@@ -73,7 +74,13 @@ ${jsonBlock(texts)}
 `;
 }
 
-const common = () => ({ failed: tr("Couldn't sign in."), cancelled: tr('Passkey cancelled.'), offline: tr('No connection to Habblaud.') });
+const common = () => ({
+  failed: tr("Couldn't sign in."),
+  cancelled: tr('Passkey cancelled.'),
+  offline: tr('No connection to Habblaud.'),
+  unusable: tr("The passkey didn't work. Try again or use another one."),
+  exists: tr('This device already has a passkey here.'),
+});
 
 export function loginPage(o: { caDownload: boolean; passkeys: boolean; password: boolean; caPath?: string }): string {
   const ca = o.caDownload
@@ -81,7 +88,7 @@ export function loginPage(o: { caDownload: boolean; passkeys: boolean; password:
     : '';
   const body = `  <h1>${esc(tr('Bang_ver hub'))}</h1>
   ${o.passkeys ? `<button id="pk" type="button">${esc(tr('Sign in with a passkey'))}</button>` : ''}
-  ${o.password ? `<form id="f" autocomplete="on">
+  ${o.password ? `<form id="f" method="post" action="/login" autocomplete="on">
     <label for="u">${esc(tr('Username'))}</label>
     <input id="u" name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required>
     <label for="p">${esc(tr('Password'))}</label>
@@ -90,7 +97,7 @@ export function loginPage(o: { caDownload: boolean; passkeys: boolean; password:
   </form>` : ''}
   <div id="err" role="alert"></div>
   ${ca}`;
-  return shell(tr('Habblaud · sign in'), 'login', common(), body);
+  return shell(tr('Habblaud · sign in'), 'login', common(), body, '/assets/brand/finstar-144.png');
 }
 
 export function securityPage(): string {
@@ -104,5 +111,5 @@ export function securityPage(): string {
   <div id="err" role="alert"></div>
   <p class="hr">${esc(tr('Lost your only passkey? At the computer: npm run remote:setup -- --reset-passkeys, then restart the office.'))}</p>
   <p><a href="/">${esc(tr('Back to the office'))}</a></p>`;
-  return shell(tr('Habblaud · passkeys'), 'security', { ...common(), none: tr('No passkeys yet.'), remove: tr('Remove'), added: tr('Passkey added.'), removed: tr('Passkey removed.'), loadFail: tr("Couldn't load the passkeys.") }, body);
+  return shell(tr('Habblaud · passkeys'), 'security', { ...common(), none: tr('No passkeys yet.'), remove: tr('Remove'), added: tr('Passkey added.'), removed: tr('Passkey removed.'), loadFail: tr("Couldn't load the passkeys."), defaultName: tr('Passkey') }, body, '/assets/brand/finstar-144.png');
 }

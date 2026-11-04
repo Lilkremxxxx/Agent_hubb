@@ -418,6 +418,7 @@ function sendHtml(res: ServerResponse, html: string): void {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'no-referrer',
+    'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   });
   res.end(html);
 }
@@ -622,7 +623,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       if (authed) {
         res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' });
         res.end();
-      } else sendHtml(res, loginPage({ caDownload: caAvailable(), passkeys: !!deps.passkeys, password: !passwordOff(), caPath: CA_PATH }));
+      } else sendHtml(res, loginPage({ caDownload: caAvailable(), passkeys: !!deps.passkeys && deps.passkeys.count() > 0, password: !passwordOff(), caPath: CA_PATH }));
       return true;
     }
 

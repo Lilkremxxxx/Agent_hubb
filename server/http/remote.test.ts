@@ -780,6 +780,19 @@ describe('passkey routes', () => {
     expect((await request(await mk({ passkeys: false }), '/remote/security', { headers: { ...H, Cookie: '' } })).status).toBe(404);
   });
 
+  it('login page: CSP header, no passkey button until one exists, password never read from the URL', async () => {
+    const b = await mk();
+    const page = await request(b, '/login', { headers: H });
+    expect(page.headers['content-security-policy']).toBe("default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+    expect(page.body).not.toContain('id="pk"');
+    expect(page.body).toMatch(/<form[^>]*method="post"/);
+    const native = await request(b, '/login?username=ana&password=secret', { method: 'POST', headers: { ...H, 'Content-Type': 'application/x-www-form-urlencoded' } });
+    expect(native.body).not.toContain('secret');
+    await post(b, '/api/remote/passkeys/register/options', {}, { Cookie: await pwCookie(b) });
+    await post(b, '/api/remote/passkeys/register/verify', { response: { id: 'cred-1' } }, { Cookie: await pwCookie(b) });
+    expect((await request(b, '/login', { headers: H })).body).toContain('id="pk"');
+  });
+
   it('a registered passkey turns password sign-in off (403, scrypt not run) unless HABBLAUD_REMOTE_PASSWORD_LOGIN=1; /login hides the form', async () => {
     for (const passwordLogin of [false, true]) {
       const b = await mk({ passwordLogin });
