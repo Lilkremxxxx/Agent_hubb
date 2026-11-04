@@ -10,6 +10,7 @@ middle one (0.**3**.0).
 
 ### Added
 
+- **Go-live runbook `docs/deploy.md` and unit/tunnel templates in `deploy/`** (nothing is installed by the repo).
 - **`npm run remote:setup` writes `<data dir>/hub.env`** (never the repo `.env`; mode 600); `--behind-proxy` for the Cloudflare hub (default allow `terminal`, `--allow none` for view only), `--reset-passkeys` (stop the service first). `npm run office` loads `hub.env` and defers to `bang-hub.service` when it is enabled. `hub.env` values are validated and single-quoted, and `office.sh` parses the file instead of sourcing it; `office.sh` also yields when the unit is active or owns the process. The sign-in CSP now allows the page manifest (`manifest-src 'self'`).
 - **Sign-in page hardening**: strict Content-Security-Policy, the password form never submits natively (no password in the URL), clearer passkey errors.
 - **New sign-in page and Passkeys page for the remote port** (Ocean Depth look, one small browser bundle); settings link to manage passkeys.

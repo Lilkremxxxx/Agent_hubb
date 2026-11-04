@@ -1,0 +1,7 @@
+# Template: replace <TUNNEL_ID> (the runbook does it with sed). Not read by anything in the repo.
+tunnel: <TUNNEL_ID>
+credentials-file: /home/nhatbang/.cloudflared/<TUNNEL_ID>.json
+ingress:
+  - hostname: hub.finstar.pp.ua
+    service: http://127.0.0.1:4748
+  - service: http_status:404

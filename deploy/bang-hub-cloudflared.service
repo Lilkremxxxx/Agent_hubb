@@ -1,0 +1,12 @@
+[Unit]
+Description=Cloudflare tunnel for the Bang_ver hub (hub.finstar.pp.ua)
+After=network-online.target bang-hub.service
+
+[Service]
+ExecStart=/usr/local/bin/cloudflared tunnel --no-autoupdate --config %h/.config/bang-hub/cloudflared.yml run bang-hub
+Restart=always
+RestartSec=5
+MemoryMax=150M
+
+[Install]
+WantedBy=default.target
