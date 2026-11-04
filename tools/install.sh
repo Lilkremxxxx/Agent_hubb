@@ -4,6 +4,7 @@
 # --worker also fills ~/.claude-worker/skills with the skills of the main Claude account, for the Claude seats.
 # Safe to run again: the second run changes nothing and prints no change. Accounts are not touched: sign in once with `agy-as accN`.
 set -eu
+unset CDPATH
 [ $# -eq 0 ] || [ "$*" = "--worker" ] || { echo "usage: tools/install.sh [--worker]" >&2; exit 1; }
 agy="$(dirname "$(readlink -f "$0")")/agy"
 bin="$HOME/.local/bin"
@@ -18,7 +19,7 @@ link() {  # link <target> <path>: say so only when it changes
 }
 drop_vi() {  # drop_vi <path>: remove a symlink into Vi-Habblaud (harmless elsewhere: nothing else points there)
   if [ -L "$1" ]; then
-    case "$(readlink "$1")" in $vi) rm "$1"; echo "removed $1" ;; esac
+    case "$(readlink "$1")" in "$agy"/*) ;; $vi) rm "$1"; echo "removed $1" ;; esac  # never our own links (a clone under a Vi-Habblaud path)
   fi
 }
 

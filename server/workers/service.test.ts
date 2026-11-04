@@ -96,6 +96,18 @@ describe('agyTrusts', () => {
     writeFileSync(join(d, 'settings.json'), '{}');
     expect(agyTrusts(d, '/w/a')).toBeUndefined();
   });
+  it('a list in a layout we do not know (objects, file:// URIs, ~/…) is unknown; an empty list is "nothing trusted"', () => {
+    const d = state();
+    const list = (l: unknown[]) => writeFileSync(join(d, 'settings.json'), JSON.stringify({ trustedWorkspaces: l }));
+    list([{ path: '/w/a' }]);
+    expect(agyTrusts(d, '/w/a')).toBeUndefined();
+    list(['/w/a', 'file:///w/a']);
+    expect(agyTrusts(d, '/w/a')).toBeUndefined();
+    list(['~/w/a']);
+    expect(agyTrusts(d, '/w/a')).toBeUndefined();
+    list([]);
+    expect(agyTrusts(d, '/w/a')).toBe(false);
+  });
   it('a symlinked folder matches by its real path too, and the other way round; an unlisted target does not', () => {
     const d = state();
     const real = join(state(), 'real');
@@ -411,6 +423,22 @@ describe('WorkerService', () => {
       expect((await t.svc.ask({ worker: 'W2', prompt: 'b', cwd: t.root })).ok).toBe(true);
       writeFileSync(join(t.stateDir, 'settings.json'), '{"other":1}');
       expect((await t.svc.ask({ worker: 'W3', prompt: 'c', cwd: t.root })).ok).toBe(true);
+    });
+
+    it('a trust list in an unknown layout (objects, file:// URIs, ~/…): unknown, the job starts', async () => {
+      const t = setup(['W1', 'W2', 'W3']);
+      trusted(t, [{ path: t.root }]);
+      expect((await t.svc.ask({ worker: 'W1', prompt: 'a', cwd: t.root })).ok).toBe(true);
+      trusted(t, ['/elsewhere', `file://${t.root}`]);
+      expect((await t.svc.ask({ worker: 'W2', prompt: 'b', cwd: t.root })).ok).toBe(true);
+      trusted(t, ['~/elsewhere']);
+      expect((await t.svc.ask({ worker: 'W3', prompt: 'c', cwd: t.root })).ok).toBe(true);
+    });
+
+    it('an empty trust list means nothing is trusted: refused', async () => {
+      const t = setup();
+      trusted(t, []);
+      expect((await t.svc.ask({ worker: 'W1', prompt: 'a', cwd: t.root })).ok).toBe(false);
     });
 
     it('a Claude seat is not affected by agy settings', async () => {

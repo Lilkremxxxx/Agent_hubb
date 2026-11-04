@@ -78,7 +78,8 @@ tools/install.sh --worker   # also: skills for the Claude seats in ~/.claude-wor
 `tools/install.sh` links the scripts into `~/.local/bin` (it never replaces a real file) and removes what an old
 Vi-Habblaud install left there: its `~/.local/bin` links, its skill links in
 `~/.claude/skills`, and the `office-rules` plugin links in the Antigravity profiles. Run it again any time: the second
-run changes nothing.
+run changes nothing. After a Claude plugin updates, run `tools/install.sh --worker` again, or the skill links in
+`~/.claude-worker/skills` dangle and the Claude seats lose those skills.
 
 `npm install` fetches build tools only: the server has no required runtime dependencies. `npm run office` builds and
 starts it in the background. Then open **http://127.0.0.1:4747**. If `~/.local/bin` is not on your PATH, the installer
@@ -97,7 +98,7 @@ says so: add it.
    `~/.claude-work`; sign in once with `CLAUDE_CONFIG_DIR=~/.claude-work claude`.
 
 2. **Write the seats.** Create `~/.habblaud/team.json` (or `$HABBLAUD_DATA_DIR/team.json`; the file is re-read every
-   second, so editing it adds or removes seats). `folder` is the project the whole office works in. A Claude `account`
+   second, so editing it adds or removes seats). `HABBLAUD_DATA_DIR` must be an absolute path. `folder` is the project the whole office works in. A Claude `account`
    of `default` is `~/.claude`, `x` is `~/.claude-x`.
 
    ```json
@@ -112,12 +113,17 @@ says so: add it.
    ```
 
    The first time, seats are imported from `~/.agy_profiles/team.json` if it exists; that file is only read, never
-   written. With no `folder`, jobs and "Open the boss" are refused with a message that points at `team.json`.
+   written. The file is the truth: a typo in `boss` (a wrong `kind`, an account with a space) makes the server treat the
+   boss as unset, and it closes the live Antigravity boss terminal. (A later plan will close it only on a valid entry.) With no `folder`, jobs and "Open the boss" are refused with a message that points at `team.json`.
 
 3. **Open the boss.** In the sidebar, the **＋** next to Boss opens the boss (`boss.kind`) in `folder`. A Claude session
    you already have open can become the boss with **👑 Make boss** in its drawer.
 
-4. **Give jobs.** Talk to the boss, or run it yourself. `tools/install.sh` links `worker-ask`, `agy-ask`, `claude-ask` (the same command) and `agy-as` into `~/.local/bin`. Until you run it, use `tools/agy/bin/worker-ask W1 "…"` from the repo (an `agy-ask` already on your PATH may belong to another install and does not know seats):
+4. **Trust the folder once.** An Antigravity seat needs a one-time trust per account and folder, before its first job
+   there: `cd <folder> && agy-as <acc>`, answer yes, `/exit` (`bang-init` lists the accounts; details under
+   [Start a project](#start-a-project-bang-init-folder)). Until then `worker-ask` refuses the job with that advice.
+
+5. **Give jobs.** Talk to the boss, or run it yourself. `tools/install.sh` links `worker-ask`, `agy-ask`, `claude-ask` (the same command) and `agy-as` into `~/.local/bin`. Until you run it, use `tools/agy/bin/worker-ask W1 "…"` from the repo (an `agy-ask` already on your PATH may belong to another install and does not know seats):
 
    ```bash
    worker-ask W1 "Read src/ and list the TODOs" --mode plan
@@ -150,7 +156,7 @@ with no Bang skills.
 
 To limit which skills Antigravity sees, put their names in `<folder>/skills.list` (one per line, `#` for comments) and
 run `bang-init` again: every folder in `skills.json` then gets `include_only`, except this repo's `skills/`. Run it
-again also when a plugin updates its version.
+again after the repo moves or a plugin updates (`.agents/skills.json` stores absolute paths).
 
 ## Run it every day
 
@@ -517,7 +523,7 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_PORT` | `4747` | HTTP port. |
 | `HABBLAUD_HOST` | `127.0.0.1` | Server interface. Anything other than `127.0.0.1`/`localhost` turns off the terminal. |
 | `HABBLAUD_CLAUDE_DIRS` | automatic detection | Account folders, comma-separated (e.g. `/path/acc1,/path/acc2`). |
-| `HABBLAUD_DATA_DIR` | `~/.habblaud` | Where Habblaud keeps its own data (character and room names). |
+| `HABBLAUD_DATA_DIR` | `~/.habblaud` | Where Habblaud keeps its own data (character and room names). Must be an absolute path. |
 | `HABBLAUD_ALLOWED_HOSTS` | — | Extra names accepted in the address (e.g. `my-pc.local`), besides `localhost` and IPs. |
 | `HABBLAUD_TERMINAL` | on (local access only) | `0` turns off the terminal and the character editor. With the port exposed they're already off, with no way to turn them on. |
 | `HABBLAUD_PTY` | on under `npm run office`, off otherwise | `1` turns on the interactive terminal (open, take over and end Claude Code sessions from the office; local access only). |
@@ -644,7 +650,7 @@ account, the numbers come from its own `/usage`, read every few minutes.
 <details>
 <summary><b>"Port 4747 is already in use"</b></summary>
 
-Another Habblaud is already running. Stop it (Ctrl+C in the `npm start` terminal, or `npm run office -- stop` run from that server's own folder: it refuses a server started from another folder; see
+Another Habblaud is already running. Stop it (Ctrl+C in the `npm start` terminal, or `npm run office -- stop`, which only stops a server started from this repo; see
 [Run it every day](#run-it-every-day)) or use another port: `HABBLAUD_PORT=4848 npm run office`.
 
 </details>

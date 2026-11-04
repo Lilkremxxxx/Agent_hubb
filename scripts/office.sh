@@ -3,6 +3,7 @@
 # session opened in its web terminal lives inside this server, so it must outlive the shell that started it). Then open
 # the address it prints. stop and restart act only on this repo's own server on the port, never on another process.
 set -eu
+unset CDPATH
 cd "$(dirname "$0")/.."
 root="$(pwd -P)"
 port="${HABBLAUD_PORT:-4747}"
@@ -31,7 +32,7 @@ stop_office() {
   cwd="$(readlink "/proc/$pid/cwd" || true)"
   cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" | sed 's/ $//' || true)"
   if [ "$cwd" != "$root" ] || [ "$cmd" != "node dist/server/index.js" ]; then
-    echo "port $port belongs to another server (pid $pid, $cwd): not stopped"
+    echo "port $port belongs to another server (pid $pid, $cwd, $cmd): not stopped"
     return 1
   fi
   kill "$pid" || { echo "could not signal pid $pid"; return 1; }

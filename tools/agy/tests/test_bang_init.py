@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 
@@ -173,3 +174,55 @@ def test_existing_gemini_file_and_real_skill_dir_are_left(env):
 def test_no_argument_prints_usage(env):
     code, _, err = env.run([])
     assert code == 1 and "usage: bang-init <folder>" in err
+
+
+def test_skill_dirs_one_version_with_skills_and_a_newer_one_without(env):
+    shutil.rmtree(f"{env.h}/{PLUG}/plug/1.10.0")
+    touch(f"{env.h}/{PLUG}/plug/latest/README")
+    ev = {"HOME": env.h, "PATH": os.environ["PATH"]}
+    out = subprocess.run([SKILL_DIRS, env.h], capture_output=True, text=True, env=ev).stdout.split()
+    assert out == [f"{env.h}/.claude/skills", f"{env.h}/{PLUG}/plug/1.2.0/skills"]
+
+
+def test_skills_list_with_only_comments_is_no_list(env):
+    touch(f"{env.proj}/skills.list", "# nothing yet\n\n   \n")
+    assert env.run([env.proj])[0] == 0
+    entries = json.load(open(f"{env.proj}/.agents/skills.json"))["entries"]
+    assert len(entries) == 3 and all("include_only" not in e for e in entries)
+
+
+def test_cdpath_does_not_redirect_the_folder(env):
+    cd = os.path.join(env.tmp, "cdp")
+    work = os.path.join(env.tmp, "work")
+    os.makedirs(f"{cd}/p3")
+    os.makedirs(work)
+    env.team({"folder": "", "workers": []})
+    ev = {"HOME": env.h, "PATH": os.environ["PATH"], "HABBLAUD_DATA_DIR": env.d, "CDPATH": cd}
+    r = subprocess.run([BANG_INIT, "p3"], capture_output=True, text=True, env=ev, cwd=work)
+    assert r.returncode == 0, r.stderr
+    assert os.path.exists(f"{work}/p3/.agents/skills.json") and os.listdir(f"{cd}/p3") == []
+    assert json.load(open(f"{env.d}/team.json"))["folder"] == env.real(f"{work}/p3")
+
+
+def test_next_steps_warn_about_the_skill_cost_and_skills_list(env):
+    _, out, _ = env.run([env.proj])
+    assert f"Antigravity jobs carry every skill description (~25k tokens); list the ones you want in {env.real(env.proj)}/skills.list (one name per line) and run bang-init again" in out
+
+
+def test_same_folder_spelled_differently_is_the_office_folder(env):
+    os.makedirs(env.proj)
+    os.symlink(env.proj, f"{env.tmp}/ln")
+    env.team({"folder": f"{env.tmp}/ln/", "workers": []})
+    _, out, _ = env.run([env.proj])
+    assert "already the office folder" in out and "edit" not in out
+
+
+def test_relative_folder_in_team_json_counts_as_empty(env):
+    env.team({"folder": "rel/dir", "workers": []})
+    _, out, _ = env.run([env.proj])
+    assert json.load(open(f"{env.d}/team.json"))["folder"] == env.real(env.proj) and "office folder set" in out
+
+
+def test_unset_home_is_a_clear_error(env):
+    r = subprocess.run([BANG_INIT, env.proj], capture_output=True, text=True, env={"PATH": os.environ["PATH"]})
+    assert r.returncode != 0 and "HOME" in r.stderr and not os.path.exists(env.proj)

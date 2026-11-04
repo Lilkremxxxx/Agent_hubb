@@ -636,7 +636,33 @@ Chạy `tools/install.sh --worker` từ `/home/nhatbang/Agent_4_me/Agent_Hub/Ban
 
 ## Để lại cho kế hoạch sau
 
-_(Điền khi xong Task 9.)_
+Nguồn: `.superpowers/sdd/2026-11-04-bang-ver-3-skills/final-review.md` (mục "Plan 4 / advisor-spike readiness" và bảng Deferred). Đã sửa trong lượt cuối: I1–I4, M1, M2, M3, M5, M6, M9, M11, M12, M15, M16.
+
+**Kế hoạch 4 (lời mở đầu + giao việc)**
+- Lời mở đầu §12 ghép một chỗ: `args()` trong `worker-ask` (`a["prompt"]` ở ~:113); đường office (~:203) và headless đều đọc `a["prompt"]`. Tên ghế và folder office đã có trong `a`. Đọc "Bài học" từ `<folder>/task_board.md` (folder office), không từ `--cwd`.
+- M13: dòng ví dụ trong `templates/task_board.md` (`:2` danh sách ghế ví dụ, `:11` hàng `T1 … | W1 | doing: 12/50`, `:19` dòng Bài học ví dụ) gặp luật của `bang-task` ("hàng của bạn còn `doing:` thì làm xong trước") và sẽ bị chèn vào mọi prompt. Template phải giữ nguyên văn, nên `bang-init` của Kế hoạch 4 ghi ghế thật và bỏ các dòng ví dụ khỏi bản chép (hoặc lời mở đầu bỏ qua chúng).
+- `--raw`: cờ lạ đi vào `a["extra"]` và được chuyển thẳng cho agy/claude (`worker-ask:128-129`); phải parse `--raw` rõ ràng. Kiểm 6 đầu mục đặt sau khi quyết định lời mở đầu, trên chữ của boss (`a["task"]`).
+- Trần 20k ký tự ở `server/workers/service.ts:247`: lời mở đầu + Bài học (đến 20 dòng) + 6 phần + "Kết quả review lần trước" kèm diff có thể vượt. Nâng ở đó và kiểm cả đường `/api/agy/jobs`. Đường headless chỉ bị giới hạn bởi argv (128 KiB mỗi đối số).
+- Viết lại `skills/giao-viec/SKILL.md`: bảng exit (`:30`) nói exit 1 → "thử lại một lần hoặc tự làm", nhưng từ chối chưa tin cậy cũng là exit 1 và thử lại vô ích: boss phải bảo người dùng chạy `agy-as <acc>`; `:48` "`auto` is not available" mâu thuẫn spec §14 (`auto` là mặc định trong folder office); `:22` còn chữ "(Habblaud)".
+- Lần dùng thật đầu tiên sau khi khởi động lại cổng 4747: import mang vào 7 ghế agy (`acc1`…`acc7`); tin cậy tính theo tài khoản và folder, nên là 7 lần `cd <folder> && agy-as accN`, trả lời yes, `/exit` trước khi job agy nào chạy. Báo người dùng ngay từ đầu (`bang-init` đã liệt kê tài khoản).
+- Brief nghiệm thu: `bang-init` chỉ chạy qua `~/.local/bin/bang-init`, không bao giờ từ worktree (đường dẫn tuyệt đối trong `skills.json` sẽ trỏ vào worktree rồi chết). Fixture `~/bang-test-office` đã chạy lại từ repo chính ở lượt cuối.
+- Boss gõ sai trong `team.json` (M8, chưa sửa code): `cleanTeam` biến boss sai thành `{claude, default}` và `onChange` đóng terminal boss agy đang chạy. README đã ghi rõ; Kế hoạch 4 chỉ đóng khi mục boss của file thô hợp lệ.
+
+**Kế hoạch 5 (advisor)**
+- Cổng RSS sửa lại: không so với "kế hoạch trước + 2 %" (cộng dồn). Dùng "HEAD ≤ mốc + 3 %", mốc = aa3cb17 (hoặc fork), đo lại trong cùng một phiên A/B xen kẽ, ít nhất 3 cặp (nhiễu giữa các lần chạy 0,5–0,9 MB).
+- Đặt lại con số tuyệt đối của spec: 110 MB ở §3/§17 đã là chữ chết; fork hôm nay ≈113 MB (base 113 336 kB, HEAD 113 846 kB). Đo fork một lần trên máy này rồi ghi con số sống vào spec.
+- Link `advisor` chưa hoàn tất đến Kế hoạch 5 (`install.sh` chỉ link khi `tools/agy/bin/advisor` có; skill đã ghi "thiếu → `blocked:`"). `staleAgyBosses` đảm bảo tối đa một terminal boss agy: một PTY rõ ràng để advisor gõ vào. Còn mở: đổi hội thoại của boss agy (M2 cũ) và boss agy gõ giữa lượt.
+
+**Kế hoạch 6 (remote)**
+- `~/.habblaud/hub.env` (spec deploy nạp nó) và các thiết lập host; `office.sh start` chỉ dò `127.0.0.1`.
+
+**Còn trong danh sách hoãn (không sửa)**
+- M4: `bang-init` xử lý link treo không nhất quán (`CLAUDE.md` treo bị ghi xuyên qua, `GEMINI.md` treo coi như có).
+- M7: `HABBLAUD_AGY_PROFILES` có bốn luật (server trim; `worker-ask`, `install.sh` không; `agy-as` bỏ qua). Với gốc tuỳ chỉnh, `agyTrusts` đọc một profile còn agy chạy ở profile khác.
+- M10: `install.sh` in `left … not a link` ra stderr nhưng `left` khác ra stdout.
+- M14: `tools/agy/tests/test_worker_ask.py:92` chép cả env của người chạy (trừ `AGY_`, `BANG_`, `CLAUDE*`); một `HABBLAUD_AGY_PROFILES` trong shell trỏ log headless và `defaults.json` vào gốc profile thật.
+- Test chập chờn đã biết (tail rotation, hai test watcher theo thời gian, art floor-chunks khi tải nặng): không đụng.
+- Hoãn từ sổ cái: tệp `team.json.bang-init.tmp` còn sót khi `os.replace` hỏng (vô hại); trường hợp zombie của `kill -0`; không có test cho việc bảng dời khi phòng folder xuất hiện.
 
 ## Kết quả (Task 8)
 
@@ -648,7 +674,7 @@ Chạy trên worktree `~/bang-ver-accept3` (HEAD 38139bb), cổng 4749, data dir
 - **Step 4:** **Không đạt.** W1 liệt kê: `agy-customizations, antigravity-guide, ponytail, ponytail-review, systematic-debugging, test-driven-development, verification-before-completion`; hỏi thẳng: `giao-viec: no; advisor: no; bang-task: no`. Skill của `$B/skills` không tới được agy (chưa tìm nguyên nhân; `systematic-debugging` cũng có sẵn trong profile acc1 nên không chứng minh `skills.json` được nạp). Token đầu vào ≈ 8–9 k.
 - **Step 5:** chờ người dùng (Claude chưa đăng nhập/tin cậy).
 - **Step 6:** headless `H-OK`, exit 0. Đạt.
-- **Step 7:** typecheck xanh; vitest 943 xanh + 1 flaky đã biết (tail rotation); i18n 1254/1254; pytest 46. Dòng thêm ròng không-test +243 −131 = +112 (≤ +300). Đạt.
+- **Step 7:** typecheck xanh; vitest 943 xanh + 1 flaky đã biết (tail rotation); i18n 1254/1254; pytest 46. Dòng thêm ròng không-test +243 −131 = +112 (≤ +300) đo ở 38139bb, trước các vòng sửa 8b; **đo lại ở HEAD 9a3751c: +145 ròng không-test (+279 −134), +290 tính cả `skills/` và `templates/`**. Vẫn ≤ +300 cho mỗi tính năng (lớn nhất: `install.sh` 73 dòng). Đạt.
 - **Step 8:** 4749 dừng (0), 4747 còn 1, worktree xoá, giữ `~/bang-test-office`, `~/.bang-test-data`.
 - **Việc còn lại:** điều tra vì sao agy không thấy skill dự án (§8 đã kiểm 2026-11-03 nhưng giờ không tái hiện); cắt ≥1,2 MB RSS hoặc nới trần; Claude seat chờ người dùng.
 

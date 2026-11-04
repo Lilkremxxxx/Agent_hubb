@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 
 import pytest
@@ -187,3 +188,18 @@ def test_link_into_a_look_alike_folder_is_not_removed(box):
     os.symlink("/x/Vi-Habblaud-backup/agy-up", f"{b}/keep-me")
     box.run()
     assert os.readlink(f"{b}/keep-me") == "/x/Vi-Habblaud-backup/agy-up"
+
+
+def test_a_clone_under_a_vi_habblaud_path_keeps_its_own_links(box):
+    clone = f"{box.tmp}/Vi-Habblaud/fork"
+    os.makedirs(f"{clone}/tools/agy")
+    shutil.copy(f"{REPO}/tools/install.sh", f"{clone}/tools/install.sh")
+    shutil.copytree(f"{REPO}/tools/agy/bin", f"{clone}/tools/agy/bin")
+    ev = {"HOME": box.h, "PATH": f"{box.h}/.local/bin:" + os.environ["PATH"]}
+    for _ in range(2):
+        r = subprocess.run(["bash", f"{clone}/tools/install.sh"], capture_output=True, text=True, env=ev)
+        assert r.returncode == 0, r.stderr
+        for n in ("worker-ask", "agy-as", "bang-init"):
+            assert os.readlink(f"{box.h}/.local/bin/{n}") == f"{clone}/tools/agy/bin/{n}"
+        assert os.path.realpath(f"{box.h}/.local/bin/agy-ask") == os.path.realpath(f"{clone}/tools/agy/bin/worker-ask")
+    assert not os.path.lexists(f"{box.h}/.local/bin/agy-up")  # the real Vi-Habblaud leftovers still go

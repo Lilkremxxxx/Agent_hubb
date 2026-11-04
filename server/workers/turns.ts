@@ -8,7 +8,7 @@
 // - Claude Code: <config>/projects/<cwd>/<session>.jsonl. The turn is over when the last assistant message stopped with
 //   `end_turn` and no tool is pending; the answer is the text of that message.
 import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 export interface TurnState {
   /** The prompts typed so far (USER_INPUT steps / real user messages). */
@@ -85,14 +85,16 @@ export function claudeTrusts(configDir: string, isDefault: boolean, cwd: string)
 }
 
 /**
- * Does the agy account trust this folder? agy keeps the folders it was told to trust in
- * `<stateDir>/settings.json` (`trustedWorkspaces`, absolute paths) and matches the exact path, not ancestors. An
- * interactive agy in another folder stops at a trust dialog. undefined when the list cannot be read (never written here).
+ * Does the agy account trust this folder? Reads agy's undocumented file layout: the folders it was told to trust are in
+ * `<stateDir>/settings.json` (`trustedWorkspaces`). It assumes absolute-path strings and exact-path trust (no ancestors),
+ * and also accepts the real path of a symlink. An interactive agy in another folder runs the prompt behind a trust
+ * dialog, without the Bang skills. undefined (unknown, the job proceeds) when the file cannot be read or the list holds
+ * anything but absolute paths (a layout we do not know); never written here.
  */
 export function agyTrusts(stateDir: string, folder: string): boolean | undefined {
   try {
     const list = (JSON.parse(readFileSync(join(stateDir, 'settings.json'), 'utf8')) as { trustedWorkspaces?: unknown }).trustedWorkspaces;
-    if (!Array.isArray(list)) return undefined;
+    if (!Array.isArray(list) || !list.every((p) => typeof p === 'string' && isAbsolute(p))) return undefined;
     // A symlink may be spelled either way in agy's list: accept the plain and the real path of both sides.
     const forms = (p: string): string[] => {
       try {
@@ -102,7 +104,7 @@ export function agyTrusts(stateDir: string, folder: string): boolean | undefined
       }
     };
     const want = forms(folder);
-    return list.some((p) => typeof p === 'string' && forms(p).some((f) => want.includes(f)));
+    return list.some((p) => forms(p as string).some((f) => want.includes(f)));
   } catch {
     return undefined;
   }

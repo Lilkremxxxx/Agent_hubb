@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # bang-init <folder>: prepare a project folder as an office (templates, agy skill manifest, Claude skill links, GEMINI.md, team.json folder).
 [ -n "$1" ] || { echo "usage: bang-init <folder>" >&2; exit 1; }
+unset CDPATH  # an exported CDPATH would make `cd` print the path and pick another folder
+: "${HOME:?}"
 repo=$(readlink -f "$(dirname "$(readlink -f "$0")")/../../..")
 home=$HOME; case $home in */.agy_profiles/*) home=${home%%/.agy_profiles/*};; esac  # as worker-ask: the real home inside agy-as
 mkdir -p "$1" && folder=$(cd "$1" && pwd -P) || exit 1
@@ -25,7 +27,8 @@ for f in ("task_board.md", "project_proposal.md"):
 entries = [{"path": d} for d in os.environ["SKILLS"].split("\n") if d]
 if os.path.exists(f"{folder}/skills.list"):
     only = [l.strip() for l in open(f"{folder}/skills.list", encoding="utf-8") if l.strip() and not l.strip().startswith("#")]
-    entries = [dict(e, include_only=only) for e in entries]
+    if only:  # a list of comments only is no list
+        entries = [dict(e, include_only=only) for e in entries]
 entries.append({"path": f"{repo}/skills"})
 open(f"{folder}/.agents/skills.json", "w", encoding="utf-8").write(json.dumps({"entries": entries}, indent=2) + "\n")
 team = (os.environ["DATA"].strip() or f"{home}/.habblaud") + "/team.json"  # as the server (config.ts) and worker-ask
@@ -43,12 +46,14 @@ else:
     ws = t.get("workers")
     accs = sorted({w["account"] for w in ws if isinstance(w, dict) and w.get("kind") == "agy" and isinstance(w.get("account"), str)}) if isinstance(ws, list) else []
     cur = t.get("folder")
+    if not (isinstance(cur, str) and os.path.isabs(cur)):  # as the server (team.ts): a relative folder is unset
+        cur = ""
     if not cur:
         t["folder"] = folder
         open(team + ".bang-init.tmp", "w", encoding="utf-8").write(json.dumps(t, indent=2, ensure_ascii=False) + "\n")
         os.replace(team + ".bang-init.tmp", team)
         print(f"office folder set in {team}")
-    elif cur == folder:
+    elif os.path.realpath(cur) == folder:
         print("already the office folder")
     else:
         print(f"the office folder is {cur}: edit {team} to change it")
@@ -57,7 +62,8 @@ Next:
   1. Open the boss in {folder} (the + button beside Boss on the page, or: cd {folder} && claude), then run /init.
      A boss on agy: tell it to write CLAUDE.md the way /init would.
   2. Fill in {folder}/project_proposal.md.
-  3. Hand out work with the giao-viec skill (worker-ask <seat> "...").""")
+  3. Hand out work with the giao-viec skill (worker-ask <seat> "...").
+  Antigravity jobs carry every skill description (~25k tokens); list the ones you want in {folder}/skills.list (one name per line) and run bang-init again.""")
 if os.path.isdir(f"{home}/.claude-worker"):
     print(f"  4. Once: cd {folder} && CLAUDE_CONFIG_DIR={home}/.claude-worker claude  (log in, trust the folder, /exit);\n     without it every job on a Claude seat stops at TRUST_WAIT.")
 if accs or not os.path.exists(team):
