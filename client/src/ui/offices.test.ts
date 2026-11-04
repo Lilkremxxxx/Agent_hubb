@@ -1,7 +1,7 @@
-// Offices from the snapshot: the list, the one shown, its room, boss, focus (dimming) and jobs.
+// The office from the snapshot: the list, the one shown, its boss and focus (dimming).
 import { describe, expect, it } from 'vitest';
 import type { AgentInfo, OfficeInfo, OfficeSnapshot, RoomInfo, TeamInfo } from '../../../shared/types';
-import { agyBossOffice, folderOverlap, folderProblem, jobInOffice, officeBoss, officeFocus, officeForWorker, officeOfSelection, officeRoom, otherOfficesOf, pickOffice, sameFocus, teamOffices, workerAgentIds } from './offices';
+import { officeBoss, officeFocus, pickOffice, sameFocus, teamOffices } from './offices';
 
 const office = (id: string, extra: Partial<OfficeInfo> = {}): OfficeInfo => ({ id, name: id.toUpperCase(), folder: `/p/${id}`, workers: [], ...extra });
 const room = (id: string, path: string, extra: Partial<RoomInfo> = {}) => ({ id, name: id, path, ...extra }) as RoomInfo;
@@ -22,14 +22,6 @@ describe('offices', () => {
     expect(pickOffice(list, 'b')?.id).toBe('b');
     expect(pickOffice(list, 'gone')?.id).toBe('a');
     expect(pickOffice([], 'a')).toBeUndefined();
-  });
-
-  it('room: the server roomId, else the room with the folder path', () => {
-    const rooms = [room('r1', '/p/a'), room('r2', '/p/b')];
-    expect(officeRoom({ rooms }, office('x', { roomId: 'r2' }))?.id).toBe('r2');
-    expect(officeRoom({ rooms }, office('a'))?.id).toBe('r1');
-    expect(officeRoom({ rooms }, office('c'))).toBeUndefined();
-    expect(officeRoom({ rooms }, office('a', { folder: '' }))).toBeUndefined();
   });
 
   it('boss: bossAgentId or pendingBoss; any crowned agent only with one office', () => {
@@ -70,61 +62,4 @@ describe('offices', () => {
     expect(sameFocus(f, { ...f, office: 'b' })).toBe(false);
   });
 
-  it("selection: the office of the selected character's or room's building; none with one office", () => {
-    const offices = [office('a'), office('b')];
-    const snap: Snap = { rooms: [room('ra', '/p/a'), room('rb', '/p/b', { office: 'b' })], agents: [agent('x', 'ra'), agent('y', 'rb', { office: 'b' }), agent('ys', 'rb', { parentId: 'y' })], team: team(offices) };
-    expect(officeOfSelection(snap, { type: 'agent', id: 'x' })).toBe('a');
-    expect(officeOfSelection(snap, { type: 'agent', id: 'ys' })).toBe('b');
-    expect(officeOfSelection(snap, { type: 'room', id: 'rb' })).toBe('b');
-    expect(officeOfSelection(snap, { type: 'agent', id: 'gone' })).toBeUndefined();
-    expect(officeOfSelection(snap, null)).toBeUndefined();
-    expect(officeOfSelection({ ...snap, team: team([offices[0]]) }, { type: 'agent', id: 'y' })).toBeUndefined();
-  });
-
-  it("workers' characters: the one in that office (agentIds), else the first (agentId), else agy:accN", () => {
-    const sessions = [{ worker: 'claude:.claude-w', kind: 'claude' as const, agentId: 'claude:w', agentIds: { a: 'claude:w', b: 'claude:w@b' }, account: '.claude-w' }];
-    expect([...workerAgentIds({ sessions }, ['claude:.claude-w', 'acc2'], 'b')]).toEqual(['claude:w@b', 'agy:acc2']);
-    expect([...workerAgentIds({ sessions }, ['claude:.claude-w'], 'c')]).toEqual(['claude:w']);
-    expect([...workerAgentIds({ sessions }, ['claude:.claude-w'])]).toEqual(['claude:w']);
-  });
-
-  it('jobs: by office; a job without one belongs to no office', () => {
-    const list = [office('a'), office('b')];
-    expect(jobInOffice({ office: 'b' }, list[1])).toBe(true);
-    expect(jobInOffice({ office: 'b' }, list[0])).toBe(false);
-    expect(jobInOffice({}, list[0])).toBe(false);
-    expect(jobInOffice({}, undefined)).toBe(true);
-  });
-
-  it('workers shared between offices, an agy boss in one office only', () => {
-    const list = [office('a', { workers: ['acc2'] }), office('b', { workers: ['acc2', 'acc4'], bossAccount: 'x@agy', bossKind: 'agy' })];
-    expect(officeForWorker(list[0], 'acc2')).toBe('a');
-    expect(officeForWorker(list[0], 'acc4')).toBeUndefined();
-    expect(otherOfficesOf(list, 'acc2', 'a')).toEqual(['B']);
-    expect(agyBossOffice(list, 'x@agy')?.id).toBe('b');
-    expect(agyBossOffice(list, 'y@agy')).toBeUndefined();
-  });
-
-  it('folder: absolute and unique', () => {
-    const list = [office('a'), office('b', { folder: '' })];
-    expect(folderProblem(list, '')).toBe('empty');
-    expect(folderProblem(list, 'rel/x')).toBe('relative');
-    expect(folderProblem(list, '/p/a/')).toBe('used:A');
-    expect(folderProblem(list, '/p/a', 'a')).toBe('');
-    expect(folderProblem(list, '/p/new')).toBe('');
-    expect(folderProblem(list, '/')).toBe('root');
-    expect(folderProblem(list, 'C:\\')).toBe('root');
-    // office folders never overlap
-    expect(folderProblem(list, '/p/a/sub')).toBe('inside:A');
-    expect(folderProblem(list, '/p')).toBe('contains:A');
-    expect(folderProblem(list, '/p/ab')).toBe('');
-  });
-
-  it('an office whose folder overlaps another (a team file from before the rule) is pointed out', () => {
-    const list = [office('a', { folder: '/home' }), office('b', { folder: '/home/x' }), office('c'), office('d', { folder: '' })];
-    expect(folderOverlap(list, list[0])?.id).toBe('b');
-    expect(folderOverlap(list, list[1])?.id).toBe('a');
-    expect(folderOverlap(list, list[2])).toBeUndefined();
-    expect(folderOverlap(list, list[3])).toBeUndefined();
-  });
 });

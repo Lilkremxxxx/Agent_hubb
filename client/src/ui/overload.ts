@@ -125,10 +125,7 @@ export class OverloadDialog {
         agentId: agent.id,
         at: this.ctx.now(),
         sticky: load.level === 'overloaded',
-        open: () => {
-          if (officeId) this.ctx.selectOffice(officeId);
-          this.open();
-        },
+        open: () => this.open(),
       });
     }
   }

@@ -34,9 +34,8 @@ import { UpdateBanner } from './update';
 import { FreeArea } from './viewport';
 import { attachKonami } from './konami';
 import { HintOverlay } from './hints';
-import { OfficeTabs } from './office-tabs';
 import { OverloadDialog } from './overload';
-import { OFFICE_KEY, officeFocus, officeOfSelection, pickOffice, sameFocus, teamOffices, type OfficeFocus } from './offices';
+import { officeFocus, pickOffice, sameFocus, teamOffices, type OfficeFocus } from './offices';
 import { tr } from '../../../shared/i18n';
 
 /** Relative time clock ("5s ago"). */
@@ -49,9 +48,6 @@ function isTypingTarget(t: EventTarget | null): boolean {
   if (!(t instanceof HTMLElement)) return false;
   return t.isContentEditable || t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement;
 }
-
-/** WorldApi with one building per office (B adds focusOffice to WorldApi; until then optional here). */
-type BuildingsWorld = WorldApi & { focusOffice?(officeId: string): void };
 
 export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi): void {
   const storage = safeLocalStorage();
@@ -74,23 +70,8 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
   let area: FreeArea;
   /** Active selection originated from the UI (list, feed, notice...), not from a canvas click. */
   let uiSelecting = false;
-  /** The office shown (ui/offices.ts); its focus is recomputed only when the snapshot or the choice changes. */
-  let officeId: string | null = null;
-  try {
-    officeId = storage?.getItem(OFFICE_KEY) ?? null;
-  } catch {
-    // no storage: the first office
-  }
+  /** The one office's focus (ui/offices.ts), recomputed only when the snapshot changes. */
   let focusMemo: { snap: unknown; office: string | undefined; focus: OfficeFocus | null } = { snap: undefined, office: undefined, focus: null };
-  const showOffice = (id: string) => {
-    officeId = id;
-    try {
-      storage?.setItem(OFFICE_KEY, id);
-    } catch {
-      // no storage: not remembered
-    }
-  };
-
   const ctx: UiContext = {
     store,
     world,
@@ -157,20 +138,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
     openHelp: (section) => help.open(section),
     toggleSettings: () => settings.toggle(topbar.settingsBtn),
     openAbout: () => settings.showAbout(topbar.settingsBtn),
-    selectedOffice: () => pickOffice(teamOffices(store.snapshot?.team), officeId),
-    selectOffice(id, opts) {
-      // You left an office: what was open there closes (its sessions keep running). A pick in another building goes
-      // through showOffice, so the character you clicked stays open.
-      if (id !== ctx.selectedOffice()?.id) {
-        pty.close();
-        terminal.close();
-        ctx.select(null);
-      }
-      showOffice(id);
-      // each office is a building of its own: the camera flies to it (not when a character there was picked)
-      if (opts?.fly !== false && teamOffices(store.snapshot?.team).length > 1) (world as BuildingsWorld).focusOffice?.(id);
-      invalidate();
-    },
+    selectedOffice: () => pickOffice(teamOffices(store.snapshot?.team), null),
     officeFocus() {
       const snap = store.snapshot;
       const office = ctx.selectedOffice();
@@ -252,13 +220,6 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
   const renamer = new RoomRenamer(ctx);
   ctx.renameRoom = (id, at) => renamer.open(id, at);
   world.onRoomContextMenu?.((id, at) => renamer.open(id, at));
-  // The office tabs, above the top bar like a browser's.
-  const officeTabs = new OfficeTabs(ctx);
-  // The tab menu's ＋ Boss / ＋ Worker are the sidebar's (their dialog explains what is missing, e.g. no PTY).
-  officeTabs.team = {
-    open: (kind) => sidebar.dialogs.open(kind),
-    blocked: (kind) => (kind === 'workers' && !store.snapshot?.team ? tr('This Habblaud server does not keep a team yet (restart it to get one).') : ''),
-  };
   const overload = new OverloadDialog(ctx, (n) => toasts.push(n));
   topbar.addPanelButton(overload.button);
   const empty = new EmptyState(ctx);
@@ -269,7 +230,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
   const scrim = h('div', { class: 'ui-scrim', attrs: { 'aria-hidden': 'true' }, on: { click: () => ctx.togglePanel('sidebar', false) } });
 
   root.classList.add('ui-root');
-  root.append(officeTabs.el, topbar.el, sidebar.el, scrim, feed.el, drawer.el, terminal.el, pty.el, toasts.el, banner.el, update.el, empty.el, tip.el, settings.el, history.el, help.el, renamer.el, live, splash.el, hints.el);
+  root.append(topbar.el, sidebar.el, scrim, feed.el, drawer.el, terminal.el, pty.el, toasts.el, banner.el, update.el, empty.el, tip.el, settings.el, history.el, help.el, renamer.el, live, splash.el, hints.el);
   area = new FreeArea(world, { root, topbar: topbar.el, sidebar: sidebar.el, drawer: drawer.el, feed: feed.el }, () => ({
     sidebar: panels.sidebar,
     feed: panels.feed,
@@ -279,8 +240,8 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
   drawer.onLayoutChange = () => applyLayout();
 
   const components: UiComponent[] = [topbar, sidebar, drawer, terminal, pty, history, feed, toasts, settings, empty, banner, tip, notifier, splash, sound];
-  root.append(overload.el, sidebar.dialogEl, officeTabs.dialog.el, officeTabs.menu.el);
-  components.push(overload, officeTabs);
+  root.append(overload.el);
+  components.push(overload);
 
   // ---------------------------------------------------------------- batched per-frame rendering
   let rafId = 0;
@@ -330,9 +291,6 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
   world.onSelect((sel) => {
     const prev = selection;
     selection = sel;
-    // a character or room of another office's building (canvas click, search hit): show that office
-    const other = officeOfSelection(store.snapshot, sel);
-    if (other && other !== ctx.selectedOffice()?.id) showOffice(other);
     // Canvas click (or agent departure): drawer waits for double-click window before adjusting camera.
     if (!uiSelecting) area.selectionChangedExternally(prev, sel);
     applyLayout(uiSelecting ? { refocus: false } : {});

@@ -9,7 +9,6 @@ import { h, KeyedList, setAttr, setHidden, setText, setTitle } from './dom';
 import { activityFallback } from './model';
 import { ptyControllable, stopAgent } from './ptyapi';
 import { createStatusDot, updateStatusDot } from './widgets';
-import { sessionAgents } from './workers-api';
 import { tr } from '../../../shared/i18n';
 
 /** How long the X stays requesting confirmation. */
@@ -101,7 +100,7 @@ ${doing}` : ''}${live ? tr(' (interactive)') : ''}`);
     const snap = this.ctx.store.snapshot;
     // Antigravity characters and workers have a terminal only while one runs here (else the tab leads nowhere).
     const running = new Set((snap?.ptys ?? []).filter((p) => p.exitedAt === undefined).map((p) => p.agentId));
-    const workers = new Set((snap?.team?.sessions ?? []).flatMap((s) => sessionAgents(s)));
+    const workers = new Set((snap?.team?.sessions ?? []).map((s) => s.agentId));
     const hasTerminal = (a: AgentInfo) => running.has(a.id) || ((a.provider ?? 'claude') !== 'agy' && !workers.has(a.id));
     const peers = agent
       ? (snap?.agents ?? [])

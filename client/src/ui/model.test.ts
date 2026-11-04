@@ -346,7 +346,7 @@ describe('groupRoles', () => {
     ({ id, kind: 'main', roomId, name: id, account: '.claude', sessionId: id, status: 'idle', recent: [], tasks: [], startedAt: 0, lastEventAt: 0, statusSince: 0, stats: { toolCalls: 0, tokensIn: 0, tokensOut: 0, subagents: 0 }, seed: 1, role: 'Main agent', ...extra }) as AgentInfo;
   const snapOf = (agents: AgentInfo[]) => ({ rooms: [room('a', 0), room('hub', 1)], agents, accounts: [] });
 
-  it('boss, workers (registered profiles only), others; subagents stay under their main agent', () => {
+  it('boss, workers (seats with a session only), others; subagents stay under their main agent', () => {
     const snap = {
       ...snapOf([
         agent('thiago', 'a', { boss: true }),
@@ -356,7 +356,7 @@ describe('groupRoles', () => {
         agent('agy:acc3', 'hub', { provider: 'agy' }),
         agent('bia', 'hub'),
       ]),
-      team: { workers: ['acc1'], agy: [] },
+      team: { workers: ['acc1'], agy: [], sessions: [{ worker: 'acc1', kind: 'agy' as const, agentId: 'agy:acc1', account: 'acc1' }] },
     };
     const g = groupRoles(snap);
     expect(g.map((x) => [x.key, x.nodes.map((n) => n.agent.id)])).toEqual([
@@ -367,10 +367,11 @@ describe('groupRoles', () => {
     expect(g[2].nodes[0].subs.map((s) => s.id)).toEqual(['sub1']);
   });
 
-  it('no team (older server): every Antigravity worker is a worker', () => {
+  it('no team: an Antigravity character is not a seat', () => {
     expect(groupRoles(snapOf([agent('agy:acc1', 'hub', { provider: 'agy' })])).map((x) => [x.key, x.nodes.length])).toEqual([
       ['boss', 0],
-      ['workers', 1],
+      ['workers', 0],
+      ['others', 1],
     ]);
   });
 
@@ -387,7 +388,10 @@ describe('groupRoles', () => {
     const team = {
       workers: ['acc1', 'claude:.claude-work'],
       agy: [],
-      sessions: [{ worker: 'claude:.claude-work', kind: 'claude' as const, agentId: '.claude-work:9', account: '.claude-work' }],
+      sessions: [
+        { worker: 'claude:.claude-work', kind: 'claude' as const, agentId: '.claude-work:9', account: '.claude-work' },
+        { worker: 'acc1', kind: 'agy' as const, agentId: 'agy:acc1', account: 'acc1' },
+      ],
     };
     const g = groupRoles({ ...snapOf([agent('.claude-work:9', 'a'), agent('agy:acc1', 'hub', { provider: 'agy' }), agent('.claude:3', 'a')]), team });
     expect(g.map((x) => [x.key, x.nodes.map((n) => n.agent.id)])).toEqual([
@@ -417,7 +421,11 @@ describe('groupRoles', () => {
         workers: ['acc1'],
         agy: [],
         offices,
-        sessions: [{ worker: 'acc1', kind: 'agy' as const, agentId: 'agy:acc1', agentIds: { o1: 'agy:acc1', o2: 'agy:acc1@o2' }, account: 'acc1' }],
+        sessions: [
+          { worker: 'acc1', kind: 'agy' as const, agentId: 'agy:acc1', account: 'acc1' },
+          { worker: 'acc1', kind: 'agy' as const, agentId: 'agy:acc1@o2', account: 'acc1' },
+          { worker: 'acc2', kind: 'agy' as const, agentId: 'agy:acc2', account: 'acc2' },
+        ],
       },
     };
     const keys = (o: (typeof offices)[number], query = '') =>
@@ -442,7 +450,7 @@ describe('groupRoles', () => {
 
   it('a single office (or no office fields): everyone, as before buildings', () => {
     const offices = [{ id: 'o1', name: 'A', folder: '/p/a', workers: ['acc1'], bossAgentId: 'thiago' }];
-    const snap = { ...snapOf([agent('thiago', 'a', { boss: true }), agent('agy:acc1', 'hub', { provider: 'agy' }), agent('caio', 'a')]), team: { workers: ['acc1'], agy: [], offices } };
+    const snap = { ...snapOf([agent('thiago', 'a', { boss: true }), agent('agy:acc1', 'hub', { provider: 'agy' }), agent('caio', 'a')]), team: { workers: ['acc1'], agy: [], offices, sessions: [{ worker: 'acc1', kind: 'agy' as const, agentId: 'agy:acc1', account: 'acc1' }] } };
     expect(groupRoles(snap, undefined, roleScope(snap, offices[0])).map((x) => [x.key, x.nodes.map((n) => n.agent.id)])).toEqual([
       ['boss', ['thiago']],
       ['workers', ['agy:acc1']],

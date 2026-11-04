@@ -162,7 +162,7 @@ export class Sim {
     const first = !this.initialized;
     this.initialized = true;
     this.accounts = new Map(snap.accounts.map((a) => [a.id, { short: a.short, color: a.color, name: a.name, ...(this.usagePatches.has(a.id) || a.usage ? { usage: this.usagePatches.get(a.id) ?? a.usage } : {}) }]));
-    this.workerAgents = new Set((snap.team?.sessions ?? []).flatMap((s) => [s.agentId, ...Object.values(s.agentIds ?? {})]));
+    this.workerAgents = new Set((snap.team?.sessions ?? []).map((s) => s.agentId));
 
     // ---- buildings (one per office) and rooms
     let layoutDirty = this.syncOffices(snap);

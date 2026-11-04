@@ -15,7 +15,6 @@ import type { AgentInfo, AgentStatus, WorkerJob, WorkerSession } from '../../../
 import type { UiContext } from './context';
 import { h, setHidden, setText } from './dom';
 import { segmented } from './settings';
-import { officeForWorker } from './offices';
 import { askWorker, cancelJobs } from './workers-api';
 import { tr } from '../../../shared/i18n';
 
@@ -132,7 +131,7 @@ export class AgyPanel {
       if (this.worker) {
         // The worker's "Defaults for jobs" (agy-ask applies them itself on the headless path; the terminal path does not).
         const d = this.ctx.agent(this.agentId)?.agyDefaults;
-        await askWorker({ worker: this.worker, prompt, role: this.role.value.trim() || undefined, mode: d?.mode || undefined, effort: d?.effort || undefined, office: officeForWorker(this.ctx.selectedOffice(), this.worker) });
+        await askWorker({ worker: this.worker, prompt, role: this.role.value.trim() || undefined, mode: d?.mode || undefined, effort: d?.effort || undefined });
         this.drafts.delete(this.agentId);
         this.box.value = '';
         this.say(tr('Sent to its terminal. It starts a fresh conversation for this job.'));
@@ -270,7 +269,6 @@ export class WorkerTerminalPanel {
     if (!s) return;
     const pty = this.ctx.store.snapshot?.ptys?.find((p) => p.id === s.ptyId && p.exitedAt === undefined);
     if (pty && this.ctx.terminals?.showPty) this.ctx.terminals.showPty(pty);
-    // the character shown here (a worker has one per office; its one terminal follows the office it works for)
     else this.ctx.terminals?.open(this.agentId || s.agentId);
   }
 }

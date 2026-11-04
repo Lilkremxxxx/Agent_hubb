@@ -405,12 +405,9 @@ export interface WorkerJob {
 export interface WorkerSession {
   worker: WorkerId;
   kind: WorkerKind;
-  /** Its character in the first office that has it (stable while it is a worker). */
+  /** Its character (stable while it is a seat). */
   agentId: string;
-  /**
-   * Its character in each office that has it (OfficeInfo.id -> AgentInfo.id): one character per office (named "… (2)",
-   * "… (3)" after the first), all sharing the account's usage; a job shows on the character of the office that gave it.
-   */
+  /** @deprecated one character per seat now; the server still fills it until it drops multi-office (the client ignores it). */
   agentIds?: Record<string, string>;
   /** AccountInfo.id. */
   account: string;
@@ -420,10 +417,7 @@ export interface WorkerSession {
   job?: string;
 }
 
-/**
- * An office: one team working in ONE project folder (unique per office): its boss, its workers and its jobs. Workers may belong to several
- * offices (jobs go through agy-ask / claude-ask, a busy worker answers BUSY); a boss belongs to one office (an Antigravity boss account to one only).
- */
+/** The one office: a team working in one project folder: its boss, its seats and its jobs. */
 export interface OfficeInfo {
   id: string;
   name: string;
@@ -431,8 +425,6 @@ export interface OfficeInfo {
   folder: string;
   /** Room of the folder (RoomInfo.id), while someone works there. */
   roomId?: string;
-  /** The workers' room of this office's building (RoomInfo.id). */
-  workersRoomId?: string;
   workers: WorkerId[];
   /** The boss's account (AccountInfo.id); absent = no boss. */
   bossAccount?: string;
@@ -446,14 +438,12 @@ export interface OfficeInfo {
 }
 
 export interface TeamInfo {
-  /** Every office, in creation order (the first one = the old single team). */
+  /** The one office (a list of one; absent on a server from before offices). */
   offices?: OfficeInfo[];
   /** @deprecated the first office's workers (before offices); use offices[]. */
   workers: WorkerId[];
   /** Every logged-in Antigravity profile, registered or not: its profile name and account id (AccountInfo.id). */
   agy: Array<{ acc: string; account: string }>;
-  /** Every Claude Code account that can be a worker: its WorkerId ("claude:<id>") and account id. */
-  claude?: Array<{ worker: WorkerId; account: string }>;
   /** The boss's account (AccountInfo.id): it cannot be a worker; absent = no boss. */
   bossAccount?: string;
   /** The boss's kind ('claude' session or 'agy' terminal). */

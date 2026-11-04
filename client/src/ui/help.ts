@@ -78,22 +78,19 @@ const GUIDE: [string, string[]][] = [
     tr('The server keeps running when you close the terminal, but not after a reboot: run the command again then.'),
     tr('Stopping the server also ends the sessions in the terminals on this page. Sessions you opened in your own terminal keep running.'),
   ]],
-  [tr('🏢 Offices'), [
-    tr('An office is one team for one project folder, shown as its own building. Press ＋ on the tab strip to make one.'),
-    tr('To rename it, change its folder or delete it: ⋯ at the end of the strip, double-click its tab, or right-click it.'),
-    tr('Two offices cannot share a folder or sit inside each other, so give each its own project folder, not your home folder.'),
-    tr('Switching tabs closes the terminal and details of the office you left; its sessions keep running.'),
+  [tr('🏢 The office'), [
+    tr('The office is one team for one project folder. Its folder, boss and seats are set in ~/.habblaud/team.json.'),
   ]],
   [tr('👑 The boss'), [
-    tr('＋ next to Boss opens a Claude Code session in the office folder and makes it the boss. You talk to it in its terminal.'),
+    tr('＋ next to Boss opens the boss (Claude Code or Antigravity, as team.json says) in the office folder. You talk to it in its terminal.'),
     tr('You can also pick a session you already have: open its details and press 👑 Make boss.'),
-    tr('The boss plans, gives jobs to the workers and checks the results. An account cannot be boss and worker in the same office.'),
+    tr('The boss plans, gives jobs to the workers and checks the results.'),
   ]],
   [tr('🧑‍🔧 Workers'), [
-    tr('＋ next to Workers adds an account, Antigravity or Claude Code. Accounts must be signed in first.'),
+    tr('The seats come from ~/.habblaud/team.json. Accounts must be signed in first.'),
     tr('Every job is a new conversation: a worker does not remember the job before it.'),
     tr("A worker's terminal is read-only: open its details and press 👁 Watch its terminal."),
-    tr('A worker can serve several offices. It then has a character in each, named "(2)", and a busy worker refuses new jobs.'),
+    tr('A busy worker refuses new jobs.'),
   ]],
   [tr('📨 Giving work'), [
     tr('Directly: type in the boss\'s terminal. It starts right away.'),

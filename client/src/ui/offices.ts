@@ -1,13 +1,6 @@
-// Offices, from the snapshot (pure: tested in offices.test.ts). An office is one team in ONE project folder: its boss,
-// its workers (shared between offices) and its jobs. The page shows one
-// office at a time (the office tabs above the top bar, ui/office-tabs.ts): the sidebar and the quota
-// follow it, and the pixel office dims what is not part of it (ctx.officeFocus(), client/src/world/*).
-import type { AgentInfo, JobBoardItem, OfficeInfo, OfficeSnapshot, RoomInfo, TeamInfo, WorkerId } from '../../../shared/types';
-import { sessionAgentIn } from './workers-api';
-import { FOLDER_CLASH, folderRelation, isDiskRoot, trimFolder } from '../../../shared/folders';
-
-/** The office shown, remembered in this browser. */
-export const OFFICE_KEY = 'habblaud.office';
+// The office, from the snapshot (pure: tested in offices.test.ts). The server sends exactly one; the world still draws
+// one building per office (client/src/world/*), so the focus helpers stay.
+import type { AgentInfo, OfficeInfo, OfficeSnapshot, RoomInfo, TeamInfo } from '../../../shared/types';
 
 /** What ctx.officeFocus() returns: the rooms and characters of the selected office (the rest is dimmed). */
 export interface OfficeFocus {
@@ -45,12 +38,6 @@ export function pickOffice(offices: readonly OfficeInfo[], id: string | null | u
   return offices.find((o) => o.id === id) ?? offices[0];
 }
 
-/** The room of the office's folder: the server's roomId, else a room with that path. */
-export function officeRoom(snap: Pick<OfficeSnapshot, 'rooms'> | null | undefined, office: OfficeInfo | undefined): RoomInfo | undefined {
-  if (!office || !snap) return undefined;
-  return (office.roomId ? snap.rooms.find((r) => r.id === office.roomId) : undefined) ?? (office.folder ? snap.rooms.find((r) => r.path === office.folder) : undefined);
-}
-
 /**
  * The office's boss character: its bossAgentId, else the one opened from it ("＋ Boss", not crowned yet). With a
  * single office (or an older server) any crowned agent is its boss.
@@ -61,19 +48,6 @@ export function officeBoss(snap: Pick<OfficeSnapshot, 'agents' | 'team'> | null 
   const byId = id ? snap.agents.find((a) => a.id === id) : undefined;
   if (byId) return byId;
   return teamOffices(snap.team).length <= 1 ? snap.agents.find((a) => a.boss) : undefined;
-}
-
-/**
- * Characters of the office's workers: their terminal sessions (the character in that office, one per office), else
- * the Antigravity character "agy:accN".
- */
-export function workerAgentIds(team: Pick<TeamInfo, 'sessions'> | undefined, workers: readonly WorkerId[], office?: string): Set<string> {
-  const ids = new Set<string>();
-  for (const w of workers) {
-    const s = team?.sessions?.find((x) => x.worker === w);
-    ids.add(s ? sessionAgentIn(s, office) : `agy:${w}`);
-  }
-  return ids;
 }
 
 /** The office whose building holds this room (absent = the first office's). */
@@ -88,23 +62,6 @@ export function roomOfficeId(room: Pick<RoomInfo, 'office'>, offices: readonly O
 export function agentOfficeId(snap: Pick<OfficeSnapshot, 'agents'> | null | undefined, a: Pick<AgentInfo, 'office' | 'parentId'>, offices: readonly OfficeInfo[]): string | undefined {
   const parent = !a.office && a.parentId ? snap?.agents.find((p) => p.id === a.parentId) : undefined;
   return a.office ?? parent?.office ?? offices[0]?.id;
-}
-
-/** The office (id) whose building holds the selected character or room; undefined = unknown or a single office. */
-export function officeOfSelection(snap: Pick<OfficeSnapshot, 'agents' | 'rooms' | 'team'> | null | undefined, sel: { type: 'agent' | 'room'; id: string } | null): string | undefined {
-  const offices = teamOffices(snap?.team);
-  if (!snap || !sel || offices.length <= 1) return undefined;
-  if (sel.type === 'agent') {
-    const a = snap.agents.find((x) => x.id === sel.id);
-    return a ? agentOfficeId(snap, a, offices) : undefined;
-  }
-  const r = snap.rooms.find((x) => x.id === sel.id);
-  return r ? roomOfficeId(r, offices) : undefined;
-}
-
-/** The office (id) a character belongs to as boss, or undefined. */
-export function bossOfficeOf(snap: Pick<OfficeSnapshot, 'agents' | 'team'> | null | undefined, agentId: string): OfficeInfo | undefined {
-  return teamOffices(snap?.team).find((o) => officeBoss(snap, o)?.id === agentId);
 }
 
 /**
@@ -129,54 +86,3 @@ export function sameFocus(a: OfficeFocus | null, b: OfficeFocus | null): boolean
   return true;
 }
 
-/** A job given by this office. A job without one (a script, another session) belongs to no office. */
-export function jobInOffice(item: Pick<JobBoardItem, 'office'>, office: OfficeInfo | undefined): boolean {
-  return !office || item.office === office.id;
-}
-
-/**
- * The office a job from the page goes to: the selected one when the worker belongs to it, else none (the server
- * picks the first office that has the worker).
- */
-export function officeForWorker(office: OfficeInfo | undefined, worker: WorkerId): string | undefined {
-  return office && office.workers.includes(worker) ? office.id : undefined;
-}
-
-/** Other offices this worker also works for (names). */
-export function otherOfficesOf(offices: readonly OfficeInfo[], worker: WorkerId, except: string | undefined): string[] {
-  return offices.filter((o) => o.id !== except && o.workers.includes(worker)).map((o) => o.name);
-}
-
-/** The office whose boss is this Antigravity account (an agy account is boss of one office only, and then no worker). */
-export function agyBossOffice(offices: readonly OfficeInfo[], account: string): OfficeInfo | undefined {
-  return offices.find((o) => o.bossKind === 'agy' && o.bossAccount === account);
-}
-
-/**
- * Why a folder cannot be an office's: '' when it can (absolute, not the whole disk, not overlapping another office's
- * folder); 'used:<office>', 'inside:<office>' or 'contains:<office>'. Symlinks are only resolved by the server, which
- * then answers with its own reason.
- */
-export function folderProblem(offices: readonly OfficeInfo[], folder: string, except?: string): string {
-  const f = normFolder(folder);
-  if (!f) return 'empty';
-  if (!f.startsWith('/') && !/^[a-zA-Z]:[\\/]/.test(f)) return 'relative';
-  if (isDiskRoot(f)) return 'root';
-  for (const o of offices) {
-    if (o.id === except || !o.folder) continue;
-    const rel = folderRelation(f, o.folder);
-    if (FOLDER_CLASH.has(rel)) return `${rel === 'same' ? 'used' : rel}:${o.name}`;
-  }
-  return '';
-}
-
-/** Another office whose folder overlaps this one's (same, inside, around): a team file from before the rule. */
-export function folderOverlap(offices: readonly OfficeInfo[], office: OfficeInfo): OfficeInfo | undefined {
-  if (!office.folder) return undefined;
-  return offices.find((o) => o.id !== office.id && o.folder && folderRelation(office.folder, o.folder) !== '');
-}
-
-/** "/a/b/" -> "/a/b" (but "/" stays). */
-export function normFolder(folder: string): string {
-  return trimFolder(folder);
-}

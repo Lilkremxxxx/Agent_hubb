@@ -23,6 +23,7 @@ middle one (0.**3**.0).
 - Habblaud World (the online city, visits, uplink, account and waiting list).
 - Seasonal decorations (Christmas and Halloween themes).
 - `herdr`, `agy-up`, `agy-mode`, `agy-sync` and `roles.conf`.
+- Several offices on the page: the office tabs and their menu, the new-office, rename, folder and delete dialogs, and ＋ Worker (seats come from `~/.habblaud/team.json`). ＋ next to Boss now opens the boss.
 
 ### Added
 

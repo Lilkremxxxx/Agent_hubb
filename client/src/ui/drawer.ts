@@ -40,10 +40,9 @@ import {
 } from './model';
 import { access } from '../net/access';
 import { canRenameRoom } from './roomrename';
-import { sessionOfAgent, setWorker, workerOfAgent } from './workers-api';
-import { bossOfficeOf, officeForWorker, teamOffices } from './offices';
+import { appointBoss, sessionOfAgent } from './workers-api';
 import { accountChipLabel, providerOf } from './provider';
-import { postPty, ptyControllable } from './ptyapi';
+import { ptyControllable } from './ptyapi';
 import { createAgentRow, updateAgentRow } from './rows';
 import { TERMINAL_UNAVAILABLE_HINT, type TerminalControl } from './terminal';
 import { Movable } from './movable';
@@ -212,8 +211,6 @@ class AgentView {
   /** Why terminal does not open: mobile has no hover to read title, so tapping displays reason here. */
   private termWhy: HTMLElement;
   private termWhyTimer: ReturnType<typeof setTimeout> | null = null;
-  /** "Remove from Workers": unregisters a worker (POST /api/team, ui/workers-api.ts). */
-  private workerBtn: HTMLButtonElement;
   /** "🖥 Terminal": a worker's open terminal (ui/agy-panel.ts). */
   private workerTerm: WorkerTerminalPanel;
   private workerTermSec: ReturnType<typeof section>;
@@ -301,20 +298,11 @@ class AgentView {
       attrs: { 'data-hint': tr('Only one boss (orchestrator): it gives the jobs to the workers. Appointing this session takes the crown from the current boss.') },
       on: { click: () => void this.toggleBoss() },
     });
-    this.workerBtn = h('button', {
-      class: 'ui-btn',
-      type: 'button',
-      hidden: true,
-      text: tr('Remove from Workers'),
-      title: tr('This account stops getting jobs and leaves the office; ＋ in the Workers group brings it back.'),
-      attrs: { 'data-hint': tr('Unregisters this account as a worker: it stops getting jobs and leaves the office.') },
-      on: { click: () => void this.removeWorker() },
-    });
     const statusRow = h(
       'div',
       { class: 'ui-status' },
       h('span', { class: 'ui-status__label' }, this.dot, this.statusText, this.statusSince),
-      h('span', { class: 'ui-status__actions' }, this.bossBtn, this.workerBtn, this.followBtn, centerBtn),
+      h('span', { class: 'ui-status__actions' }, this.bossBtn, this.followBtn, centerBtn),
     );
 
     // Terminal: session conversation as Claude Code displays it, live (local access only).
@@ -502,22 +490,6 @@ class AgentView {
     else this.terminal.toggle(this.id, this.termBtn);
   }
 
-  private async removeWorker(): Promise<void> {
-    const a = this.last;
-    if (!a || this.workerBtn.disabled) return;
-    this.workerBtn.disabled = true;
-    try {
-      const worker = workerOfAgent(this.ctx.store.snapshot?.team, a);
-      if (!worker) return;
-      await setWorker(worker, false, officeForWorker(this.ctx.selectedOffice(), worker));
-      this.ctx.announce(tr('{0} is no longer a worker.', [a.name]));
-    } catch (err) {
-      this.ctx.announce(tr("Didn't work: {0}", [err instanceof Error ? err.message : String(err)]));
-    } finally {
-      this.workerBtn.disabled = false;
-    }
-  }
-
   private showTimeline(n: number): void {
     this.timelineShown = Math.max(TIMELINE_STEP, n);
     this.ctx.invalidate();
@@ -528,8 +500,7 @@ class AgentView {
     if (!a || this.bossBtn.disabled) return;
     this.bossBtn.disabled = true;
     try {
-      const office = a.boss ? bossOfficeOf(this.ctx.store.snapshot, a.id) : this.ctx.selectedOffice();
-      await postPty('/api/team', { ...(office ? { office: office.id } : {}), boss: a.boss ? null : a.id });
+      await appointBoss(a.boss ? null : a.id);
       this.bossBtn.disabled = false;
     } catch (err) {
       // on the button for a moment (e.g. opened over remote access, where appointing is not allowed)
@@ -570,19 +541,13 @@ class AgentView {
     setText(this.title, a.title ?? '');
     setHidden(this.title, !a.title);
     const team = this.ctx.store.snapshot?.team;
-    const worker = team ? workerOfAgent(team, a) : undefined;
     const workerSession = sessionOfAgent(team, a.id);
     // Appoint the boss: an open Claude Code main session, not a worker's character (＋ Boss with
     // that account makes it the boss; it then leaves Workers).
     setHidden(this.bossBtn, !live || !ptyControllable(a) || !!workerSession);
     // (while busy, the button may be showing an error)
-    // Several offices: appointing makes it the boss of the office shown; stepping down leaves its own office.
-    const office = this.ctx.selectedOffice();
-    const many = teamOffices(team).length > 1;
-    if (!this.bossBtn.disabled) setText(this.bossBtn, a.boss ? tr('Step down') : many && office ? tr('👑 Make boss of {0}', [office.name]) : tr('👑 Make boss'));
+    if (!this.bossBtn.disabled) setText(this.bossBtn, a.boss ? tr('Step down') : tr('👑 Make boss'));
     this.bossBtn.title = a.boss ? tr('No boss until you appoint another session') : tr('Make this session the boss (orchestrator)');
-    // (removes it from the office shown; a worker of another office only is removed from there)
-    setHidden(this.workerBtn, !live || !worker || (many && !officeForWorker(office, worker)) || access().remote);
     setTitle(this.title, a.title ?? '');
     updateAccountChip(this.accChip, account, a.account);
     setText(this.accName, account?.name ?? a.account);
@@ -619,8 +584,8 @@ class AgentView {
       this.renderTerminalButton(!!live);
     }
     const here = !!live && !!this.ctx.store.snapshot?.meta.terminal && !access().remote;
-    // "Send a job": every registered worker (through its terminal; an older server without terminals: agy-ask).
-    const manual = here && !!worker && !a.boss;
+    // "Send a job": every seat (through its terminal; an older server without terminals: agy-ask).
+    const manual = here && !!workerSession && !a.boss;
     setHidden(this.agySec.el, !manual);
     const local = agy && here && !a.boss;
     setHidden(this.agyDefaultsSec.el, !local);

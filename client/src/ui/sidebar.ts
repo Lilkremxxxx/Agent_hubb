@@ -1,9 +1,8 @@
 // Sidebar: search and roles (the boss, the workers, others) -> agents -> subagents; the boss and the workers show their
 // account's 5-hour and weekly quota.
-// Grouped by role, not by folder: there is one boss (orchestrator) per office, whichever folder it works in; each row
-// says where. With several offices the groups are those of the office shown (the office tabs): its boss and
-// its workers; the other offices' bosses and workers sit in Others.
-// Boss and Workers have a ＋ (ui/team-dialogs.ts); Others (sessions that are neither) is folded by default.
+// Grouped by role, not by folder: there is one boss (orchestrator) in the office, whichever folder it works in; each row
+// says where. The groups are those of the office: its boss and its seats; other sessions sit in Others.
+// Boss has a ＋ that opens the boss; Others (sessions that are neither) is folded by default.
 import type { AgentInfo } from '../../../shared/types';
 import type { UiComponent, UiContext } from './context';
 import { moveAgent, orderAgents } from './agentorder';
@@ -13,8 +12,7 @@ import { quotaWindows, type QuotaWindow } from './accounts';
 import { ICONS } from './icons';
 import { groupRoles, roleKey, roleScope, type AgentNode, type RoleGroup, type RoleKey, type RoleScope } from './model';
 import { teamOffices } from './offices';
-import { TeamDialogs } from './team-dialogs';
-import { appointBoss, sessionOfAgent } from './workers-api';
+import { appointBoss, openBoss, sessionOfAgent } from './workers-api';
 import { officeIsEmpty } from './overlays';
 import { createAgentRow, setAgentRowPlace, updateAgentRow } from './rows';
 import { tr } from '../../../shared/i18n';
@@ -24,7 +22,7 @@ interface RoleRefs {
   count: HTMLElement;
   /** "Nobody yet" for an empty group, "Opening…" for a pending boss. */
   note: HTMLElement;
-  /** ＋ (boss and workers). */
+  /** ＋ (boss). */
   add?: HTMLButtonElement;
   list: HTMLElement;
   nodes: KeyedList<AgentNode>;
@@ -55,8 +53,8 @@ function roleTitle(key: RoleKey): string {
 }
 
 function roleHint(key: RoleKey): string {
-  if (key === 'boss') return tr('The one orchestrator: it gives the jobs to the workers. ＋ opens a new boss; or appoint an open session (👑 Make boss).');
-  if (key === 'workers') return tr('Accounts registered as workers (Antigravity or Claude Code): only they get jobs, from the boss or from you. ＋ adds one.');
+  if (key === 'boss') return tr('The one orchestrator: it gives the jobs to the workers. ＋ opens the boss; or appoint an open session (👑 Make boss).');
+  if (key === 'workers') return tr('The seats in ~/.habblaud/team.json: each one gets jobs from the boss or from you.');
   return tr('Sessions that are neither boss nor worker (a boss that stepped down, a session asking something on the side). Click to fold.');
 }
 
@@ -92,13 +90,11 @@ export class Sidebar implements UiComponent {
   private othersOpen = readOthersOpen();
   /** Others shown unfolded for now (a search, or the selected agent is there), without changing the saved choice. */
   private othersForced = false;
-  readonly dialogs: TeamDialogs;
   private readonly heading: HTMLElement;
   /** Boss and workers of the office shown (set each render). */
   private scope: RoleScope | undefined;
 
   constructor(private ctx: UiContext) {
-    this.dialogs = new TeamDialogs(ctx);
     this.input = h('input', {
       class: 'ui-search__input',
       type: 'search',
@@ -158,11 +154,6 @@ export class Sidebar implements UiComponent {
     );
   }
 
-  /** Mounted next to the other dialogs (ui/index.ts): a dialog inside a hidden sidebar could not open. */
-  get dialogEl(): HTMLDialogElement {
-    return this.dialogs.el;
-  }
-
   focusSearch(): void {
     this.input.focus();
     this.input.select();
@@ -179,7 +170,6 @@ export class Sidebar implements UiComponent {
     const others = groups.find((g) => g.key === 'others');
     this.othersForced = this.query.trim().length > 0 || (sel?.type === 'agent' && !!others?.nodes.some((n) => n.agent.id === sel.id || n.subs.some((s) => s.id === sel.id)));
     this.roles.sync(groups);
-    this.dialogs.render();
 
     const total = snap?.agents.length ?? 0;
     // Empty office without filters: center card already explains; list does not repeat warning.
@@ -228,10 +218,10 @@ export class Sidebar implements UiComponent {
       line.prepend(chevron);
       head = h('button', { class: 'ui-room__head ui-rolegroup__head ui-rolegroup__toggle', type: 'button', attrs: { 'data-hint': roleHint(g.key) }, on: { click: () => this.toggleOthers() } }, line);
     } else {
-      const kind = g.key;
-      add = h('button', { class: 'ui-icon-btn ui-icon-btn--sm ui-rolegroup__add', type: 'button', text: '＋', on: { click: () => this.dialogs.open(kind, add) } });
-      setAttr(add, 'aria-haspopup', 'dialog');
-      line.append(add);
+      if (g.key === 'boss') {
+        add = h('button', { class: 'ui-icon-btn ui-icon-btn--sm ui-rolegroup__add', type: 'button', text: '＋', on: { click: () => void this.openBoss() } });
+        line.append(add);
+      }
       head = h('div', { class: 'ui-room__head ui-rolegroup__head', attrs: { 'data-hint': roleHint(g.key) } }, line);
     }
     const note = h('p', { class: 'ui-rolegroup__note', hidden: true });
@@ -242,7 +232,7 @@ export class Sidebar implements UiComponent {
         type: 'button',
         text: tr('Step down'),
         title: tr('No boss until you appoint another session'),
-        on: { click: () => void appointBoss(null, undefined, this.ctx.selectedOffice()?.id).catch(() => undefined) },
+        on: { click: () => void appointBoss(null).catch(() => undefined) },
       });
       note.append(' ', stepDown);
     }
@@ -283,17 +273,26 @@ export class Sidebar implements UiComponent {
       setHidden(r.list, !open);
     }
     if (r.add) {
-      const snap = this.ctx.store.snapshot;
-      const blocked = g.key === 'boss' ? this.dialogs.bossBlocked() : snap?.team ? '' : tr('This Habblaud server does not keep a team yet (restart it to get one).');
-      const label = g.key === 'boss' ? tr('Open a new boss') : tr('Add a worker');
-      r.add.disabled = !snap;
-      setTitle(r.add, blocked ? `${label} — ${blocked}` : label);
+      const label = tr('Open the boss');
+      r.add.disabled = !this.ctx.store.snapshot?.team;
+      setTitle(r.add, label);
       setAttr(r.add, 'aria-label', label);
     }
     // User-selected order (by dragging rows), saved in browser.
     const ordered = orderAgents(g.key, g.nodes, (n) => n.agent.sessionId);
     this.shown.set(g.key, ordered);
     r.nodes.sync(ordered);
+  }
+
+  /** ＋ on Boss: the server opens the boss in the office folder; its terminal shows here. */
+  private async openBoss(): Promise<void> {
+    try {
+      const pty = await openBoss();
+      if (pty) this.ctx.terminals?.showPty?.(pty);
+      this.ctx.announce(tr('The boss is opening in the terminal…'));
+    } catch (e) {
+      this.ctx.announce(tr("Didn't work: {0}", [e instanceof Error ? e.message : String(e)]));
+    }
   }
 
   /** Dragging a main agent row reorders agents in the same role group. */
@@ -427,10 +426,10 @@ export class Sidebar implements UiComponent {
     if (g.key === 'boss') {
       const team = this.ctx.selectedOffice();
       if (team?.pendingBoss) return tr('Opening the new boss…');
-      if (team?.waitingBoss) return tr('👑 {0} is the boss, but its session is closed: the crown waits for it (claude --resume), and until then agy-ask / claude-ask refuse everyone else.', [team.waitingBoss]);
-      return tr('Nobody yet: ＋ opens a new boss, or press “👑 Make boss” on an open Claude session.');
+      if (team?.waitingBoss) return tr('👑 {0} is the boss, but its session is closed: the crown waits for it (claude --resume).', [team.waitingBoss]);
+      return tr('Nobody yet: ＋ opens the boss in the office folder, or press “👑 Make boss” on an open Claude session.');
     }
-    if (g.key === 'workers') return tr('Nobody yet: ＋ registers an Antigravity or Claude Code account.');
+    if (g.key === 'workers') return tr('No seats yet: add them to ~/.habblaud/team.json.');
     return '';
   }
 

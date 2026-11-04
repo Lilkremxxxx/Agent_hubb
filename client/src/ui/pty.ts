@@ -12,7 +12,6 @@ import { h, iconButton, setHidden, setText } from './dom';
 import { ICONS } from './icons';
 import { maximizeButton, Movable } from './movable';
 import { closePty, createPty, stopAgent, takeoverAgent } from './ptyapi';
-import { sessionAgents } from './workers-api';
 import type { PtyPane } from './ptypane';
 import { TermActions } from './termactions';
 import { TermTabs } from './termtabs';
@@ -200,7 +199,7 @@ export class PtyPanel implements UiComponent, PtyControl {
     this.actions.render(ended ? null : (agent ?? null));
     this.tabs.render(agent ? agent.id : null);
     this.setMode(false);
-    this.renderWatch(ended ? undefined : this.ctx.store.snapshot?.team?.sessions?.find((s) => s.ptyId === cur.id || (!!agent && sessionAgents(s).includes(agent.id))));
+    this.renderWatch(ended ? undefined : this.ctx.store.snapshot?.team?.sessions?.find((s) => s.ptyId === cur.id || (!!agent && s.agentId === agent.id)));
   }
 
   /** A worker's terminal is watch-only. */

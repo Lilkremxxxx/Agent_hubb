@@ -73,10 +73,8 @@ export interface UiContext {
   renameRoom?(roomId: string, at: { x: number; y: number }): void;
   /** Opens settings on "About" section (running version and update status). */
   openAbout(): void;
-  /** The office shown (the office tabs above the top bar, ui/office-tabs.ts); undefined = no team (older server). */
+  /** The office shown (the only one); undefined = no team (older server). */
   selectedOffice(): OfficeInfo | undefined;
-  /** Shows another office (remembered in this browser); the camera flies to its building unless `fly: false`. */
-  selectOffice(id: string, opts?: { fly?: boolean }): void;
   /**
    * Rooms and characters of the office shown; the pixel office dims the rest. null = nothing to dim (a single office,
    * or none). The same object while nothing changed (cheap to call every frame).
