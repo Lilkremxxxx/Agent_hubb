@@ -52,6 +52,13 @@ def env(tmp_path):
     return e
 
 
+def board_copy(folder, boss, seats):
+    lines = open(f"{REPO}/templates/task_board.md", encoding="utf-8").read().split("\n")
+    del lines[18], lines[15], lines[10]          # template lines 19, 16, 11: the OCR lesson, W1's note, the T1 row
+    return ("\n".join(lines).replace("<tên dự án>", os.path.basename(folder)).replace("<folder>", folder)
+            .replace("<kind/account>", boss).replace("W1 agy/acc1, W2 agy/acc1, C1 claude/default", seats))
+
+
 def test_skill_dirs_takes_the_newest_version_by_number(env):
     ev = {"HOME": env.h, "PATH": os.environ["PATH"]}
     out = subprocess.run([SKILL_DIRS, env.h], capture_output=True, text=True, env=ev).stdout.split()
@@ -64,11 +71,12 @@ def test_fresh_folder_gets_templates_manifest_links_and_gemini(env):
     code, out, err = env.run([proj])
     assert code == 0, err
     tb = env.read(proj, "task_board.md")
-    for f in ("task_board.md", "project_proposal.md"):
+    for f in ("project_proposal.md",):
         want = open(f"{REPO}/templates/{f}", encoding="utf-8").read()
         want = want.replace("<tên dự án>", "proj").replace("<tên>", "proj").replace("<folder>", env.real(proj))
         assert env.read(proj, f) == want
     assert tb.startswith("# Task board — proj\n") and f"_Office: {env.real(proj)} · Boss:" in tb
+    assert env.read(proj, "task_board.md") == board_copy(env.real(proj), "claude/default", "chưa có")
     assert env.read(proj, "project_proposal.md").startswith("# Đề xuất dự án — proj\n")
     assert json.load(open(f"{proj}/.agents/skills.json")) == {"entries": [
         {"path": f"{h}/.claude/skills"}, {"path": f"{h}/{PLUG}/plug/1.10.0/skills"}, {"path": f"{REPO}/skills"}]}
@@ -76,6 +84,22 @@ def test_fresh_folder_gets_templates_manifest_links_and_gemini(env):
         assert os.readlink(f"{proj}/.claude/skills/{n}") == f"{REPO}/skills/{n}"
     assert os.readlink(f"{proj}/GEMINI.md") == "CLAUDE.md" and env.read(proj, "CLAUDE.md") == "Chạy /init để điền\n"
     assert "giao-viec" in out and "/init" in out
+
+
+def test_board_copy_names_the_real_boss_and_seats_and_has_no_example_rows(env):
+    env.team({"folder": "", "boss": {"kind": "agy", "account": "acc1"},
+              "workers": [{"name": "W1", "kind": "agy", "account": "acc1"}, {"name": "C1", "kind": "claude", "account": "worker"}, "bad"]})
+    assert env.run([env.proj])[0] == 0
+    tb = env.read(env.proj, "task_board.md")
+    assert tb == board_copy(env.real(env.proj), "agy/acc1", "W1 agy/acc1, C1 claude/worker")
+    assert "OCR" not in tb and "| T1 |" not in tb and "ocr.py" not in tb
+
+
+def test_an_existing_board_with_the_example_rows_is_warned_about_not_changed(env):
+    tpl = open(f"{REPO}/templates/task_board.md", encoding="utf-8").read()
+    touch(f"{env.proj}/task_board.md", tpl)
+    code, out, _ = env.run([env.proj])
+    assert code == 0 and "example rows" in out and env.read(env.proj, "task_board.md") == tpl
 
 
 def test_second_run_keeps_what_the_user_wrote(env):

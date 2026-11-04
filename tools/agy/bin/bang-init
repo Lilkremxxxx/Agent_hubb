@@ -19,11 +19,40 @@ SKILLS="$skills" REPO="$repo" FOLDER="$folder" HOME_="$home" DATA="${HABBLAUD_DA
 import json, os, sys
 repo, folder, home = os.environ["REPO"], os.environ["FOLDER"], os.environ["HOME_"]
 name = os.path.basename(folder)
-for f in ("task_board.md", "project_proposal.md"):
-    dst = f"{folder}/{f}"
-    if not os.path.exists(dst):
-        s = open(f"{repo}/templates/{f}", encoding="utf-8").read()
-        open(dst, "w", encoding="utf-8").write(s.replace("<tên dự án>", name).replace("<tên>", name).replace("<folder>", folder))
+team = (os.environ["DATA"].strip() or f"{home}/.habblaud") + "/team.json"  # as the server (config.ts) and worker-ask
+t, err = {}, None
+if os.path.exists(team):
+    try:
+        t = json.load(open(team, encoding="utf-8"))
+        if not isinstance(t, dict):
+            raise ValueError("not a JSON object")
+    except (OSError, ValueError) as e:
+        t, err = {}, e  # copy the templates and write skills.json anyway, then fail below
+b = t.get("boss") if isinstance(t.get("boss"), dict) else {}
+ws = t.get("workers") if isinstance(t.get("workers"), list) else []
+seats = ", ".join(f"{w['name']} {w['kind']}/{w['account']}" for w in ws if isinstance(w, dict) and all(isinstance(w.get(k), str) for k in ("name", "kind", "account")))
+boss = f"{b.get('kind') or 'claude'}/{b.get('account') or 'default'}"
+
+def example_rows(text):  # the template's sample rows: a row or bullet right under a table rule or the lessons heading
+    ls = text.split("\n")
+    return [i for i in range(1, len(ls)) if ls[i].startswith(("| ", "- ")) and ls[i - 1].startswith(("|---", "## Bài học"))]
+
+tpl = open(f"{repo}/templates/task_board.md", encoding="utf-8").read()
+dst = f"{folder}/task_board.md"
+if not os.path.exists(dst):
+    ls = tpl.split("\n")
+    for i in reversed(example_rows(tpl)):
+        del ls[i]
+    s = "\n".join(ls).replace("<tên dự án>", name).replace("<folder>", folder).replace("<kind/account>", boss)
+    open(dst, "w", encoding="utf-8").write(s.replace("W1 agy/acc1, W2 agy/acc1, C1 claude/default", seats or "chưa có"))
+else:
+    have = open(dst, encoding="utf-8").read().split("\n")
+    if any(tpl.split("\n")[i] in have for i in example_rows(tpl)):
+        print("task_board.md still has the template's example rows (T1, W1's note, the OCR lesson): delete them, or the seats take them for real work")
+dst = f"{folder}/project_proposal.md"
+if not os.path.exists(dst):
+    s = open(f"{repo}/templates/project_proposal.md", encoding="utf-8").read()
+    open(dst, "w", encoding="utf-8").write(s.replace("<tên dự án>", name).replace("<tên>", name).replace("<folder>", folder))
 entries = [{"path": d} for d in os.environ["SKILLS"].split("\n") if d]
 if os.path.exists(f"{folder}/skills.list"):
     only = [l.strip() for l in open(f"{folder}/skills.list", encoding="utf-8") if l.strip() and not l.strip().startswith("#")]
@@ -31,20 +60,14 @@ if os.path.exists(f"{folder}/skills.list"):
         entries = [dict(e, include_only=only) for e in entries]
 entries.append({"path": f"{repo}/skills"})
 open(f"{folder}/.agents/skills.json", "w", encoding="utf-8").write(json.dumps({"entries": entries}, indent=2) + "\n")
-team = (os.environ["DATA"].strip() or f"{home}/.habblaud") + "/team.json"  # as the server (config.ts) and worker-ask
 accs = []
+if err:
+    print(f"bang-init: {team} could not be read: {err}", file=sys.stderr)
+    sys.exit(1)
 if not os.path.exists(team):
     print(f"no {team} yet: start the office once (it writes team.json), then run bang-init again")
 else:
-    try:
-        t = json.load(open(team, encoding="utf-8"))
-        if not isinstance(t, dict):
-            raise ValueError("not a JSON object")
-    except (OSError, ValueError) as e:
-        print(f"bang-init: {team} could not be read: {e}", file=sys.stderr)
-        sys.exit(1)
-    ws = t.get("workers")
-    accs = sorted({w["account"] for w in ws if isinstance(w, dict) and w.get("kind") == "agy" and isinstance(w.get("account"), str)}) if isinstance(ws, list) else []
+    accs = sorted({w["account"] for w in ws if isinstance(w, dict) and w.get("kind") == "agy" and isinstance(w.get("account"), str)})
     cur = t.get("folder")
     if not (isinstance(cur, str) and os.path.isabs(cur)):  # as the server (team.ts): a relative folder is unset
         cur = ""
