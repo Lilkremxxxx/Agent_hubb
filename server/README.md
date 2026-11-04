@@ -185,7 +185,7 @@ invented 0%.
   terminal conversation in `terminal.ts`; GitHub events in `github.ts`), subagents, session history (`history.ts`),
   orchestrator (`watcher.ts`), and the Antigravity source (`agy/`).
 - `model/` — office (`office.ts`), rooms/slots (`rooms.ts`), persisted names (`names.ts`).
-- `workers/` — the workers' terminals and turns (`service.ts`, `turns.ts`) and hung-worker ghosts (`ghosts.ts`).
+- `workers/` — the workers' terminals and turns (`service.ts`, `turns.ts`), hung-worker ghosts (`ghosts.ts`) and `advisor.ts` (a seat's question typed into the boss's terminal, its tagged answer read back).
 - `http/` — edge guard (`guard.ts`), routes (`app.ts`), SSE (`sse.ts`), terminal (`terminal.ts`) and its history
   (`sessions.ts`), interactive terminal (`pty.ts`), accounts (`accounts.ts`), phone access (`remote.ts`), statics
   (`static.ts`).

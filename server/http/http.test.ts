@@ -368,4 +368,28 @@ describe('POST /api/team {openBoss}', () => {
     expect((await raw(foe.base, '/api/team', { method: 'POST', headers: { ...JSON_HEADERS, Host: `habblaud.lan:${port}` }, body: '{"openBoss":true}' })).status).toBe(403);
     await foe.close(); foe.cleanup();
   });
+
+  it('POST /api/advisor and GET /api/advisor/:id: the question, 409 with its code, 404, and only from this computer', async () => {
+    const q = { id: 'a1', slot: 'W2', ref: 'T2', question: 'q', status: 'answered' as const, askedAt: 1, answer: 'A' };
+    const env = await start({
+      advisor: {
+        ask: (i) => (i.question === 'busy' ? { ok: false, status: 409, code: 'boss-waiting', error: 'the boss is waiting for you: x' } : { ok: true, question: { ...q, question: i.question } }),
+        wait: async (id) => (id === 'a1' ? q : undefined),
+      },
+    });
+    try {
+      const post = (body: unknown) => fetch(`${env.base}/api/advisor`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });
+      let r = await post({ slot: 'W2', question: 'which?', office: '/w' });
+      expect([r.status, ((await r.json()) as { question: { question: string } }).question.question]).toEqual([200, 'which?']);
+      r = await post({ slot: 'W2', question: 'busy' });
+      expect([r.status, await r.json()]).toEqual([409, { error: 'the boss is waiting for you: x', code: 'boss-waiting' }]);
+      expect((await post({ slot: 'W2' })).status).toBe(400);
+      expect((await fetch(`${env.base}/api/advisor/a1?wait=1`)).status).toBe(200);
+      expect((await fetch(`${env.base}/api/advisor/nope`)).status).toBe(404);
+      expect((await raw(env.base, '/api/advisor/a1', { headers: { Host: 'habblaud.lan' } })).status).toBe(403);
+    } finally {
+      await env.close();
+      env.cleanup();
+    }
+  });
 });

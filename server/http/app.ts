@@ -14,6 +14,7 @@ import type { AgyJobResult, AgyMode } from '../sources/agy/source';
 import type { TeamResult } from '../team';
 import { errMsg } from '../log';
 import type { AskInput, AskResult } from '../workers/service';
+import type { Advisor } from '../workers/advisor';
 import { tr } from '../../shared/i18n';
 import type { SpawnService } from '../spawn/spawn';
 import { ATTACHMENT_BODY_MAX, parseAttachment, type AttachmentStore } from '../spawn/attachments';
@@ -75,6 +76,8 @@ export interface ApiDeps {
     waitJob: (id: string, waitS: number) => Promise<WorkerJob | undefined>;
     cancel: (p: { job?: string; worker?: string; all?: boolean }) => number;
   };
+  /** Worker questions to the boss (/api/advisor, server/workers/advisor.ts): this computer only. */
+  advisor?: Pick<Advisor, 'ask' | 'wait'>;
   /**
    * Remote port with login (http/remote.ts): `is` indicates if request arrived through it (already authenticated);
    * `allows`, what HABBLAUD_REMOTE_ALLOW allows. Remote request never trusted by Host: only by what `allows` permits.
@@ -486,6 +489,29 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
             if (!r.ok) throw new HttpError(r.status, r.error);
             sendJson(res, 200, { ok: true });
           })
+          .catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/advisor' || path.startsWith('/api/advisor/')) {
+      if (isRemote(req) || !trusted(req)) sendJson(res, 403, { error: denied(req, tr('worker questions only from this computer (http://localhost)')) });
+      else if (!deps.advisor) sendJson(res, 503, { error: tr('worker terminals need the interactive terminal (HABBLAUD_PTY=1)') });
+      else if (path === '/api/advisor') {
+        if (method !== 'POST') methodNotAllowed(res, 'POST');
+        else
+          readJson(req)
+            .then((body) => {
+              const b = (body ?? {}) as { slot?: unknown; question?: unknown; office?: unknown };
+              if (typeof b.slot !== 'string' || typeof b.question !== 'string') throw new HttpError(400, tr('expected {slot, question}'));
+              const r = deps.advisor!.ask({ slot: b.slot, question: b.question, office: typeof b.office === 'string' ? b.office : undefined });
+              if (r.ok) sendJson(res, 200, { question: r.question });
+              else sendJson(res, r.status, r.code ? { error: r.error, code: r.code } : { error: r.error });
+            })
+            .catch((err) => fail(res, err));
+      } else if (method !== 'GET') methodNotAllowed(res, 'GET');
+      else
+        deps.advisor
+          .wait(decodeURIComponent(path.slice('/api/advisor/'.length)), waitOf(url))
+          .then((question) => (question ? sendJson(res, 200, { question }) : sendJson(res, 404, { error: tr('question not found') })))
           .catch((err) => fail(res, err));
       return true;
     }
