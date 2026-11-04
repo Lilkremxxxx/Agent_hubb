@@ -220,7 +220,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       const prompt = typeof b.prompt === 'string' ? b.prompt : '';
       if (!worker) throw new HttpError(400, tr('expected {worker, prompt}'));
       const input: AskInput = { worker, prompt };
-      for (const k of ['cwd', 'role', 'mode', 'effort'] as const) {
+      for (const k of ['cwd', 'role', 'mode', 'effort', 'task'] as const) {
         const v = str(b[k]);
         if (v) input[k] = v;
       }

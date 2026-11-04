@@ -591,10 +591,13 @@ export class AgySource implements AgentSource {
 
   private jobStarted(w: Worker, job: AgyProc): void {
     w.jobs.set(job.pid, job);
+    // worker-ask's start line has the boss's text; the argv has the seat preamble in front.
+    const start = job.ppid !== undefined ? this.starts.get(job.ppid) : undefined;
+    if (start?.prompt) job.prompt = start.prompt;
     const mine = job.ppid !== undefined && this.manual.has(job.ppid);
     const by = !mine && job.claudePid ? this.claudeRoom(job.claudePid) : undefined;
     const who = mine ? tr('sent by you from the office') : by ? tr('requested by Claude in {0}', [by]) : '';
-    const role = job.ppid !== undefined ? this.starts.get(job.ppid)?.role : undefined;
+    const role = start?.role;
     const id = this.boardId(w, job);
     const known = this.board.find((x) => x.id === id);
     if (known) {

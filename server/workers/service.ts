@@ -77,9 +77,14 @@ export interface WorkerTarget {
   isDefault?: boolean;
 }
 
+/** The prompt is one argv string of agy / claude (Linux allows 128 KiB each): counted in bytes. */
+export const PROMPT_MAX_BYTES = 100_000;
+
 export interface AskInput {
   worker: string;
   prompt: string;
+  /** The boss's own text (worker-ask sends it without the seat preamble): shown on the board and logged. */
+  task?: string;
   cwd?: string;
   role?: string;
   mode?: string;
@@ -244,7 +249,7 @@ export class WorkerService {
     // 400, not 404: agy-ask / claude-ask run a job headless on 404 (an office without worker terminals).
     if (!s) return { ok: false, status: 400, error: tr('{0} is not a seat in team.json, or its account is not signed in', [input.worker]) };
     const prompt = input.prompt.trim();
-    if (!prompt || prompt.length > 20_000) return { ok: false, status: 400, error: tr('prompt empty or too long') };
+    if (!prompt || Buffer.byteLength(prompt, 'utf8') > PROMPT_MAX_BYTES) return { ok: false, status: 400, error: tr('prompt empty or longer than {0} bytes', [PROMPT_MAX_BYTES]) };
     if (input.cwd !== undefined && (!isAbsolute(input.cwd) || !isDir(input.cwd))) return { ok: false, status: 400, error: tr('folder not found: {0}', [input.cwd]) };
     const cwd = input.cwd ?? this.opts.folder();
     if (!cwd) return { ok: false, status: 400, error: this.opts.noFolderMsg() };
@@ -256,7 +261,7 @@ export class WorkerService {
       id: `w${now.toString(36)}${(++this.seq).toString(36)}`,
       worker: s.t.id,
       agentId: s.t.agentId,
-      prompt: truncate(maskSecrets(prompt.replace(/\s+/g, ' ')), 300),
+      prompt: truncate(maskSecrets((input.task ?? prompt).replace(/\s+/g, ' ')), 300),
       status: 'working',
       startedAt: now,
       max: Math.max(200, Math.min(input.max ?? ANSWER_MAX, 20_000)),
@@ -302,7 +307,7 @@ export class WorkerService {
     // Cancelled while the old terminal was closing: nothing to start.
     await this.restart(s, () => (live(job) ? this.jobProgram(s, job, prompt) : undefined));
     if (!live(job)) return;
-    this.writeLog({ event: 'start', ts: job.startedAt / 1000, acc: s.t.id, role: job.role, mode: job.mode, effort: job.effort, pid: job.ptyPid, prompt: prompt.slice(0, 200), via: 'terminal', worker: s.t.id, job: job.id });
+    this.writeLog({ event: 'start', ts: job.startedAt / 1000, acc: s.t.id, role: job.role, mode: job.mode, effort: job.effort, pid: job.ptyPid, prompt: job.prompt.slice(0, 200), via: 'terminal', worker: s.t.id, job: job.id });
     this.toBoard(job);
     this.opts.office.addActivity(s.t.agentId, { id: `${job.id}:start`, at: job.startedAt, kind: 'prompt', icon: '📋', text: truncate(job.prompt, 40), detail: job.prompt }, true);
     this.changed(s);

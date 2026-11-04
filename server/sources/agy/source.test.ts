@@ -644,4 +644,14 @@ describe('AgySource', () => {
     t.source.upsertJob({ id: 'claude-worker:C1#j1', agentId: 'claude-worker:C1', worker: 'C1', text: 'one', status: 'working', at: 1 });
     expect(t.office.commit().snapshot.rooms.find((r) => r.id === '/w/ocr')?.board?.items.map((i) => i.worker)).toEqual(['C1']);
   });
+
+  it('a headless job of worker-ask shows the task of its start line, not the seat preamble of its argv', () => {
+    const t = setup();
+    t.source.start();
+    t.start(51, 'acc2', { prompt: '# Việc T1 — đếm số' });
+    t.job(51, 'acc2', 'Bạn là ghế W1 trong office /w. Luật: …\n---\n# Việc T1 — đếm số');
+    t.source.poll();
+    expect(t.agent('acc2')?.activity).toMatchObject({ kind: 'prompt', text: '# Việc T1 — đếm số' });
+    expect(t.office.commit().snapshot.rooms.flatMap((r) => r.board?.items ?? []).map((i) => i.text)).toEqual(['# Việc T1 — đếm số']);
+  });
 });

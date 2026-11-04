@@ -618,4 +618,14 @@ describe('WorkerService', () => {
     t.svc.sync();
     expect(t.office.get('claude-worker:C1')?.name).toBe('Cara');
   });
+
+  it('a prompt is capped in UTF-8 bytes, not 20k characters; the board and the log show the task, the seat gets everything', async () => {
+    const t = setup();
+    expect(await t.svc.ask({ worker: 'W1', prompt: 'ệ'.repeat(30_000) })).toMatchObject({ ok: true }); // 90 000 bytes
+    expect(await t.svc.ask({ worker: 'W2', prompt: 'ệ'.repeat(34_000) })).toMatchObject({ ok: false, status: 400 }); // 102 000 bytes
+    await t.svc.ask({ worker: 'C1', prompt: 'Bạn là ghế C1 trong office /w.\n---\n# Việc T1 — x', task: '# Việc T1 — x' });
+    expect(t.svc.jobs().find((j) => j.worker === 'C1')?.prompt).toBe('# Việc T1 — x');
+    expect(t.open.get('claude-worker:C1')?.args.at(-1)).toBe('Bạn là ghế C1 trong office /w.\n---\n# Việc T1 — x');
+    expect(t.log().at(-1)).toMatchObject({ event: 'start', prompt: '# Việc T1 — x' }); // C1's launch wrote last
+  });
 });

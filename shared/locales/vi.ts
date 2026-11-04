@@ -990,6 +990,7 @@ export const VI: Readonly<Record<string, string>> = {
   "unknown mode": "chế độ không xác định",
   "invalid role (up to 24 letters, digits, - or _)": "vai trò không hợp lệ (tối đa 24 chữ cái, chữ số, - hoặc _)",
   "prompt empty or too long": "prompt trống hoặc quá dài",
+  "prompt empty or longer than {0} bytes": "prompt trống hoặc dài hơn {0} byte",
   "Answer: {0}": "Câu trả lời: {0}",
   "Antigravity worker not found": "Không tìm thấy worker Antigravity",
   "expected {agentId}": "cần {agentId}",
