@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""agy-ask <seat> "<prompt>" [--mode plan|accept-edits|auto|default] [--effort …] [--model M] [--lean] [--role NAME] [--cwd DIR] [--max N] [--timeout SEC]
+"""agy-ask <seat> "<prompt>" [--mode plan|accept-edits|auto|default] [--effort …] [--model M] [--lean] [--raw] [--role NAME] [--cwd DIR] [--max N] [--timeout SEC]
 agy-ask team                                       print the folder, the boss and the seats
 
 Gives one job to a seat of the office and prints ONLY its final answer (capped at --max chars, default 2000). The seat
@@ -17,6 +17,9 @@ the result event, kills the process group, deletes that call's conversation file
 (no session saved), with BANG_SLOT=<seat> and BANG_OFFICE=<folder> in its environment. Headless calls log
 "start"/"end" lines to ~/.agy_profiles/agy-ask.log.jsonl (via "headless").
 
+The prompt must have the giao-viec headings (the title "# Việc <ID> — <tên>" and the sections Bối cảnh, Input, Skill dùng,
+Cách làm, Output, Tiêu chí review); --raw sends it as is.
+
 Claude Code seats run full (all tools, MCP and skills); --lean starts them light: no MCP servers, no skills or slash
 commands, only the tools in LEAN_TOOLS, plus a short worker rule (answer only, compact, under --max chars).
 
@@ -27,7 +30,7 @@ Antigravity seats only run Gemini 3.8 Flash: --model accepts only gemini-3.8-fla
 low, medium, high. Without --mode / --effort an agy seat uses its account's defaults in ~/.agy_profiles/defaults.json
 ({"acc2": {"mode": "plan", "effort": "low"}}), else mode plan (agy) or default (Claude).
 """
-import glob, json, os, re, signal, subprocess, sys, threading, time, urllib.error, urllib.parse, urllib.request
+import glob, json, os, re, signal, subprocess, sys, threading, time, unicodedata, urllib.error, urllib.parse, urllib.request
 
 
 def real_home():
@@ -53,6 +56,8 @@ AGY_EFFORTS = ("low", "medium", "high")  # Gemini 3.8 Flash thinking levels
 CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 AGY_MODEL = "gemini-3.8-flash"  # the only model Antigravity workers use
 CLAUDE_MODES = {"plan": "plan", "accept-edits": "acceptEdits", "auto": "auto", "default": ""}
+# The giao-viec template (spec §11): the title, then 6 sections; matched at the start of a line.
+HEADINGS = ("# Việc <ID> — <tên>", "## Bối cảnh", "## Input", "## Skill dùng", "## Cách làm", "## Output", "## Tiêu chí review")
 LEAN_TOOLS = "Bash,Read,Edit,Write,WebFetch,WebSearch"
 WORKER_RULE = ("You are a worker: another agent gave you this one job and reads only your final message. Do the job, "
                "then reply with just the result, compact (no preamble, no recap of your steps), under {max} characters. "
@@ -101,6 +106,13 @@ def flag(extra, name):
     return extra[extra.index(name) + 1] if name in extra[:-1] else ""
 
 
+def missing_headings(task):
+    """The HEADINGS not found in the task, in order. Any case, any dash in the title, text may follow on the line."""
+    text = unicodedata.normalize("NFC", task)
+    return [h for h in HEADINGS
+            if not re.search(r"^#[ \t]+Việc[ \t]+\S" if h[:2] == "# " else rf"^##[ \t]+{re.escape(h[3:])}", text, re.M | re.I)]
+
+
 def parse(argv):
     if len(argv) < 2:
         die(f"usage: {USAGE}")
@@ -111,7 +123,7 @@ def parse(argv):
     seat = found[0]
     a = {"worker": seat["name"], "kind": seat["kind"], "account": seat["account"],
          "prompt": argv[1], "task": argv[1], "mode": "", "role": "", "effort": "", "model": "", "max": 2000, "cwd": "",
-         "timeout": 900, "lean": False, "extra": []}
+         "timeout": 900, "lean": False, "raw": False, "extra": []}
     rest = argv[2:]
     while rest:
         k = rest.pop(0)
@@ -125,8 +137,13 @@ def parse(argv):
                 die(f"{k} needs a number")
         elif k == "--lean":
             a["lean"] = True
+        elif k == "--raw":
+            a["raw"] = True
         else:
             a["extra"].append(k)  # passed to agy / claude as is
+    miss = [] if a["raw"] else missing_headings(a["task"])
+    if miss:
+        die(f"the prompt lacks {', '.join(miss)}: write the job in the 6 parts of the giao-viec skill, or pass --raw to send it as is")
     agy = a["kind"] == "agy"
     efforts = AGY_EFFORTS if agy else CLAUDE_EFFORTS
     if a["effort"] and a["effort"] not in efforts:

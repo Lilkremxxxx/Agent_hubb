@@ -661,7 +661,7 @@ export class AgySource implements AgentSource {
     if (job.mode && !AGY_MODES.includes(job.mode)) return { ok: false, status: 400, error: tr('unknown mode') };
     if (job.role !== undefined && job.role !== '' && !AGY_ROLE.test(job.role)) return { ok: false, status: 400, error: tr('invalid role (up to 24 letters, digits, - or _)') };
     if (job.effort && !(AGY_EFFORTS as readonly string[]).includes(job.effort)) return { ok: false, status: 400, error: tr('unknown effort') };
-    const args = [seat.name, prompt, '--role', job.role || 'manual', '--max', '2000'];
+    const args = [seat.name, prompt, '--raw', '--role', job.role || 'manual', '--max', '2000'];
     if (job.mode) args.push('--mode', job.mode);
     if (job.effort) args.push('--effort', job.effort);
     const child = spawn(this.opts.askBin, args, { cwd, env: { ...(this.opts.env ?? process.env), ...(this.opts.selfUrl ? { HABBLAUD_URL: this.opts.selfUrl } : {}) }, stdio: ['ignore', 'pipe', 'ignore'] });

@@ -3,10 +3,12 @@
 
 Run: python3 tests/test_worker_ask.py. Nothing real runs: HABBLAUD_DATA_DIR is a temp folder holding team.json,
 HABBLAUD_URL a fake server that answers every job at once, and `agy-as` / `claude` are fake scripts."""
-import http.server, json, os, shutil, subprocess, sys, tempfile, threading, unittest
+import http.server, json, os, shutil, subprocess, sys, tempfile, threading, unicodedata, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "bin", "worker-ask")
+# A prompt with the title and the 6 sections of the giao-viec template.
+JOB = "# Việc T1 — đếm\n## Bối cảnh x\n## Input x\n## Skill dùng không\n## Cách làm x\n## Output x\n## Tiêu chí review x\n"
 
 
 class Office(http.server.BaseHTTPRequestHandler):
@@ -87,9 +89,10 @@ class Seats(unittest.TestCase):
                                    {"name": "C1", "kind": "claude", "account": "worker"},
                                    {"name": "D1", "kind": "claude", "account": "default"}]}, f)
 
-    def ask(self, args, via=None, office=True, tool="agy-ask", env=None):
-        """(exit code, stdout, stderr) of `<tool> <args>`, started by the fake `via` agent when given."""
-        e = {k: v for k, v in os.environ.items() if not k.startswith(("AGY_", "BANG_", "CLAUDE"))}
+    def ask(self, args, via=None, office=True, tool="agy-ask", env=None, raw=True):
+        """(exit code, stdout, stderr) of `<tool> <args> [--raw]`, started by the fake `via` agent when given."""
+        args = args + ["--raw"] if raw else args
+        e = {k: v for k, v in os.environ.items() if not k.startswith(("AGY_", "BANG_", "CLAUDE", "HABBLAUD_"))}
         e.update(HABBLAUD_DATA_DIR=self.data, HOME=self.home,
                  HABBLAUD_URL=f"http://127.0.0.1:{self.server.server_port if office else 9}")
         e.update(env or {})
@@ -100,6 +103,28 @@ class Seats(unittest.TestCase):
             cmd = [os.path.join(self.bin, via)] + cmd
         p = subprocess.run(cmd, env=e, capture_output=True, text=True, timeout=30, cwd=self.tmp)
         return p.returncode, p.stdout, p.stderr
+
+    def test_a_job_without_the_six_parts_is_refused_naming_what_is_missing(self):
+        code, _, err = self.ask(["W1", "# Việc T1 — x\n## Bối cảnh a\n## Output b\n"], raw=False)
+        self.assertEqual(code, 1)
+        self.assertIn("lacks ## Input, ## Skill dùng, ## Cách làm, ## Tiêu chí review:", err)
+        self.assertIn("--raw", err)
+        self.assertEqual(Office.bodies, [])
+
+    def test_a_free_text_prompt_lacks_the_title_too(self):
+        code, _, err = self.ask(["W1", "ping"], raw=False)
+        self.assertEqual(code, 1)
+        self.assertIn("lacks # Việc <ID> — <tên>, ## Bối cảnh,", err)
+
+    def test_six_parts_pass_in_any_case_dash_or_unicode_form(self):
+        for task in (JOB, JOB.replace("—", "-").replace("## Input", "##  input"), unicodedata.normalize("NFD", JOB)):
+            code, _, err = self.ask(["W1", task], raw=False)
+            self.assertEqual(code, 0, err)
+
+    def test_raw_skips_the_check_and_never_reaches_the_agent(self):
+        code, out, err = self.ask(["W2", "ping", "--raw"], office=False, raw=False)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("--raw", json.loads(out)["args"])
 
     def test_seat_job_goes_to_the_office_by_name(self):
         code, out, err = self.ask(["W2", "ping"])
@@ -187,7 +212,7 @@ class Seats(unittest.TestCase):
         self.assertIn("no team file", err)
 
     def test_team_prints_folder_boss_and_seats(self):
-        code, out, err = self.ask(["team"])
+        code, out, err = self.ask(["team"], raw=False)
         self.assertEqual(code, 0, err)
         for line in (f"folder: {self.folder}", "boss: claude (default)", "W1  agy  acc1", "C1  claude  worker"):
             self.assertIn(line, out)

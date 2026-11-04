@@ -627,7 +627,7 @@ describe('AgySource', () => {
     expect(t.source.assign('agy:acc2@W2', { prompt: 'x', mode: 'plan' })).toEqual({ ok: true });
     for (let i = 0; i < 100 && !existsSync(out); i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 50));
-    expect(readFileSync(out, 'utf8').trim().split('\n')).toEqual([folder, 'W2', 'x', '--role', 'manual', '--max', '2000', '--mode', 'plan']);
+    expect(readFileSync(out, 'utf8').trim().split('\n')).toEqual([folder, 'W2', 'x', '--raw', '--role', 'manual', '--max', '2000', '--mode', 'plan']);
     // no folder yet: refused before anything runs
     const none = setup(['acc2']);
     expect(none.source.assign('agy:acc2', { prompt: 'x' })).toMatchObject({ ok: false, status: 400 });
