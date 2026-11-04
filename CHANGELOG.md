@@ -18,6 +18,7 @@ middle one (0.**3**.0).
 
 ### Changed
 
+- **A typo in `boss` in `team.json` keeps the boss it had** (logged once), so a live Antigravity boss terminal is no longer closed; leaving `boss` out is still the Claude default.
 - **Trust check, `bang-init`, `install.sh`, `office.sh` fixes**: an agy trust list in a layout we do not know (not only absolute paths) no longer refuses jobs; `CDPATH` cannot redirect `bang-init` or `office.sh`; `bang-init` mentions `skills.list` and ignores a comments-only list; `install.sh` keeps its own links when the repo sits under a `Vi-Habblaud` path; `skill-dirs` takes the newest version that has `skills/`.
 - **`tools/install.sh`** replaces `tools/agy/install.sh`. It also links `bang-init`, no longer links skills into `~/.claude/skills`, never replaces a real file, and removes the Vi-Habblaud leftovers (`~/.local/bin` links into it, the `agy-orchestrator` and `office-rules` links in `~/.claude/skills`, the `office-rules` plugin links in each Antigravity profile). Running it again changes nothing.
 - **The job board lives in the room of the office `folder`** (so a Claude-only team has one); with no room for the folder yet it falls back to the room of the first Antigravity character. Removing a seat that has a job makes the job point at `team.json`. Switching the boss (kind or account) closes the old Antigravity boss terminal.

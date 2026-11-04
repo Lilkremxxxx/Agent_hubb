@@ -113,8 +113,8 @@ says so: add it.
    ```
 
    The first time, seats are imported from `~/.agy_profiles/team.json` if it exists; that file is only read, never
-   written. The file is the truth: a typo in `boss` (a wrong `kind`, an account with a space) makes the server treat the
-   boss as unset, and it closes the live Antigravity boss terminal. (A later plan will close it only on a valid entry.) With no `folder`, jobs and "Open the boss" are refused with a message that points at `team.json`.
+   written. The file is the truth: a typo in `boss` (a wrong `kind`, an account with a space) is logged and the server keeps
+   the boss it had, so a live Antigravity boss terminal stays; leaving `boss` out means Claude, account `default`. A valid change of `kind` or `account` closes the old Antigravity boss terminal. With no `folder`, jobs and "Open the boss" are refused with a message that points at `team.json`.
 
 3. **Open the boss.** In the sidebar, the **＋** next to Boss opens the boss (`boss.kind`) in `folder`. A Claude session
    you already have open can become the boss with **👑 Make boss** in its drawer.

@@ -170,6 +170,21 @@ describe('TeamService: the file', () => {
 });
 
 describe('TeamService: the boss', () => {
+  it('a typo in boss keeps the boss it had (no onChange, its agy terminal stays); no boss key means the Claude default', () => {
+    const t = setup();
+    writeFileSync(t.file, JSON.stringify({ folder: '/w/p', boss: { kind: 'agy', account: 'acc1' }, workers: [] }));
+    const svc = t.team();
+    for (const boss of [{ kind: 'Agy', account: 'acc1' }, { kind: 'agy', account: 'a b' }]) {
+      writeFileSync(t.file, JSON.stringify({ folder: '/w/p', boss, workers: [] }));
+      expect(svc.reload()).toBe(false);
+      expect(svc.boss).toEqual({ kind: 'agy', account: 'acc1' });
+    }
+    expect(t.changes()).toBe(0);
+    writeFileSync(t.file, JSON.stringify({ folder: '/w/p', workers: [] }));
+    expect(svc.reload()).toBe(true);
+    expect(svc.boss).toEqual({ kind: 'claude', account: 'default' });
+  });
+
   it('boss: appoint a Claude session, pending until it walks in, dropped when its process died; null steps down', () => {
     const t = setup();
     t.main('.claude:1', 's1');

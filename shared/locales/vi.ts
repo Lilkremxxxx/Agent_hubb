@@ -1247,6 +1247,7 @@ export const VI: Readonly<Record<string, string>> = {
   "Claude Code account folder not found: {0}": "không tìm thấy thư mục tài khoản Claude Code: {0}",
   "the boss is an Antigravity account set in team.json": "boss là một tài khoản Antigravity đặt trong team.json",
   "team.json ({0}) could not be read: {1}": "Không đọc được team.json ({0}): {1}",
+  "team.json ({0}) has a boss that is not valid ({1}): keeping the previous boss": "team.json ({0}) có boss không hợp lệ ({1}): giữ boss trước đó",
   "🏢 The office": "🏢 Văn phòng",
   "The office is one team for one project folder. Its folder, boss and seats are set in ~/.habblaud/team.json.": "Văn phòng là một đội làm trong một thư mục dự án. Thư mục, boss và các ghế được đặt trong ~/.habblaud/team.json.",
   "＋ next to Boss opens the boss (Claude Code or Antigravity, as team.json says) in the office folder. You talk to it in its terminal.": "＋ cạnh Boss mở boss (Claude Code hoặc Antigravity, theo team.json) trong thư mục văn phòng. Bạn nói chuyện với nó trong terminal của nó.",

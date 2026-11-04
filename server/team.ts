@@ -83,13 +83,18 @@ function officeFolder(path: string): string {
   return path ? normalizeCwd(resolve(path)) : '';
 }
 
-function cleanTeam(raw: unknown): TeamFile {
+function cleanTeam(raw: unknown, keep: TeamFile['boss'] = { kind: 'claude', account: 'default' }): TeamFile {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('team.json is not an object');
   const r = raw as { folder?: unknown; boss?: { kind?: unknown; account?: unknown } | null; workers?: unknown };
   const folder = typeof r.folder === 'string' && isAbsolute(r.folder) ? officeFolder(r.folder) : '';
   const b = r.boss;
+  // A boss that is absent is the Claude default; one that is present but wrong keeps `keep` itself (same object, reload() checks that).
   const boss: TeamFile['boss'] =
-    (b?.kind === 'agy' || b?.kind === 'claude') && typeof b.account === 'string' && ACCOUNT.test(b.account) ? { kind: b.kind, account: b.account } : { kind: 'claude', account: 'default' };
+    (b?.kind === 'agy' || b?.kind === 'claude') && typeof b.account === 'string' && ACCOUNT.test(b.account)
+      ? { kind: b.kind, account: b.account }
+      : b == null
+        ? { kind: 'claude', account: 'default' }
+        : keep;
   const workers: SeatRecord[] = [];
   for (const w of Array.isArray(r.workers) ? (r.workers as Array<Partial<SeatRecord> | null>) : []) {
     if (!w || typeof w.name !== 'string' || !SEAT_NAME.test(w.name) || (w.kind !== 'claude' && w.kind !== 'agy')) continue;
@@ -99,9 +104,9 @@ function cleanTeam(raw: unknown): TeamFile {
   return { folder, boss, workers };
 }
 
-/** Parses team.json; anything malformed is dropped (a bad boss = the default Claude one, bad seats skipped). */
-export function parseTeam(text: string): TeamFile {
-  return cleanTeam(JSON.parse(text));
+/** Parses team.json; anything malformed is dropped (a bad boss = `keep`, the default Claude one at first; bad seats skipped). */
+export function parseTeam(text: string, keep?: TeamFile['boss']): TeamFile {
+  return cleanTeam(JSON.parse(text), keep);
 }
 
 /** "default" for the plain ".claude" account id of the old file, "x" for ".claude-x". */
@@ -295,10 +300,15 @@ export class TeamService {
     this.last = text;
     let next: TeamFile;
     try {
-      next = parseTeam(text);
+      // a typo in boss keeps the boss it had (its agy terminal stays), like a half-saved file keeps the team
+      next = parseTeam(text, this.team.boss);
     } catch (err) {
       log.warnOnce(`team:${text.length}`, tr('team.json ({0}) could not be read: {1}', [this.opts.file, err instanceof Error ? err.message : String(err)]));
       return false;
+    }
+    if (next.boss === this.team.boss) {
+      const bad = (JSON.parse(text) as { boss?: unknown }).boss;
+      if (bad != null) log.warnOnce(`team-boss:${JSON.stringify(bad)}`, tr('team.json ({0}) has a boss that is not valid ({1}): keeping the previous boss', [this.opts.file, JSON.stringify(bad)]));
     }
     if (JSON.stringify(next) === JSON.stringify(this.team)) return false;
     this.team = next;
