@@ -976,6 +976,8 @@ export const VI: Readonly<Record<string, string>> = {
   "invalid --allow \"{0}\" (only terminal, none)": "--allow \"{0}\" không hợp lệ (chỉ terminal, none)",
   "invalid host in HABBLAUD_ALLOWED_HOSTS: \"{0}\"": "tên máy không hợp lệ trong HABBLAUD_ALLOWED_HOSTS: \"{0}\"",
   "warning: {0} is writable by everyone; fix its permissions": "cảnh báo: ai cũng ghi được vào {0}; hãy sửa quyền",
+  "HABBLAUD_ALLOWED_HOSTS still lists the hub domain: the local port would answer it. Run remote:setup --behind-proxy again.": "HABBLAUD_ALLOWED_HOSTS vẫn có tên miền hub: cổng cục bộ sẽ trả lời tên đó. Chạy lại remote:setup --behind-proxy.",
+  "passkey library could not load": "không nạp được thư viện passkey",
   "Public domain (e.g. hub.example.com)": "Tên miền công khai (ví dụ hub.example.com)",
   "--behind-proxy needs a valid --domain": "--behind-proxy cần một --domain hợp lệ",
   "[remote-setup] Done. Settings are in {0} (mode 600); the repo .env is untouched.": "[remote-setup] Xong. Cài đặt nằm trong {0} (chế độ 600); .env của repo không bị đụng tới.",

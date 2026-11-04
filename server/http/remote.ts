@@ -22,7 +22,7 @@
 //
 // Session: HttpOnly + SameSite=Lax cookie (+ Secure with HTTPS) signed with HMAC; key = random secret in
 // <dataDir>/remote-secret mixed with user and password hash: changing password revokes all sessions.
-import { PasskeyService } from '../remote/passkeys';
+import { LibLoadError, PasskeyService } from '../remote/passkeys';
 import { loginPage, securityPage } from '../remote/pages';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
@@ -371,6 +371,9 @@ const remoteRequests = new WeakSet<IncomingMessage>();
 const PUBLIC_STATIC = /^\/(manifest\.webmanifest|assets\/brand\/(?:finstar-144|apple-touch-icon|icon-192|icon-512)\.png|assets\/remote\/auth\.js)$/;
 
 /** Hosts the remote port accepts: the shared ALLOWED_HOSTS plus the hub domain. The main port never gets the domain, so a tunnel pointed at it by mistake is refused. */
+/** True when ALLOWED_HOSTS (shared with the main port) still lists the hub domain, e.g. from an older remote:setup. */
+export const listsHubDomain = (allowed: ReadonlySet<string>, domain?: string): boolean => !!domain && allowed.has(domain);
+
 export function remoteAllowedHosts(allowed: ReadonlySet<string>, domain?: string): Set<string> {
   return new Set([...allowed, ...(domain ? [domain] : [])]);
 }
@@ -449,6 +452,8 @@ export interface RemoteGateDeps {
  * Remote port gate, after guard (Host/Origin/JSON) and before API: returns true when already handled (login,
  * logout, 401, redirect, CA) and false when request is authenticated — and then marks it as remote.
  */
+const CHALLENGE_TTL_S = 120; // = CHALLENGE_TTL_MS: a refused challenge frees up when the oldest expires
+
 export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, res: ServerResponse, url: URL) => boolean {
   const throttle = deps.throttle ?? new LoginThrottle(Date.now, deps.domain ? 30 : 300);
   const failures = deps.failures ?? new FailureWindow();
@@ -456,6 +461,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
   const cname = cookieName(deps.secure);
   const passwordOff = () => !!deps.passkeys && deps.passkeys.count() > 0 && !deps.passwordLogin;
   const caAvailable = () => !!deps.caFile && existsSync(deps.caFile);
+  let libWarned = false;
   const passkeyRoute = (req: IncomingMessage, res: ServerResponse, route: string, authed: boolean): void => {
     const pk = deps.passkeys;
     const POST = ['/login/options', '/login/verify', '/register/options', '/register/verify', '/delete'];
@@ -486,7 +492,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
         const body: unknown = raw.trim() === '' && route.endsWith('/options') ? {} : JSON.parse(raw);
         if (route === '/login/options') {
           const o = await pk.loginOptions(ip);
-          return o ? sendJson(res, 200, o) : sendJson(res, 429, { error: tr('Too many attempts. Try again in {0} s.', [30]) }, { 'Retry-After': '30' });
+          return o ? sendJson(res, 200, o) : sendJson(res, 429, { error: tr('Too many attempts. Try again in {0} s.', [CHALLENGE_TTL_S]) }, { 'Retry-After': String(CHALLENGE_TTL_S) });
         }
         if (route === '/register/options') return sendJson(res, 200, await pk.registerOptions());
         if (route === '/login/verify') {
@@ -510,7 +516,10 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
         deps.log?.info(tr('Remote passkey removed from {0}, {1}', [ip, ua]));
         return sendJson(res, 200, { ok: true });
       })
-      .catch(() => { if (!res.headersSent) sendJson(res, 400, { error: tr('invalid request') }); });
+      .catch((e) => {
+        if (e instanceof LibLoadError && !libWarned) { libWarned = true; deps.log?.warn(tr('passkey library could not load')); } // once, no stack
+        if (!res.headersSent) sendJson(res, 400, { error: tr('invalid request') });
+      });
   };
   return (req, res, url) => {
     const path = url.pathname;

@@ -15,6 +15,7 @@ import {
   COOKIE,
   createRemoteGate,
   FailureWindow,
+  listsHubDomain,
   remoteAllowedHosts,
   isRemoteRequest,
   isSecureRemote,
@@ -32,7 +33,7 @@ import { Hub } from './sse';
 import { TerminalStreams } from './terminal';
 import * as webauthn from '@simplewebauthn/server';
 import { hashPassword, parsePasswordHash, verifyPassword } from '../remote/password';
-import { PasskeyService, PasskeyStore, type WebAuthnLib } from '../remote/passkeys';
+import { LibLoadError, PasskeyService, PasskeyStore, type WebAuthnLib } from '../remote/passkeys';
 import { SpawnService } from '../spawn/spawn';
 
 setQuiet(true);
@@ -58,6 +59,9 @@ describe('hub domain and the two guards', () => {
     expect(remote(reqFor('casa.lan'), res() as never)).toBe(false);
     expect(remote(reqFor('evil.example'), res() as never)).toBe(true);
     expect(allowed.has('hub.finstar.pp.ua')).toBe(false); // the shared set is not mutated
+    expect(listsHubDomain(allowed, 'hub.finstar.pp.ua')).toBe(false);
+    expect(listsHubDomain(new Set(['casa.lan', 'hub.finstar.pp.ua']), 'hub.finstar.pp.ua')).toBe(true); // old hub.env: the server warns at start
+    expect(listsHubDomain(new Set(['hub.finstar.pp.ua']), undefined)).toBe(false);
   });
 });
 
@@ -739,10 +743,10 @@ describe('passkey routes', () => {
     verifyRegistrationResponse: (async () => ({ verified: true, registrationInfo: { credential: { id: 'cred-1', publicKey: new Uint8Array([1]), counter: 0 } } })) as never,
     verifyAuthenticationResponse: (async () => { verifyCalls++; return { verified: ok, authenticationInfo: { newCounter: 1 } }; }) as never,
   });
-  async function mk(o: { passkeys?: boolean; ok?: boolean; passwordLogin?: boolean; limit?: number } = {}) {
+  async function mk(o: { passkeys?: boolean; ok?: boolean; passwordLogin?: boolean; limit?: number; service?: unknown } = {}) {
     const tmp = tempDir();
     verifyCalls = 0; pwCalls = 0; clock = Date.now(); lines = [];
-    const passkeys = o.passkeys === false ? undefined : new PasskeyService({ domain: DOMAIN, user: 'ana', store: new PasskeyStore(join(tmp.dir, 'pk.json')), lib: lib(o.ok) });
+    const passkeys = (o.service as PasskeyService | undefined) ?? (o.passkeys === false ? undefined : new PasskeyService({ domain: DOMAIN, user: 'ana', store: new PasskeyStore(join(tmp.dir, 'pk.json')), lib: lib(o.ok) }));
     const guard = createRequestGuard({ allowedHosts: new Set([DOMAIN]) });
     const gate = createRemoteGate({ config: CFG, sessions: new RemoteSessions(SECRET, CFG, () => clock), secure: true, domain: DOMAIN, passkeys, passwordLogin: o.passwordLogin, log: { info: (m) => lines.push(m), warn: (m) => lines.push(m) }, verify: (pw, h) => { pwCalls++; return verifyPassword(pw, h); }, failures: new FailureWindow(o.limit ?? 5, 600_000) });
     const server = http.createServer((req, res) => {
@@ -755,6 +759,19 @@ describe('passkey routes', () => {
   }
   const post = (b: string, path: string, body: unknown = {}, headers: Record<string, string> = {}) => request(b, path, { method: 'POST', headers: { ...H, ...headers }, body });
   const pwCookie = async (b: string) => (await post(b, '/api/remote/login', CREDS)).headers['set-cookie']?.[0].split(';')[0] ?? '';
+
+  it('a full challenge map answers 429 with Retry-After = the challenge TTL (120 s)', async () => {
+    const b = await mk({ service: { count: () => 0, list: () => [], loginOptions: async () => null } });
+    const r = await post(b, '/api/remote/passkeys/login/options');
+    expect(r.status).toBe(429);
+    expect(r.headers['retry-after']).toBe('120');
+  });
+
+  it('a passkey library that cannot load is logged once ("passkey library could not load"), without a stack, and answers 400', async () => {
+    const b = await mk({ service: { count: () => 0, list: () => [], loginOptions: async () => { throw new LibLoadError('x'); } } });
+    for (let i = 0; i < 3; i++) expect((await post(b, '/api/remote/passkeys/login/options')).status).toBe(400);
+    expect(lines.filter((l) => l === 'passkey library could not load')).toHaveLength(1);
+  });
 
   it('options are public, registration needs a session, verify signs in with a __Host- Secure Lax cookie', async () => {
     const b = await mk();

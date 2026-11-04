@@ -11,7 +11,7 @@ import { isTruthy, loadConfig, terminalOffReason } from './config';
 import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard } from './http/guard';
 import { PasskeyService, PasskeyStore } from './remote/passkeys';
-import { createRemoteGate, FailureWindow, isRemoteRequest, isSecureRemote, loadSecret, remoteAllowedHosts, RemoteSessions, startRemoteListener, type RemoteListener } from './http/remote';
+import { createRemoteGate, FailureWindow, isRemoteRequest, isSecureRemote, listsHubDomain, loadSecret, remoteAllowedHosts, RemoteSessions, startRemoteListener, type RemoteListener } from './http/remote';
 import { Hub } from './http/sse';
 import { createStaticHandler } from './http/static';
 import { TerminalStreams } from './http/terminal';
@@ -419,6 +419,7 @@ if (config.remote) {
     log,
     caFile: remote.tls?.caFile,
   });
+  if (listsHubDomain(config.allowedHosts, remote.domain)) log.warn(tr('HABBLAUD_ALLOWED_HOSTS still lists the hub domain: the local port would answer it. Run remote:setup --behind-proxy again.'));
   const remoteHosts = remoteAllowedHosts(config.allowedHosts, remote.domain);
   const remoteGuard = createRequestGuard({ allowedHosts: remoteHosts });
   remoteListener = startRemoteListener(

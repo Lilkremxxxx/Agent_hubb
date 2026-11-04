@@ -113,11 +113,13 @@ export type WebAuthnLib = Pick<Webauthn, 'generateRegistrationOptions' | 'verify
 
 // Loaded on the first ceremony, not at start: the library costs ~7 MB of RAM that an office without passkeys never needs
 // (esbuild puts it in its own chunk, see scripts/build-server.mjs).
+export class LibLoadError extends Error {}
+const load = (): Promise<Webauthn> => import('@simplewebauthn/server').catch(() => { throw new LibLoadError('passkey library could not load'); });
 const lazyLib: WebAuthnLib = {
-  generateRegistrationOptions: async (o) => (await import('@simplewebauthn/server')).generateRegistrationOptions(o),
-  verifyRegistrationResponse: async (o) => (await import('@simplewebauthn/server')).verifyRegistrationResponse(o),
-  generateAuthenticationOptions: async (o) => (await import('@simplewebauthn/server')).generateAuthenticationOptions(o),
-  verifyAuthenticationResponse: async (o) => (await import('@simplewebauthn/server')).verifyAuthenticationResponse(o),
+  generateRegistrationOptions: async (o) => (await load()).generateRegistrationOptions(o),
+  verifyRegistrationResponse: async (o) => (await load()).verifyRegistrationResponse(o),
+  generateAuthenticationOptions: async (o) => (await load()).generateAuthenticationOptions(o),
+  verifyAuthenticationResponse: async (o) => (await load()).verifyAuthenticationResponse(o),
 };
 export interface PasskeyView { id: string; name: string; createdAt: number; lastUsedAt?: number }
 

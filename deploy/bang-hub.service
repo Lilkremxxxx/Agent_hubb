@@ -7,7 +7,7 @@ Wants=network-online.target
 WorkingDirectory=%h/Agent_4_me/Agent_Hub/Bang_ver
 EnvironmentFile=%h/.habblaud/hub.env
 Environment=HABBLAUD_PTY=1
-# Absolute node path and the PATH below (a user unit has no nvm on PATH: without it `claude`/`agy` are not found, the
+# Absolute node path and the PATH below (a user unit has no nvm on PATH: `claude` lives in the nvm node bin and `agy` in ~/.local/bin; without them they are not found, the
 # terminal features switch off, and /usr/bin/node is v18). EDIT BOTH LINES (same version) when node is upgraded.
 Environment=PATH=%h/.nvm/versions/node/v25.7.0/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/.nvm/versions/node/v25.7.0/bin/node %h/Agent_4_me/Agent_Hub/Bang_ver/dist/server/index.js
