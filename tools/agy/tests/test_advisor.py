@@ -11,6 +11,9 @@ class Fake(http.server.BaseHTTPRequestHandler):
     posts, gets = [], []
     REFUSE = {"noboss": (409, {"code": "no-boss", "error": "no boss terminal: open the boss from the page"}),
               "waiting": (409, {"code": "boss-waiting", "error": "the boss is waiting for you: approve a permission"}),
+              "gone": (404, {"error": "no such route"}), "down": (503, {"error": "worker terminals need the interactive terminal"}),
+              "odd": (409, {"code": "weird", "error": "something odd happened"}), "nocode": (409, {"error": "plain conflict"}),
+              "stuck": (409, {"code": "boss-starting", "error": "the boss is still starting: retry in a few seconds"}),
               "bad": (400, {"error": "W9 is not a seat in team.json"})}
     END = {"late": {"status": "timeout", "error": "no answer after 10 min"},
            "plain": {"status": "untagged", "error": "the boss replied without the tag [ADVISOR W2 -]"}}
@@ -94,3 +97,23 @@ def test_no_seat_no_question_or_no_office_never_reach_a_boss(run):
     c, _, err = run(["q"], url="http://127.0.0.1:9")
     assert c == 2 and "not running" in err
     assert len(Fake.posts) == n
+
+
+@pytest.mark.parametrize("question,code,text", [
+    ("gone", 2, "no such route"), ("down", 2, "interactive terminal"),
+    ("odd", 1, "something odd"), ("nocode", 1, "plain conflict")])
+def test_other_refusals_map_to_their_exit_with_the_server_message(run, question, code, text):
+    c, out, err = run([question])
+    assert (c, out) == (code, "") and text in err
+
+
+def test_a_boss_that_never_finishes_starting_exits_2_with_the_reason(run):
+    c, out, err = run(["stuck"], env={"ADVISOR_START_MAX": "0.5", "ADVISOR_START_WAIT": "0.1"})
+    assert (c, out) == (2, "") and "still starting" in err and "blocked:" in err
+
+
+def test_an_empty_habblaud_url_falls_back_to_the_default():
+    # Import only (no request): a real run would hit the user's office on the default port.
+    code = f"import runpy; print(runpy.run_path({BIN!r}, run_name='advisor')['URL'])"
+    p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env={**os.environ, "HABBLAUD_URL": ""})
+    assert p.stdout.strip() == "http://127.0.0.1:4747", p.stderr

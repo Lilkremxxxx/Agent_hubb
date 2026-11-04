@@ -10,8 +10,9 @@ import json, os, sys, time, urllib.error, urllib.parse, urllib.request
 OK, FAIL, NO_BOSS, BOSS_WAITING, TIMEOUT, UNTAGGED = 0, 1, 2, 3, 4, 5
 EXIT = {"answered": 0, "no-boss": 2, "boss-waiting": 3, "timeout": 4, "untagged": 5}
 WAIT_MAX = 11 * 60  # the server's cap (10 min) + 1 min
-START_MAX = 30      # seconds of retrying while the boss is still starting
-URL = os.environ.get("HABBLAUD_URL", "http://127.0.0.1:4747").rstrip("/")
+START_MAX = float(os.environ.get("ADVISOR_START_MAX") or 30)  # seconds of retrying while the boss is still starting
+START_WAIT = float(os.environ.get("ADVISOR_START_WAIT") or 3)  # (both env vars exist for the tests)
+URL = (os.environ.get("HABBLAUD_URL") or "http://127.0.0.1:4747").rstrip("/")
 
 
 class NoOffice(Exception):
@@ -60,10 +61,10 @@ def main():
         except NoOffice:
             die(f"the office is not running at {URL}: no boss to ask", NO_BOSS)
         if status == 409 and r.get("code") == "boss-starting" and time.time() - start < START_MAX:
-            time.sleep(3)
+            time.sleep(START_WAIT)
             continue
         break
-    if status in (404, 503):
+    if status in (404, 503) or (status == 409 and r.get("code") == "boss-starting"):
         die(r.get("error") or f"the office has no boss terminal (HTTP {status})", NO_BOSS)
     if status >= 300:
         die(r.get("error") or f"HTTP {status}", EXIT.get(r.get("code"), FAIL) if status == 409 else FAIL)
