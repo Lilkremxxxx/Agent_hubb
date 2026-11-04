@@ -19,9 +19,14 @@ middle one (0.**3**.0).
 - **The `giao-viec` skill is rewritten:** the 6-part template, background jobs, review by command, at most 2 fix rounds, lessons, and an exit-code table that includes the refused-job case.
 - **`npm run office -- stop|restart`**; they only stop this repo's own server on the port (exact command and folder check).
 
+### Fixed
+
+- **Cancelling or timing out an Antigravity job closes the terminal that job started** (only that one, matched by pid), so no orphan `agy -i` stays in the seat.
+- **`worker-ask` exits 1 with `<worker> returned an empty answer`** when a job ends done with an empty or blank answer (office and headless, agy and Claude; `--raw` does not bypass).
+
 ### Changed
 
-- **Antigravity seats run `auto` when no `--mode` is given** (it was `plan`); the page's "Defaults for jobs" table has Automatic.
+- **Antigravity seats are labelled `auto` when no `--mode` is given** (it was `plan`); the page's "Defaults for jobs" table has Automatic. On this host `auto` is only a label: agy falls back to its default mode (no terminal sandbox) and the seat may still ask for permission in its terminal, which the user approves on the page. Prefer file tools over shell commands for agy seats.
 - **The prompt cap is 100 kB of UTF-8** (it was 20,000 characters), and `worker-ask` reports at once when a job goes over. Known edge: a page "Send a job" prompt (20,000 characters at most) plus a very large "Bài học" block can exceed the cap, and the page ignores `worker-ask`'s exit 1.
 - **The job board and the feed show the boss's own text**, not the preamble. A job sent from the page always runs `--raw`.
 - **`bang-init` writes a `task_board.md` with the real boss and seats and no example rows**, and warns when an older board still has the example rows.

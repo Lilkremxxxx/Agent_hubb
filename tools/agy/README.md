@@ -47,6 +47,8 @@ agy-ask W2 "<prompt>" --raw --role impl --mode accept-edits --effort medium
 claude-ask C1 "<prompt>" --raw --role review --mode plan --effort high --cwd <project> --lean
 ```
 
+**Modes.** On this host `auto` is only a label: agy falls back to its default mode (no terminal sandbox), so an agy seat may still ask for permission in its terminal. Prefer file tools over shell commands for agy seats; the user approves a waiting permission dialog in the seat's terminal on the page.
+
 The first argument is a seat name from `team.json` (`~/.habblaud/team.json`, or `$HABBLAUD_DATA_DIR/team.json`); the seat
 says which agent runs (`agy-ask` and `claude-ask` are the same command). Anyone may give jobs. The job runs in the office
 folder, or in `--cwd`. Claude seats run full; `--lean` starts them light (no MCP, skills or slash commands).

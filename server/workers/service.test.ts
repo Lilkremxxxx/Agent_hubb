@@ -469,6 +469,19 @@ describe('WorkerService', () => {
     expect(t.svc.sessionList().map((s) => s.worker)).toEqual(['W1']);
   });
 
+  it('cancelling an agy job closes the terminal it started, never a different one of the seat', async () => {
+    const t = setup();
+    const a = await t.svc.ask({ worker: 'W1', prompt: 'a' });
+    expect(t.svc.cancel({ job: (a as { job: { id: string } }).job.id })).toBe(1);
+    expect(t.open.has('agy:acc2')).toBe(false);
+    t.advance(START_SETTLE_MS);
+    const b = await t.svc.ask({ worker: 'W1', prompt: 'b' });
+    const mine = t.open.get('agy:acc2')!;
+    t.open.set('agy:acc2', { ...mine, pid: mine.pid + 1000 }); // the seat's terminal is no longer this job's
+    expect(t.svc.cancel({ job: (b as { job: { id: string } }).job.id })).toBe(1);
+    expect(t.open.has('agy:acc2')).toBe(true);
+  });
+
   it('stopping a job that has just ended does not press Esc (it would quit an idle agy): the job is done', async () => {
     const t = setup();
     const r = await t.svc.ask({ worker: 'W1', prompt: 'quick' });

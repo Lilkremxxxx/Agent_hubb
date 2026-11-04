@@ -469,7 +469,7 @@ export class WorkerService {
   }
 
   /**
-   * Stops a running job: Esc interrupts its turn. The conversation is read first, because a job that has just ended
+   * Stops a running job: Esc interrupts its turn (agy: then its own terminal closes). The conversation is read first, because a job that has just ended
    * is done (with its answer), and Esc at an idle agy prompt quits agy.
    */
   private interrupt(s: Session, j: Job, status: WorkerJob['status'], logStatus: string, error: string): void {
@@ -479,6 +479,8 @@ export class WorkerService {
     if (!live(j)) return;
     this.opts.ptys.typeTo(s.t.agentId, ESC);
     this.finish(j, status, logStatus, error);
+    // Esc leaves `agy -i` alive at its prompt: close the terminal, but only the one this job started (same pid).
+    if (s.t.kind === 'agy' && this.opts.ptys.ofAgent(s.t.agentId)?.pid === j.ptyPid) this.opts.ptys.closeAgent(s.t.agentId);
   }
 
   /** Where the job's conversation is written (agy: once its folder shows up). */

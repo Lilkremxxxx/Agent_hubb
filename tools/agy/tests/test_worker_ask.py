@@ -25,7 +25,7 @@ class Office(http.server.BaseHTTPRequestHandler):
         Office.bodies.append(body)
         if body.get("task") == "busy":  # the seat is on another job
             return self.reply({"error": "BUSY", "message": "W1 is busy"}, 409)
-        self.reply({"job": {"id": "j1", "status": "done", "answer": "pong"}})
+        self.reply({"job": {"id": "j1", "status": "done", "answer": " \n" if body.get("task") == "empty" else "pong"}})
 
     def reply(self, obj, status=200):
         data = json.dumps(obj).encode()
@@ -46,12 +46,12 @@ REPORT = ('json.dumps({"cwd": os.getcwd(), "args": sys.argv[1:], "slot": os.envi
 FAKE_AGY_AS = f"""#!/usr/bin/env python3
 import json, os, sys
 print(json.dumps({{"event": "init", "conversation_id": "c1"}}, separators=(",", ":")))
-print(json.dumps({{"event": "result", "result": {{"status": "SUCCESS", "response": {REPORT}}}}}, separators=(",", ":")))
+print(json.dumps({{"event": "result", "result": {{"status": "SUCCESS", "response": " " if os.environ.get("FAKE_EMPTY") else {REPORT}}}}}, separators=(",", ":")))
 """
 # Fake `claude`: `-p` answers at once; anything else runs as a command (a fake ancestor for "anyone may give jobs").
 FAKE_CLAUDE = f"""#!/bin/bash
 if [ "$1" = "-p" ]; then
-  exec python3 -c 'import json, os, sys; print(json.dumps({{"subtype": "success", "result": {REPORT}, "usage": {{}}}}))' "$@"
+  exec python3 -c 'import json, os, sys; print(json.dumps({{"subtype": "success", "result": " " if os.environ.get("FAKE_EMPTY") else {REPORT}, "usage": {{}}}}))' "$@"
 fi
 "$@"
 """
@@ -243,6 +243,14 @@ class Seats(unittest.TestCase):
     def test_busy_seat_exits_3(self):
         code, _, err = self.ask(["W1", "busy"])
         self.assertEqual(code, 3, err)
+
+    def test_an_empty_answer_exits_1_on_every_path_even_raw(self):
+        runs = [(["W1", "empty"], dict(), {}), (["W2", "ping"], dict(office=False), {"FAKE_EMPTY": "1"}),
+                (["C1", "ping"], dict(office=False), {"FAKE_EMPTY": "1"})]
+        for args, kw, env in runs:
+            code, out, err = self.ask(args, env=env, **kw)
+            self.assertEqual((code, out.strip()), (1, ""), args)
+            self.assertIn("returned an empty answer", err)
 
     def test_claude_seat_without_lean_sends_no_lean_key(self):
         self.ask(["C1", "ping"])

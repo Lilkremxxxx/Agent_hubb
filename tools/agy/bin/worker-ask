@@ -311,9 +311,7 @@ def via_office(a):
         job = r["job"]
     st = job.get("status")
     if st == "done":
-        out = (job.get("answer") or "").rstrip("\n")
-        print(out if len(out) <= a["max"] else f"{out[:a['max']]}\n[... cut at {a['max']} chars]")
-        sys.exit(OK)
+        emit(a, job.get("answer"))
     if st == "cancelled":
         die(f"job {job['id']} on {a['worker']} was cancelled from the office", CANCELLED)
     die(f"{a['worker']} {st or 'ERROR'} after {round(time.time() - t0)}s: {job.get('error') or ''}".rstrip(": "))
@@ -354,7 +352,14 @@ def finish(a, t0, status, answer, other, fields):
         print(f"{CMD}: {a['worker']} {status} after {round(time.time() - t0)}s:", file=sys.stderr)
         print("\n".join(other[-5:]) or answer, file=sys.stderr)
         sys.exit(FAIL)
-    out = (answer or "").rstrip("\n")
+    emit(a, answer)
+
+
+def emit(a, answer):
+    """Prints a done job's answer and exits; an empty answer is a failure, not a success."""
+    if not (answer or "").strip():
+        die(f"{a['worker']} returned an empty answer")
+    out = answer.rstrip("\n")
     print(out if len(out) <= a["max"] else f"{out[:a['max']]}\n[... cut at {a['max']} chars]")
     sys.exit(OK)
 

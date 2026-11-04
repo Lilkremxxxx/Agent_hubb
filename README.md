@@ -133,8 +133,9 @@ says so: add it.
    another. Every terminal and job runs in `folder` with `BANG_SLOT` and `BANG_OFFICE` set. Anyone may give jobs. Claude
    seats run full; add `--lean` for a light run. A job for project work is written in the 6 parts of the `giao-viec`
    skill (worker-ask refuses one without them; `--raw` sends a quick question as is). Every job starts with the seat's
-   preamble and the board's "Bài học" lines. Antigravity seats run `auto` unless the job or the page's defaults say
-   otherwise. See [`tools/agy/README.md`](tools/agy/README.md).
+   preamble and the board's "Bài học" lines. Antigravity seats are labelled `auto` unless the job or the page's defaults say
+   otherwise; on this host that is only a label (agy falls back to its default mode, and the seat may still ask for
+   permission in its terminal, which the user approves on the page). See [`tools/agy/README.md`](tools/agy/README.md).
 
 ## Start a project: `bang-init <folder>`
 
