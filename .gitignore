@@ -5,14 +5,12 @@ dist/
 .env
 .env.*
 !.env.example
-docker-compose.override.yml
 scripts/assets/.cache/
 
 # Local Claude Code settings and generation caches
 .claude/
 
 # Personal notes and local state: never in the repo
-HANDOFF*.md
 team.json
 *.pem
 *.key

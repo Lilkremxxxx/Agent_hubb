@@ -13,6 +13,7 @@ middle one (0.**3**.0).
 - Release tooling, Docker (`docker:up`, compose files), the legacy statusline and permission-hook installers and the statusline tap.
 - The update checker (the "New version" badge) and the news feed.
 - Demo mode (`?mock=1`, `npm run demo`, the simulator).
+- Leftover visit-mode code in the office canvas (nothing used it), and unused screenshots.
 - Codex support (sessions, hooks, usage, bridge).
 - The day timelapse and "My day" statistics.
 - The Claude Code mods and plugins (usage, permissions, messages) and what depended on them: answering permission requests and questions from the office, sending messages to agents, deliveries, and dictation.

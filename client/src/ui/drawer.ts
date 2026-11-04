@@ -48,7 +48,6 @@ import { createAgentRow, updateAgentRow } from './rows';
 import { TERMINAL_UNAVAILABLE_HINT, type TerminalControl } from './terminal';
 import { Movable } from './movable';
 import type { PtyControl } from './pty';
-import { richText } from './usage';
 import {
   createAccountChip,
   createProgress,

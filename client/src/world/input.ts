@@ -13,10 +13,6 @@ export interface InputHandlers {
   interact(): void;
   overview(): void;
   zoomStep(steps: number, sx?: number, sy?: number): void;
-  /** (Optional) Is the office visible? With the city scene open, keyboard does not move hidden camera. */
-  active?(): boolean;
-  /** (Optional) Does the keyboard move the camera? (During visits, arrows and WASD move the visitor.) Default: yes. */
-  keys?(): boolean;
   /**
    * (Optional) Drag an agent: pressing on it and dragging (past threshold) picks it up instead of moving the camera.
    * `start` returns false if it cannot be picked up now (then dragging moves the camera as usual). Without dragging,
@@ -201,8 +197,6 @@ export function attachInput(canvas: HTMLCanvasElement, camera: Camera, h: InputH
 
   const onKey = (e: KeyboardEvent) => {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (h.active && !h.active()) return;
-    if (h.keys && !h.keys()) return;
     const t = e.target as HTMLElement | null;
     // Focused field or radio: arrow keys belong to the control, not the camera.
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.getAttribute?.('role') === 'radio')) return;

@@ -75,11 +75,6 @@ export interface WorldApi {
   focusOffice?(officeId: string): void;
   /** (Optional, additive) Ambient sounds: typing by visible workers, elevator, wheels. */
   onSound?(cb: (cue: SoundCue) => void): () => void;
-  /**
-   * (Optional, additive) Office off-screen (city scene is open): halts rendering and camera keyboard;
-   * on return, simulation fast-forwards elapsed time (like background tab).
-   */
-  setSuspended?(suspended: boolean): void;
   destroy(): void;
 }
 

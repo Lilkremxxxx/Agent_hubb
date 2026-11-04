@@ -339,9 +339,7 @@ export class Overlay {
       if (hx < -120 || hx > vw + 120 || hy < -60 || hy > vh + 80) continue;
       const selected = sel.agent === ch.id;
       const hovered = sel.hover === ch.id;
-      // visitor (Visitor scene) always with name and badge
-      const visitor = ch === this.sim.visitor;
-      const labeled = selected || hovered || ch.mode === 'wait' || showAll || visitor;
+      const labeled = selected || hovered || ch.mode === 'wait' || showAll;
       const above = labeled && this.labelAbove(ch);
       const b = this.bubbleFor(ch, head, now, opts, selected, hovered);
       if (b) {
@@ -349,7 +347,7 @@ export class Overlay {
         items.push(b);
       }
       if (labeled) {
-        const prio = selected ? 100 : hovered ? 95 : visitor ? 92 : ch.mode === 'wait' ? 90 : ch.info.kind === 'main' ? 50 : 40;
+        const prio = selected ? 100 : hovered ? 95 : ch.mode === 'wait' ? 90 : ch.info.kind === 'main' ? 50 : 40;
         let l = this.labelPool[this.nl];
         if (!l) this.labelPool[this.nl] = l = { type: 'label', ch, head, prio, above, compact: false, x: 0, y: 0, w: 0, h: 0 };
         else {
@@ -377,7 +375,7 @@ export class Overlay {
     for (let i = items.length - 1; i >= 0; i--) {
       const it = items[i];
       // characters outside the office shown: their name and bubble fade with them
-      const fade = it.ch === this.sim.visitor ? 1 : 1 - CHAR_FADE * this.renderer.dim.charLevel(it.ch.id);
+      const fade = 1 - CHAR_FADE * this.renderer.dim.charLevel(it.ch.id);
       if (it.type === 'bubble') {
         const alpha = it.alpha;
         it.alpha *= fade;
@@ -739,7 +737,7 @@ export class Overlay {
 
   private bubbleFor(ch: Character, head: HeadInfo, now: number, opts: WorldOptions, selected: boolean, hovered: boolean): Bubble | null {
     if (opts.bubbles === 'none') return null;
-    if (ch.mode === 'wait') return this.takeBubble(ch, head, '✋', this.sim.visit ? tr('Waiting for the owner') : waitBubbleText(ch.info.waitingFor), 'alert', 100, 1, now);
+    if (ch.mode === 'wait') return this.takeBubble(ch, head, '✋', waitBubbleText(ch.info.waitingFor), 'alert', 100, 1, now);
     if (ch.bubbleText && now < ch.bubbleUntil) {
       const a = Math.min(1, (now - ch.bubbleAt) / 150, (ch.bubbleUntil - now) / 400);
       return this.takeBubble(ch, head, ch.bubbleIcon, ch.bubbleText, 'deliver', 90, a, ch.bubbleAt);
@@ -782,8 +780,6 @@ export class Overlay {
 
   /** Shell bubble text, rebuilt only when displayed time changes (not every frame). */
   private shellText(ch: Character, now: number): string {
-    // visit: label only, no timer (no time data from world)
-    if (this.sim.visit) return ch.shellLabel;
     const age = now - ch.shellSince;
     const key = shellAgeKey(age);
     if (key !== ch.shellTextKey || !ch.shellText) {
@@ -979,8 +975,7 @@ export class Overlay {
     const acc = this.sim.accounts.get(ch.info.account);
     const nameW = this.measure(LABEL_FONT, ch.info.name);
     const chipW = acc ? 13 : 0;
-    const visitor = ch === this.sim.visitor;
-    const badgeW = visitor ? this.measure(BADGE_FONT, visitorBadge()) + 7 : ch.info.kind === 'sub' && !l.compact ? this.measure(BADGE_FONT, 'SUB') + 7 : 0;
+    const badgeW = ch.info.kind === 'sub' && !l.compact ? this.measure(BADGE_FONT, 'SUB') + 7 : 0;
     const tool = badgeOf(ch.info);
     const toolW = tool && !l.compact ? this.measure(BADGE_FONT, tool) + 7 : 0;
     const spec = l.compact ? '' : modelSpec(ch.info);
@@ -1046,7 +1041,7 @@ export class Overlay {
       ctx.fill();
       ctx.font = BADGE_FONT;
       ctx.fillStyle = '#2a2000';
-      ctx.fillText(ch === this.sim.visitor ? visitorBadge() : 'SUB', cx + 3.5, y + h / 2 + 0.5);
+      ctx.fillText('SUB', cx + 3.5, y + h / 2 + 0.5);
       cx += badgeW + 3;
     } else if (sub) {
       // compact badge: dot in lanyard color
@@ -1096,9 +1091,4 @@ export class Overlay {
       }
     }
   }
-}
-
-/** Visitor label badge (Visitor scene), in place of "SUB". */
-export function visitorBadge(): string {
-  return tr('visitor').toLocaleUpperCase();
 }

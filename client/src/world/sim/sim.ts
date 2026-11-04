@@ -2,7 +2,7 @@
 // plans behaviors, and runs step queues on every frame.
 import { partsKey } from '../../../../shared/appearance';
 import { energyOf } from '../../../../shared/energy';
-import type { AccountUsage, AgentInfo, JobBoard, OfficeSnapshot, Provider, RoomInfo } from '../../../../shared/types';
+import type { AccountUsage, AgentInfo, JobBoard, OfficeSnapshot, RoomInfo } from '../../../../shared/types';
 import type { ArtModule, Dir, RoomTheme } from '../../art/api';
 import type { WorldOptions } from '../api';
 import { COL_W, COMPACT_DELAY_MS, DISMANTLE_DELAY_MS, FOOT_DX, FOOT_DY, MISSING_DEBOUNCE_MS, RUN_SPEED, TILE, WALK_SPEED } from '../constants';
@@ -32,7 +32,6 @@ import { RoomState } from './room-state';
 import { countShells, latestShellDone, shellLabel, shellStage, shellWaitSince, spinDir, spinPhase, yawnPhase } from './shell';
 import { inSpan, SpotRegistry, type TileSpan } from './spots';
 import type { Step } from './steps';
-import { EXIT_RADIUS, NO_INTENT, stepFree, tileAt, VISITOR_LANYARD, type VisitorIntent } from './visitor';
 import { tr } from '../../../../shared/i18n';
 
 /**
@@ -45,18 +44,6 @@ export type WorldEffect =
 
 export { SHELL_DONE_TOOL } from './shell';
 
-/** How `Sim` runs (fixed at creation). */
-export interface SimMode {
-  /**
-   * Guest visit to a world building (Guest scene): no timestamps come from world (`statusSince` are "now" on entry),
-   * so nothing depending on duration (popcorn, spins, cobwebs, yawns, and naps for shell waiting; naps
-   * for long idle; bubble timer); plus the visitor and visit lighting.
-   */
-  visit?: boolean;
-}
-
-/** Visit lighting: 'away' (paused) turns off all; 'discreet' turns on empty rooms; 'live' is usual `Sim`. */
-export type VisitLight = 'live' | 'discreet' | 'away';
 /** Celebration (completed shell) and lament (failed/killed). */
 const CHEER_MS = 2_200;
 const SULK_MS = 4_000;
@@ -152,21 +139,10 @@ export class Sim {
   private moveSeq = 0;
   private shrinkPending = false;
   private nextHousekeeping = 0;
-  /** Guest visit to a world building (SimMode.visit). */
-  readonly visit: boolean;
-  /** Visit: my character (outside `chars`: neither snapshot, nor reserved spot). */
-  visitor: Character | null = null;
-  /** Visit: where keyboard directs visitor. */
-  visitorIntent: VisitorIntent = { ...NO_INTENT };
-  /** Visit: building lighting (applied on every snapshot and every second). */
-  visitLight: VisitLight = 'live';
-
   constructor(
     private readonly art: ArtModule,
     private readonly options: () => WorldOptions,
-    mode: SimMode = {},
   ) {
-    this.visit = !!mode.visit;
     this.building = assembleBuilding(columnsFor([]), [], 0);
     this.finder = new PathFinder(this.building.grid);
     this.spots.setSpots(this.building.spots);
@@ -259,8 +235,6 @@ export class Sim {
       for (const ch of order) this.placeInitial(ch, now, seated);
     }
     this.refreshRoomInfo();
-    // guest visit: on entry, lighting already matches building state (dark rooms enter dark, without fading)
-    if (this.visit) this.applyVisitLight(now, first);
   }
 
   /** Re-applies last snapshot (debugging). */
@@ -516,8 +490,7 @@ export class Sim {
       ch.shellLabel = label;
       ch.shellTextKey = -1;
     }
-    // guest visit: no timestamps come from world, so gag does not escalate (no popcorn, spin, cobweb, or nap)
-    ch.shellStage = this.visit ? null : shellStage(now - ch.shellSince);
+    ch.shellStage = shellStage(now - ch.shellSince);
   }
 
   /**
@@ -772,7 +745,6 @@ export class Sim {
       if (ch.missingSince !== null && !ch.leaving && now - ch.missingSince >= MISSING_DEBOUNCE_MS) this.refreshMode(ch);
       this.runCharacter(ch, dt, now);
     }
-    if (this.visitor) this.runVisitor(this.visitor, dt, now);
     for (const [id, ch] of this.chars) {
       if (ch.gone) {
         this.spots.releaseAll(id);
@@ -806,7 +778,6 @@ export class Sim {
     if (this.shrinkPending) this.relayout();
     for (const [id, until] of this.machineUntil) if (until < now) this.machineUntil.delete(id);
     this.refreshRoomInfo();
-    if (this.visit) this.applyVisitLight(now);
   }
 
   private updateRooms(now: number): void {
@@ -980,7 +951,7 @@ export class Sim {
     // "zzz" only while sleeping: whoever stands up (party in room, a stroll) woke up, and icon does
     // not go along. Desk napping for long-idle characters does not change mode, so nothing else would clear it.
     if (ch.icon === 'zzz' && ch.pose !== 'sleep') ch.icon = null;
-    if (ch.mode === 'shell' && ch.shellSince && !this.visit) ch.shellStage = shellStage(now - ch.shellSince);
+    if (ch.mode === 'shell' && ch.shellSince) ch.shellStage = shellStage(now - ch.shellSince);
     if (!ch.step) {
       if (ch.replan) {
         ch.replan = false;
@@ -2036,11 +2007,6 @@ export class Sim {
    * with chair spins, yawns under spiderwebs, and finally a nap. Zero-alloc (runs per frame).
    */
   private shellPose(ch: Character, spot: SpotDef, now: number): void {
-    // visit: crossed arms watching terminal, always (escalation depends on timestamps absent from world)
-    if (this.visit) {
-      ch.setPose('wait');
-      return;
-    }
     const age = now - ch.shellSince;
     switch (ch.shellStage ?? shellStage(age)) {
       case 'popcorn':
@@ -2070,152 +2036,21 @@ export class Sim {
     }
   }
 
-  // =================================================================== visita
+  // =================================================================== people
 
-  /** Idle for a long time, out of quota or a ghost (stays at its desk, no strolls)? In visits, never: time is omitted. */
+  /** Idle for a long time, out of quota or a ghost (stays at its desk, no strolls)? */
   longIdle(ch: Character, now: number): boolean {
-    return !this.visit && (!!ch.energy?.asleep || !!ch.info.ghost || isLongIdle(ch.info.status, ch.info.statusSince, now));
+    return !!ch.energy?.asleep || !!ch.info.ghost || isLongIdle(ch.info.status, ch.info.statusSince, now);
   }
 
-  /** Drawn characters: agents and, during visits, the visitor (last). */
+  /** Drawn characters. */
   *people(): IterableIterator<Character> {
     yield* this.chars.values();
-    if (this.visitor && !this.visitor.gone) yield this.visitor;
   }
 
-  /** A drawn character by ID (agent or visitor). */
+  /** A drawn character by ID. */
   person(id: string): Character | undefined {
-    return this.chars.get(id) ?? (this.visitor?.id === id ? this.visitor : undefined);
-  }
-
-  /** Visit: visitor appears in reception elevator and walks into lobby (null removes visitor). */
-  setVisitor(info: AgentInfo | null, now: number): Character | null {
-    const old = this.visitor;
-    if (old) for (const e of this.elevators) e.release(old.id, now);
-    this.visitor = null;
-    this.visitorIntent = { ...NO_INTENT };
-    if (!info) return null;
-    let appearance;
-    try {
-      appearance = { ...this.art.appearanceFromSeed(info.seed, { look: info.look, sub: false, parts: info.parts }), lanyard: VISITOR_LANYARD };
-    } catch {
-      return null;
-    }
-    const ch = new Character(info, appearance);
-    const el = this.elevators[0];
-    const spot = el ? this.spots.get(el.spotId) : undefined;
-    if (!el || !spot) return null;
-    ch.placeAtTile(spot.tx, spot.ty);
-    ch.x = spot.x;
-    ch.y = spot.y - 6;
-    ch.dir = 'down';
-    ch.alpha = 0;
-    ch.inside = true;
-    ch.arriving = true;
-    ch.hiddenUntil = el.reserveAppear(now);
-    ch.queue.push({ t: 'elevOut', elev: el.index, phase: 0 });
-    this.visitor = ch;
-    return ch;
-  }
-
-  /** Visitor is in elevator (arriving or leaving): cannot walk or exit again. */
-  get visitorBusy(): boolean {
-    const v = this.visitor;
-    if (!v || v.gone) return true;
-    return v.leaving || [v.step, ...v.queue].some((s) => s?.t === 'elevOut' || s?.t === 'elevIn');
-  }
-
-  /** Visit: visitor walks to tile (click; cancelled by keyboard). */
-  visitorWalkTo(tx: number, ty: number, run = false): boolean {
-    const v = this.visitor;
-    if (!v || this.visitorBusy) return false;
-    v.queue.length = 0;
-    v.step = null;
-    v.queue.push({ t: 'go', tx, ty, run });
-    return true;
-  }
-
-  /** Elevator near visitor (within EXIT_RADIUS tiles from front), or null: used to exit building. */
-  visitorElevator(): Elevator | null {
-    const v = this.visitor;
-    if (!v || this.visitorBusy) return null;
-    const t = tileAt(v.x, v.y);
-    for (const e of this.elevators) {
-      const spot = this.spots.get(e.spotId);
-      if (spot && Math.hypot(spot.tx - t.x, spot.ty - t.y) <= EXIT_RADIUS) return e;
-    }
-    return null;
-  }
-
-  /** Visit: visitor enters nearest elevator and vanishes; `done` when door closes (scene sends `leave`). */
-  visitorExit(done: () => void): boolean {
-    const v = this.visitor;
-    if (!v || this.visitorBusy) return false;
-    const t = tileAt(v.x, v.y);
-    let best: { e: Elevator; d: number; tx: number; ty: number } | null = null;
-    for (const e of this.elevators) {
-      const spot = this.spots.get(e.spotId);
-      if (!spot) continue;
-      const d = Math.hypot(spot.tx - t.x, spot.ty - t.y);
-      if (!best || d < best.d) best = { e, d, tx: spot.tx, ty: spot.ty };
-    }
-    if (!best) return false;
-    v.queue.length = 0;
-    v.step = null;
-    v.leaving = true;
-    this.visitorIntent = { ...NO_INTENT };
-    v.queue.push({ t: 'go', tx: best.tx, ty: best.ty }, { t: 'elevIn', elev: best.e.index, phase: 0 }, { t: 'do', fn: done });
-    return true;
-  }
-
-  /**
-   * Visit lights (see VisitLight): away keeps empty rooms dark; discreet keeps ready rooms lit. Live does
-   * nothing (first arrival turns on, last departure turns off). `instant`: skips transition (building entry).
-   */
-  applyVisitLight(now: number, instant = false): void {
-    if (!this.visit || this.visitLight === 'live') return;
-    const at = instant ? now - 10_000 : now;
-    for (const room of this.rooms.values()) {
-      if (!room.present || room.ghost) continue;
-      if (this.visitLight === 'away') {
-        if (room.lightOn && this.occupants(room) === 0 && !this.switchClaimValid(room)) room.setLight(false, at);
-      } else if (!room.lightOn && room.phase === 'ready') room.setLight(true, at);
-    }
-  }
-
-  /** Visit: keyboard free movement (with collision); otherwise, queue step (elevator, click path). */
-  private runVisitor(v: Character, dt: number, now: number): void {
-    v.animT += dt * 1000;
-    if (v.icon && now >= v.iconUntil) v.icon = null;
-    const intent = this.visitorIntent;
-    const busy = this.visitorBusy;
-    if (!busy && (intent.dx || intent.dy)) {
-      // keyboard takes priority: discard click path
-      v.queue.length = 0;
-      v.step = null;
-      const r = stepFree(this.building.grid, { x: v.x, y: v.y, dir: v.dir }, intent, (intent.run ? RUN_SPEED : WALK_SPEED) * dt);
-      v.x = r.x;
-      v.y = r.y;
-      v.dir = r.dir;
-      const t = tileAt(v.x, v.y);
-      v.tx = t.x;
-      v.ty = t.y;
-      v.setPose(r.moved ? (intent.run ? 'run' : 'walk') : 'stand');
-      return;
-    }
-    if (!v.step) {
-      v.step = v.queue.shift() ?? null;
-      v.stepT = 0;
-      v.stepStarted = false;
-    }
-    if (v.step) {
-      const done = this.runStep(v, v.step, dt, now);
-      v.stepT += dt * 1000;
-      if (done) v.step = null;
-      if (v.arriving && !v.step && !v.queue.length) v.arriving = false;
-      return;
-    }
-    v.setPose('stand');
+    return this.chars.get(id);
   }
 
   // =================================================================== aba oculta
@@ -2271,28 +2106,6 @@ export class Sim {
       room.switchClaim = null;
     }
     this.stallBusy.clear();
-    // visitor finishes action: reaches lobby or enters elevator when exiting (triggering exit)
-    const v = this.visitor;
-    if (v) {
-      for (let guard = 0; guard < 10; guard++) {
-        if (!v.step) v.step = v.queue.shift() ?? null;
-        if (!v.step) break;
-        const s = v.step;
-        v.step = null;
-        if (s.t === 'elevIn') {
-          v.inside = true;
-          v.alpha = 0;
-        } else this.finishStep(v, s, now);
-      }
-      if (!v.leaving) {
-        v.alpha = 1;
-        v.inside = false;
-        v.arriving = false;
-        v.hiddenUntil = 0;
-        v.setPose('stand');
-      }
-    }
-    if (this.visit) this.applyVisitLight(now);
   }
 
   private finishStep(ch: Character, s: Step, now: number): void {

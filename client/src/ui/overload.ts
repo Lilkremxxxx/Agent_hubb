@@ -117,7 +117,7 @@ export class OverloadDialog {
       const office = offices.find((o) => o.id === officeId);
       const who = office && offices.length > 1 ? `${agent.name} · ${office.name}` : agent.name;
       const facts = this.facts(load).join(', ');
-      const text = load.level === 'overloaded' ? tr('😵 {0} is overloaded ({1}). Save the work to the HANDOFF file and start a new session.', [who, facts]) : tr('🥵 {0} is getting tired ({1}). Save the work to the HANDOFF file and start a new session.', [who, facts]);
+      const text = load.level === 'overloaded' ? tr('😵 {0} is overloaded ({1}). Save your work and start a new session.', [who, facts]) : tr('🥵 {0} is getting tired ({1}). Save your work and start a new session.', [who, facts]);
       this.toast({
         id: `overload:${agent.id}:${load.level}`,
         level: 'warn',

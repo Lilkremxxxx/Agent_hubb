@@ -16,7 +16,6 @@ import type { Character } from '../sim/character';
 import type { RoomState } from '../sim/room-state';
 import { cobwebScale, hourglassIcon, HOURGLASS_FLIP_MS, STORM_LIFT } from '../sim/shell';
 import type { Sim } from '../sim/sim';
-import { isArea, RECEPTION_ID } from '../layout/core';
 import { buildAnim, furnitureScale, NO_ANIM, sweepDelay, type BuildAnim } from './anim';
 import { daylightModeOf, parseHourParam } from './daylight';
 import { RoomFxRenderer } from './github-fx';
@@ -450,7 +449,7 @@ export class Renderer {
         if (fs?.front) push(K.FurnFront, f.ay + 0.5, f, vis, s);
       }
     }
-    // agents and, in guest view, the visitor
+    // agents
     for (const ch of this.sim.people()) {
       const head = this.headOf(ch);
       head.visible = false;
@@ -918,7 +917,7 @@ export class Renderer {
     // lateral lane offset when walking (two on same path do not become a two-headed sprite)
     const x = Math.round(ch.x + ch.offX);
     const y = Math.round(ch.y + ch.offY);
-    const solid = ch === this.sim.visitor ? ch.alpha : ch.alpha * (1 - CHAR_FADE * this.dim.char(ch.id, ch.office));
+    const solid = ch.alpha * (1 - CHAR_FADE * this.dim.char(ch.id, ch.office));
     const alpha = ch.info.ghost ? solid * GHOST_ALPHA : solid;
     ctx.globalAlpha = alpha;
     // floor rings (selection, hover, alert)
@@ -1048,8 +1047,6 @@ export class Renderer {
    * neighboring desk).
    */
   private drawCobwebs(now: number): void {
-    // guest view: no time came from world, so no cobwebs
-    if (this.sim.visit) return;
     const { ctx } = this;
     for (const ch of this.sim.chars.values()) {
       if (ch.mode !== 'shell' || !ch.shellSince || ch.leaving || !ch.seated || ch.atSpot !== ch.homeSpot) continue;

@@ -4,17 +4,15 @@ import * as artModule from '../art';
 import { TILE, type ArtModule } from '../art/api';
 import type { OfficeStore } from '../net/store';
 import { DEFAULT_WORLD_OPTIONS, type Selection, type SoundCue, type WorldApi, type WorldFocus, type WorldOptions } from './api';
-import { loadWorldAssets, type WorldAssets } from './assets';
+import { loadWorldAssets } from './assets';
 import { Camera, overviewFrame } from './camera';
 import { createDebug, type WorldDebug } from './debug';
 import { BUILDING_H, COL_W } from './constants';
 import { inRect } from './layout/geometry';
 import { attachInput, type Hit } from './input';
-import type { AgentInfo } from '../../../shared/types';
 import { Overlay } from './render/overlay';
 import { Renderer } from './render/renderer';
-import { Sim, type VisitLight } from './sim/sim';
-import { NO_INTENT, VISITOR_ID, visitorInfo, type VisitorIntent } from './sim/visitor';
+import { Sim } from './sim/sim';
 import { SoundCues } from './sound-cues';
 
 export * from './api';
@@ -22,38 +20,12 @@ export type { WorldDebug } from './debug';
 
 const art: ArtModule = artModule;
 
-/** What the Visit scene uses from its world (createWorld with `visit: true`). */
-export interface VisitWorld {
-  /** My character enters through the elevator (null removes). */
-  setVisitor(me: { name: string; look: 'f' | 'm'; parts?: AgentInfo['parts'] } | null): void;
-  /** Keyboard input: direction the visitor walks. */
-  setIntent(intent: VisitorIntent): void;
-  /** Building lights (off, discreet, live). */
-  setLight(mode: VisitLight): void;
-  /** Near an elevator, free to exit? */
-  atExit(): boolean;
-  /** Walks to nearest elevator, enters and disappears; `done` when door closes. */
-  exit(done: () => void): boolean;
-  /** Visitor screen position (CSS px), for "Exit (E)" tooltip; null offscreen or without visitor. */
-  visitorScreen(): { x: number; y: number } | null;
-}
-
-export interface CreateWorldOptions {
-  /**
-   * Visit to a world building (Visit scene): `Sim` without status-timing dependencies (SimMode.visit), the
-   * visitor walking with keyboard and click (camera follows).
-   */
-  visit?: boolean;
-}
-
-export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: CreateWorldOptions = {}): WorldApi & { debug: WorldDebug; visit: VisitWorld } {
+export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore): WorldApi & { debug: WorldDebug } {
   let options: WorldOptions = { ...DEFAULT_WORLD_OPTIONS };
-  const visitMode = !!o.visit;
   const camera = new Camera();
-  let sim = new Sim(art, () => options, { visit: visitMode });
+  let sim = new Sim(art, () => options);
   let renderer = new Renderer(canvas, art, sim, camera);
   let overlay = new Overlay(renderer.ctx, sim, renderer, camera);
-  let assets: WorldAssets | null = null;
   /** Office shown on the page (setOfficeFocus): the rest is dimmed. */
   let focusSource: (() => WorldFocus | null) | null = null;
   const selectCbs = new Set<(s: Selection) => void>();
@@ -68,8 +40,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   let lastTs = 0;
   let hiddenAt = 0;
   /** Office offscreen (city open): no render loop or camera keyboard handling. */
-  let suspended = false;
-  let suspendedAt = 0;
   let userMoved = false;
   let framed = false;
   let lastCols = -1;
@@ -180,7 +150,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     let bestDepth = -Infinity;
     const slack = Math.max(1, 3 / camera.zoom);
     for (const [id, h] of renderer.heads) {
-      if (!h.visible || id === VISITOR_ID) continue;
+      if (!h.visible) continue;
       if (w.x < h.bx - slack || w.x > h.bx + h.bw + slack || w.y < h.by - slack || w.y > h.by + h.bh + slack) continue;
       if (h.depth > bestDepth) {
         bestDepth = h.depth;
@@ -201,25 +171,11 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     hoverCbs.forEach((cb) => cb(id));
   };
 
-  /** Visit: tap on floor walks visitor there (on agent, opens their card). */
-  const visitClick = (hit: Hit, at: { x: number; y: number }) => {
-    if (hit?.type === 'agent') return setSelection(hit);
-    setSelection(null);
-    const w = camera.screenToWorld(at.x, at.y);
-    if (sim.visitorWalkTo(Math.floor(w.x / TILE), Math.floor(w.y / TILE))) followVisitor();
-  };
-  const followVisitor = () => {
-    if (!sim.visitor) return;
-    userMoved = true;
-    camera.follow = VISITOR_ID;
-  };
-
   /** Agent currently picked up by mouse (input.ts, grab). */
   let grabbed: string | null = null;
   const detachInput = attachInput(canvas, camera, {
     pick,
-    click: (hit, at) => {
-      if (visitMode) return visitClick(hit, at);
+    click: (hit) => {
       // Clicking already selected agent again: they react (sim.poke, just for fun).
       if (hit?.type === 'agent' && selection?.type === 'agent' && selection.id === hit.id) sim.poke(hit.id);
       setSelection(hit);
@@ -232,7 +188,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     },
     grab: {
       start: (hit, at) => {
-        if (visitMode) return false;
         const w = camera.screenToWorld(at.x, at.y);
         if (!sim.grab(hit.id, w.x, w.y)) return false;
         grabbed = hit.id;
@@ -260,8 +215,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     },
     overview: () => overview(true),
     zoomStep,
-    active: () => !suspended,
-    keys: () => !visitMode,
   });
 
   // ------------------------------------------------------------------ data
@@ -280,7 +233,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
 
   void loadWorldAssets(abort.signal).then((a) => {
     if (!a) return;
-    assets = a;
     renderer.setAssets(a);
   });
 
@@ -309,8 +261,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
           framed = true;
         } else if (!userMoved) overview(true);
       }
-      // visit: walking via keyboard, camera follows
-      if (visitMode && sim.visitor && (sim.visitorIntent.dx || sim.visitorIntent.dy) && camera.follow !== VISITOR_ID) followVisitor();
       const followCh = camera.follow ? sim.person(camera.follow) : undefined;
       if (camera.follow && !followCh) camera.follow = null;
       camera.update(real, followCh ? camera.centerFor(followCh.x, followCh.y - 12, camera.zoom) : null, realDt);
@@ -332,7 +282,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   };
 
   const onVisibility = () => {
-    if (suspended) return;
     if (document.hidden) {
       hiddenAt = Date.now();
       return;
@@ -425,7 +374,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     },
     focusOffice: (officeId) => {
       const b = sim.building.buildings.find((x) => x.id === officeId);
-      if (!b || sim.building.buildings.length < 2 || visitMode) return;
+      if (!b || sim.building.buildings.length < 2) return;
       camera.follow = null;
       userMoved = true;
       const o = overviewTarget({ x: b.rect.x * TILE, y: 0, w: b.rect.w * TILE, h: BUILDING_H * TILE });
@@ -434,22 +383,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     onSound: (cb) => {
       soundCbs.add(cb);
       return () => void soundCbs.delete(cb);
-    },
-    setSuspended: (on) => {
-      if (on === suspended) return;
-      suspended = on;
-      if (on) {
-        cancelAnimationFrame(raf);
-        suspendedAt = Date.now();
-        setHover(null);
-        mouse = null;
-        return;
-      }
-      lastTs = 0;
-      if (suspendedAt && Date.now() - suspendedAt > 5000) sim.fastForward(Date.now());
-      suspendedAt = 0;
-      hiddenAt = 0;
-      raf = requestAnimationFrame(loop);
     },
     destroy: () => {
       cancelAnimationFrame(raf);
@@ -465,33 +398,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     },
     get debug() {
       return debug;
-    },
-    visit: {
-      setVisitor: (me) => {
-        if (!visitMode) return;
-        sim.setVisitor(me ? visitorInfo(me, Date.now()) : null, Date.now());
-      },
-      setIntent: (intent) => {
-        sim.visitorIntent = visitMode ? { ...intent } : { ...NO_INTENT };
-      },
-      setLight: (mode) => {
-        if (!visitMode || sim.visitLight === mode) return;
-        sim.visitLight = mode;
-        sim.applyVisitLight(Date.now());
-      },
-      atExit: () => visitMode && !!sim.visitorElevator(),
-      exit: (done) => {
-        if (!visitMode || !sim.visitorExit(done)) return false;
-        followVisitor();
-        return true;
-      },
-      visitorScreen: () => {
-        const h = renderer.heads.get(VISITOR_ID);
-        if (!h || !h.visible) return null;
-        const p = camera.worldToScreen(h.x, h.y - 2);
-        if (p.x < 0 || p.y < 0 || p.x > camera.viewW || p.y > camera.viewH) return null;
-        return p;
-      },
     },
   };
 }

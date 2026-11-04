@@ -105,7 +105,7 @@ ${doing}` : ''}${live ? tr(' (interactive)') : ''}`);
     const hasTerminal = (a: AgentInfo) => running.has(a.id) || ((a.provider ?? 'claude') !== 'agy' && !workers.has(a.id));
     const peers = agent
       ? (snap?.agents ?? [])
-          .filter((a) => a.kind === 'main' && a.roomId === agent.roomId && a.status !== 'offline' && !a.id.startsWith('demo:') && (a.id === agent.id || hasTerminal(a)))
+          .filter((a) => a.kind === 'main' && a.roomId === agent.roomId && a.status !== 'offline' && (a.id === agent.id || hasTerminal(a)))
           .sort((x, y) => x.startedAt - y.startedAt || x.id.localeCompare(y.id))
       : [];
     this.peers = agent ? orderAgents(agent.roomId, peers, (a) => a.sessionId) : [];

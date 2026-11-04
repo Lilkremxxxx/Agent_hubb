@@ -22,7 +22,7 @@ export interface TerminalRouter {
   toggle(agentId: string, opener?: HTMLElement | null): void;
   /** Terminal for this agent would be interactive. */
   interactive(agentId: string): boolean;
-  /** A terminal can be opened now (local access, not while an alternative source is shown). */
+  /** A terminal can be opened now (local access). */
   readonly available: boolean;
   /** Interactive terminal enabled (launch new sessions, take over, terminate). */
   readonly interactiveEnabled: boolean;
