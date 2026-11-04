@@ -1,4 +1,4 @@
-// Worker terminals: each registered worker (an Antigravity profile or a Claude Code account, server/team.ts) runs in a
+// Worker terminals: each seat (an Antigravity profile or a Claude Code account, server/team.ts) runs in a
 // terminal of the office (PtyManager), which you can watch while the boss gives it jobs.
 //
 // A job (POST /api/workers/ask, from agy-ask / claude-ask or "Send a job") restarts the worker's terminal with the
@@ -104,7 +104,7 @@ export interface WorkerPtys {
 export interface WorkerServiceOptions {
   office: Office;
   ptys: WorkerPtys;
-  /** The registered workers now. */
+  /** The seats now. */
   targets: () => WorkerTarget[];
   agyBin: string;
   /** This server's own URL, put in every seat's environment as HABBLAUD_URL (worker-ask / advisor reach this office). */
@@ -331,7 +331,7 @@ export class WorkerService {
   // ------------------------------------------------------------------ internals
 
   /**
-   * Sessions follow the registered workers; a worker that leaves loses its job and terminal. Claude workers get their
+   * Sessions follow the seats; a worker that leaves loses its job and terminal. Claude workers get their
    * character here (Antigravity ones come from sources/agy).
    */
   sync(): void {

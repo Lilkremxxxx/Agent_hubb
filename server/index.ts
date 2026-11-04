@@ -184,7 +184,7 @@ const ptys = spawnPty
 late.ptys = ptys;
 late.ptyOff = ptyOff;
 
-// Worker terminals (server/workers): jobs typed into each registered worker's terminal, answered from its conversation
+// Worker terminals (server/workers): jobs typed into each seat's terminal, answered from its conversation
 // file; you can watch them. Needs the interactive terminal.
 // The repo's own agy-as (the ~/.local/bin link may point to another checkout that writes a plugin into the profile).
 const agyBin = join(config.rootDir, 'tools', 'agy', 'bin', 'agy-as');

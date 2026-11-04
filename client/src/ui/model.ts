@@ -442,7 +442,7 @@ function inScopeBuilding(snap: Pick<OfficeSnapshot, 'agents'> | null | undefined
 }
 
 /**
- * Group of an agent. Workers = the characters of registered workers (snapshot.team: their terminal sessions, or the
+ * Group of an agent. Workers = the characters of seats (snapshot.team: their terminal sessions, or the
  * Antigravity profiles in `workers`; without a team every Antigravity worker). `pendingBoss` = the session opened with
  * "＋ Boss", a boss before the server crowns it. With a `scope` (an office): its boss and its workers only; the
  * bosses and workers of the other offices go to Others.

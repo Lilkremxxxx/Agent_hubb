@@ -1,7 +1,7 @@
 // The team and the workers' terminals, from the page: POST /api/team (server/team.ts) and /api/workers/* (server/workers).
 // A worker is a seat of ~/.habblaud/team.json; each seat has a terminal to watch. The boss gives jobs through agy-ask / claude-ask; here you give them too and cancel them.
 // Errors become Error with the server's message (a BUSY answer's `message`, else `error`).
-import type { AgentInfo, PtyInfo, TeamInfo, WorkerId, WorkerJob, WorkerKind, WorkerSession } from '../../../shared/types';
+import type { AgentInfo, PtyInfo, TeamInfo, WorkerId, WorkerJob, WorkerSession } from '../../../shared/types';
 import { tr } from '../../../shared/i18n';
 
 /** A refusal from the server, with its HTTP status (e.g. 409 = changed meanwhile). */
@@ -56,17 +56,9 @@ export async function cancelJobs(target: { job: string } | { worker: WorkerId } 
 
 // ---------------------------------------------------------------- pure helpers (workers-api.test.ts)
 
-export function workerKind(worker: WorkerId): WorkerKind {
-  return worker.startsWith('claude:') ? 'claude' : 'agy';
-}
-
 /** The terminal session of a seat's character. */
 export function sessionOfAgent(team: Pick<TeamInfo, 'sessions'> | undefined, agentId: string): WorkerSession | undefined {
   return team?.sessions?.find((s) => s.agentId === agentId);
-}
-
-export function sessionOf(team: Pick<TeamInfo, 'sessions'> | undefined, worker: WorkerId): WorkerSession | undefined {
-  return team?.sessions?.find((s) => s.worker === worker);
 }
 
 /** The seat behind a character: its terminal session (a seat has one character). */

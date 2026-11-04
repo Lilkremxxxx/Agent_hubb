@@ -365,11 +365,8 @@ export interface AccountInfo {
   usageStatus: 'ok' | 'stale' | 'disabled';
 }
 
-/** The team (server/team.ts, ~/.agy_profiles/team.json): who may give jobs and who gets them. */
-/**
- * Worker id: an Antigravity profile ("acc2", agy-ask) or a Claude Code account ("claude:<AccountInfo.id>", e.g.
- * "claude:.claude-work", claude-ask; its config dir is ~/<id>).
- */
+/** The team (server/team.ts, <dataDir>/team.json): the seats. */
+/** Worker id: a seat name from team.json (e.g. "W1"). */
 export type WorkerId = string;
 export type WorkerKind = 'agy' | 'claude';
 
@@ -394,7 +391,7 @@ export interface WorkerJob {
   tokens?: number;
 }
 
-/** A registered worker's terminal session (server/workers). */
+/** A seat's terminal session (server/workers). */
 export interface WorkerSession {
   worker: WorkerId;
   kind: WorkerKind;
@@ -443,7 +440,7 @@ export interface TeamInfo {
   pendingBoss?: string;
   /** The appointed boss's name, when its session is closed: the crown waits for it, and agy-ask still refuses others. */
   waitingBoss?: string;
-  /** Terminal sessions of the registered workers (server/workers). */
+  /** Terminal sessions of the seats (server/workers). */
   sessions?: WorkerSession[];
   /** Recent terminal jobs, newest first (up to ~30). */
   jobs?: WorkerJob[];
@@ -457,7 +454,7 @@ export interface OfficeSnapshot {
   agents: AgentInfo[];
   /** Interactive terminals opened by Habblaud (Claude Code running inside the browser). */
   ptys?: PtyInfo[];
-  /** The team: registered workers (absent = no team service). */
+  /** The team: the seats (absent = no team service). */
   team?: TeamInfo;
   /** Detected Claude accounts (with 5h/weekly usage when available). */
   accounts: AccountInfo[];

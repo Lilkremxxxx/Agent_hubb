@@ -38,9 +38,8 @@ const SPEC_FONT = `500 8.5px ${UI_FONT}`;
 const ROOM_FONT = `700 12px ${UI_FONT}`;
 const CORE_FONT = `600 11px ${UI_FONT}`;
 const CORE_FONT_SMALL = `600 9.5px ${UI_FONT}`;
-/** Building sign (one building per office): the office name, and a hint under it while the building is empty. */
+/** Building sign (one building per office): the office name. */
 const BUILDING_FONT = `700 13px ${UI_FONT}`;
-const BUILDING_HINT_FONT = `500 10.5px ${UI_FONT}`;
 const signFont = (size: number) => `700 ${size}px ${UI_FONT}`;
 
 /** Maximum bubble width (alert bubble is wider: the reason is actionable info). */
@@ -645,15 +644,12 @@ export class Overlay {
   }
 
   /**
-   * One building per office: a sign over each building (the office's name; "＋ Boss / ＋ Worker" under it while
-   * nobody works there). Nothing with a single building. A building outside the office shown is faded like it.
+   * One building per office: a sign over each building (the office's name). Nothing with a single building. A building outside the office shown is faded like it.
    */
   private drawBuildingSigns(): void {
     const buildings = this.sim.building.buildings;
     if (buildings.length < 2) return;
     const { ctx } = this;
-    const busy = new Set<string>();
-    for (const ch of this.sim.people()) if (!ch.gone && !ch.leaving) busy.add(ch.office);
     const focus = this.renderer.dim.focus?.office;
     for (const b of buildings) {
       const name = this.sim.officeNames.get(b.id) ?? b.id;
@@ -663,11 +659,9 @@ export class Overlay {
       const cy = this.sy(0) - 26;
       const maxW = Math.max(80, b.rect.w * TILE * this.camera.zoom - 16);
       if (cx < -maxW || cx > this.camera.viewW + maxW || cy < -60 || cy > this.camera.viewH + 60) continue;
-      const hint = busy.has(b.id) ? '' : tr('Empty: ＋ Boss / ＋ Worker');
       const title = this.fit(BUILDING_FONT, name, Math.min(maxW, 320) - 20);
-      const sub = hint ? this.fit(BUILDING_HINT_FONT, hint, Math.min(maxW, 320) - 20) : '';
-      const w = Math.round(Math.max(this.measure(BUILDING_FONT, title), sub ? this.measure(BUILDING_HINT_FONT, sub) : 0) + 20);
-      const h = sub ? 36 : 22;
+      const w = Math.round(this.measure(BUILDING_FONT, title) + 20);
+      const h = 22;
       const x = Math.round(cx - w / 2);
       const y = Math.round(cy - h);
       ctx.save();
@@ -680,11 +674,6 @@ export class Overlay {
       ctx.font = BUILDING_FONT;
       ctx.fillStyle = '#f1f4fa';
       ctx.fillText(title, cx, y + 12);
-      if (sub) {
-        ctx.font = BUILDING_HINT_FONT;
-        ctx.fillStyle = '#a9b3c7';
-        ctx.fillText(sub, cx, y + 27);
-      }
       ctx.restore();
       this.place(x, y, w, h);
     }

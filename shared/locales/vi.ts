@@ -1185,7 +1185,6 @@ export const VI: Readonly<Record<string, string>> = {
   "5-hour limit": "giới hạn 5 giờ",
   "Quota of {0}": "Quota của {0}",
   "{0}: reset since the last reading": "{0}: đã làm mới kể từ lần đọc trước",
-  "Empty: ＋ Boss / ＋ Worker": "Trống: ＋ Boss / ＋ Worker",
   "{0} does not trust the folder {1}: open claude there once with this account and answer yes, or give the job another folder":
     "{0} chưa tin thư mục {1}: mở claude ở đó một lần bằng tài khoản này và trả lời đồng ý, hoặc giao việc ở thư mục khác",
   "Shows what the worker is doing; its terminal is read-only": "Xem worker đang làm gì; terminal của nó chỉ để đọc",

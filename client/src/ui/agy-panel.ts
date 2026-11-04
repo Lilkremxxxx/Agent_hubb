@@ -3,8 +3,8 @@
 //   ~/.agy_profiles/defaults.json (POST /api/agy/defaults), which agy-ask reads. Claude passes both on its own jobs,
 //   so its choice wins. No model choice: workers only run Gemini 3.8 Flash. What a running job really applied shows in
 //   the drawer's Model / Effort / Permissions rows (read from the agy log).
-// - "Send a job" (AgyPanel, every registered worker): prompt and role go to POST /api/agy/jobs, which
-//   runs the account's `agy-ask` on the server with the worker's defaults. The role is remembered per worker in this
+// - "Send a job" (AgyPanel, every seat): prompt and role go to POST /api/agy/jobs, which
+//   runs the account's `worker-ask <seat>` on the server with the worker's defaults. The role is remembered per worker in this
 //   browser (localStorage 'habblaud:agy-presets'). "Stop" (POST /api/agy/stop) terminates what is running on it.
 //   A worker with a terminal session (server/workers; Antigravity or Claude) gets the job in that terminal instead
 //   (POST /api/workers/ask, a fresh conversation) and "Stop" cancels its jobs.

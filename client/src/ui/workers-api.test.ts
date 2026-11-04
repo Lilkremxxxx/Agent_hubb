@@ -1,21 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkerSession } from '../../../shared/types';
-import { jobOpen, sessionOfAgent, workerKind, workerOfAgent } from './workers-api';
+import { jobOpen, sessionOfAgent, workerOfAgent } from './workers-api';
 
 const session = (worker: string, agentId: string, extra: Partial<WorkerSession> = {}): WorkerSession => ({
   worker,
-  kind: workerKind(worker),
+  kind: 'agy',
   agentId,
   account: worker,
   ...extra,
 });
 
 describe('workers', () => {
-  it('kind from the worker id', () => {
-    expect(workerKind('acc2')).toBe('agy');
-    expect(workerKind('claude:.claude-work')).toBe('claude');
-  });
-
   it("a seat's session is found by its one character", () => {
     const team = { sessions: [{ worker: 'W2', kind: 'agy' as const, agentId: 'agy:acc1@W2', account: 'agy:acc1' }] };
     expect(sessionOfAgent(team, 'agy:acc1@W2')?.worker).toBe('W2');
