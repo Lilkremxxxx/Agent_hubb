@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -12,5 +12,16 @@ describe('deploy/bang-hub.service', () => {
     expect(path[0]).toBe(node);
     expect(path).toContain('%h/.local/bin');
     expect(path).toContain('/usr/bin');
+  });
+});
+
+describe('TLS verification stays on', () => {
+  // The Google token exchange trusts the TLS channel to accounts.google.com (the id_token signature is not checked), so
+  // nothing that starts the hub may switch certificate verification off.
+  it('no unit, deploy file or script sets NODE_TLS_REJECT_UNAUTHORIZED', () => {
+    const root = join(__dirname, '..', '..');
+    const files = ['deploy', 'scripts'].flatMap((d) => readdirSync(join(root, d), { withFileTypes: true }).filter((e) => e.isFile()).map((e) => join(root, d, e.name)));
+    expect(files.length).toBeGreaterThan(3);
+    for (const f of files) expect(readFileSync(f, 'utf8'), f).not.toContain('NODE_TLS_REJECT_UNAUTHORIZED');
   });
 });

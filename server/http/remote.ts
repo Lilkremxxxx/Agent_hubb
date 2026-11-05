@@ -91,10 +91,6 @@ export function defaultTlsDir(env: NodeJS.ProcessEnv): string {
   return join(env.HOME || homedir(), '.habblaud', 'remote-tls', 'server');
 }
 
-const googleOf = (env: NodeJS.ProcessEnv, domain: string): { google?: GoogleConfig } => {
-  const google = parseGoogleConfig(env, domain);
-  return google ? { google } : {};
-};
 
 /** Enables remote access from environment. `warning` explains why it stayed off when intentional. */
 export function parseRemoteConfig(
@@ -117,7 +113,8 @@ export function parseRemoteConfig(
     if (!isValidDomain(rawDomain)) return { warning: tr('remote access off: invalid HABBLAUD_REMOTE_DOMAIN "{0}"', [rawDomain]) };
     const host = env.HABBLAUD_REMOTE_HOST?.trim() || '127.0.0.1';
     if (!isLoopbackBind(host)) return { warning: tr('remote access off: behind a proxy (HABBLAUD_REMOTE_DOMAIN) the remote port listens on loopback only; HABBLAUD_REMOTE_HOST={0}', [host]) };
-    return { config: { port, host, user, passwordHash, passwordHashText: hashText, allow: parseAllow(env.HABBLAUD_REMOTE_ALLOW), domain: rawDomain, passwordLogin, ...googleOf(env, rawDomain) } };
+    const g = parseGoogleConfig(env, rawDomain);
+    return { config: { port, host, user, passwordHash, passwordHashText: hashText, allow: parseAllow(env.HABBLAUD_REMOTE_ALLOW), domain: rawDomain, passwordLogin, ...(g.google ? { google: g.google } : {}) }, warning: g.warning };
   }
   const dir = defaultTlsDir(env);
   const tls: RemoteTls = { dir, keyFile: join(dir, 'server.key'), certFile: join(dir, 'server.crt'), caFile: join(dir, 'ca.crt') };
@@ -542,6 +539,9 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
     const ip = clientIp(req, !!deps.domain);
     const ua = (req.headers['user-agent'] ?? '-').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 80) || '-';
     const oauthCookie = (v: string, maxAge: number) => `${GOOGLE_COOKIE}=${v}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+    // Only a navigation from our own login page may start a flow; the 403 is neither counted nor sets a cookie.
+    const site = req.headers['sec-fetch-site'];
+    if (route === 'start' && site !== undefined && site !== 'same-origin' && site !== 'none') return sendJson(res, 403, { error: tr('cross-site request refused') });
     const wait = route === 'start' ? googleStarts.retryAfter(ip) : failures.retryAfter(ip);
     if (wait > 0) {
       if (route === 'callback' && failures.noteBlocked(ip)) deps.log?.warn(tr('Remote sign-in blocked ({0}) from {1}, {2}', ['google', ip, ua]));
@@ -556,10 +556,12 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
     const q = url.searchParams;
     const clear = oauthCookie('', 0); // single use: gone whatever happens next
     g.finish({ code: q.get('code') ?? undefined, state: q.get('state') ?? undefined, error: q.get('error') ?? undefined }, readCookie(req.headers.cookie, GOOGLE_COOKIE))
-      .catch(() => ({ ok: false as const, reason: 'internal' }))
+      .catch(() => ({ ok: false as const, reason: 'internal', count: true }))
       .then((r) => {
         if (!r.ok) {
-          failures.fail(ip);
+          // GET callbacks can be fired by any page the owner visits: only a failure after the signed state cookie was
+          // verified (the owner's own flow) counts, or a stranger could burn the owner's shared IP window.
+          if (r.count) failures.fail(ip);
           deps.log?.warn(tr('Remote sign-in failed (google: {0}) from {1}, {2}', [r.reason, ip, ua]));
           return void res.writeHead(302, { Location: '/login?e=google', 'Set-Cookie': clear, 'Cache-Control': 'no-store' }).end();
         }

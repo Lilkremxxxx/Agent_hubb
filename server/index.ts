@@ -442,6 +442,7 @@ if (config.remote) {
     log,
     remoteHosts,
   );
+  if (config.remoteWarning) log.warn(`   ${config.remoteWarning}.`);
   remoteListener.server.once('listening', () => {
     const allow = [...remote.allow].join(', ') || tr('view only');
     const scheme = remote.domain ? tr('HTTP behind a proxy for {0}', [remote.domain]) : remote.tls ? 'HTTPS' : tr('HTTP WITHOUT encryption (HABBLAUD_REMOTE_INSECURE_HTTP)');

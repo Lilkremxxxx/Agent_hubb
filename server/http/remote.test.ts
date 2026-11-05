@@ -669,6 +669,19 @@ describe('remote port', () => {
   });
 });
 
+describe('Google routes are not on the main port', () => {
+  it('port 4747 api() has no /api/remote/google/* route: 404 on any loopback Host, and the guard refuses the hub domain', async () => {
+    const s = await start();
+    for (const p of ['/api/remote/google/start', '/api/remote/google/callback?code=a&state=b']) {
+      for (const host of ['localhost', '127.0.0.1']) {
+        const r = await request(s.localBase, p, { headers: { Host: host } });
+        expect([r.status, r.headers.location, r.headers['set-cookie']]).toEqual([404, undefined, undefined]);
+      }
+      expect((await request(s.localBase, p, { headers: { Host: 'hub.finstar.pp.ua' } })).status).toBe(403);
+    }
+  });
+});
+
 describe('local port (unaltered)', () => {
   it('without login, local Host lock applies as before', async () => {
     const h = await start();

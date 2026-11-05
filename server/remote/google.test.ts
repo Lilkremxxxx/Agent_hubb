@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -32,7 +32,7 @@ afterEach(async () => { while (closers.length) await closers.pop()!(); });
 const b64j = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const idToken = (c: Record<string, unknown>) => `${b64j({ alg: 'RS256' })}.${b64j(c)}.sig`;
 
-async function setup(o: { limit?: number; token?: (nonce: string) => Record<string, unknown>; reply?: (body: URLSearchParams) => Response | Promise<Response>; timeoutMs?: number } = {}) {
+async function setup(o: { emails?: string; limit?: number; token?: (nonce: string) => Record<string, unknown>; reply?: (body: URLSearchParams) => Response | Promise<Response>; timeoutMs?: number } = {}) {
   let now = 1_800_000_000_000;
   const lines: string[] = [];
   const exchanges: URLSearchParams[] = [];
@@ -44,7 +44,7 @@ async function setup(o: { limit?: number; token?: (nonce: string) => Record<stri
     const claims = { iss: 'https://accounts.google.com', aud: CID, exp: Math.floor(now / 1000) + 3600, nonce, email: 'me@gmail.com', email_verified: true, ...o.token?.(nonce) };
     return new Response(JSON.stringify({ id_token: idToken(claims), access_token: 'AT-secret' }), { status: 200 });
   }) as unknown as typeof fetch;
-  const cfg = parseGoogleConfig(ENV, DOMAIN)!;
+  const cfg = parseGoogleConfig({ ...ENV, ...(o.emails ? { HABBLAUD_REMOTE_GOOGLE_EMAILS: o.emails } : {}) }, DOMAIN).google!;
   const sessions = new RemoteSessions(SECRET, CFG, () => now);
   const google = new GoogleAuth(cfg, SECRET, { fetch: fakeFetch, now: () => now, timeoutMs: o.timeoutMs });
   const gate = createRemoteGate({
@@ -70,12 +70,12 @@ async function setup(o: { limit?: number; token?: (nonce: string) => Record<stri
       r.on('error', fail);
       r.end();
     });
-  const passwordLogin = () =>
-    new Promise<string>((ok, fail) => {
+  const passwordLogin = (ip = '203.0.113.50') =>
+    new Promise<{ status: number; cookie: string }>((ok, fail) => {
       const body = JSON.stringify({ user: 'ana', password: 'correct horse battery' });
-      const r = http.request({ host: '127.0.0.1', port, path: '/api/remote/login', method: 'POST', headers: { ...O, Host: DOMAIN, 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.50' } }, (res) => {
+      const r = http.request({ host: '127.0.0.1', port, path: '/api/remote/login', method: 'POST', headers: { ...O, Host: DOMAIN, 'Content-Type': 'application/json', 'CF-Connecting-IP': ip } }, (res) => {
         res.resume();
-        res.on('end', () => ok(String(res.headers['set-cookie']?.[0])));
+        res.on('end', () => ok({ status: res.statusCode ?? 0, cookie: String(res.headers['set-cookie']?.[0]) }));
       });
       r.on('error', fail);
       r.end(body);
@@ -96,18 +96,24 @@ const cleared = (r: { headers: http.IncomingHttpHeaders }) => (r.headers['set-co
 
 describe('Google config', () => {
   it('on only with domain, id, secret and a non-empty valid allowlist (lower-cased)', () => {
-    const c = parseGoogleConfig(ENV, DOMAIN)!;
+    const c = parseGoogleConfig(ENV, DOMAIN).google!;
     expect([...c.emails]).toEqual(['me@gmail.com', 'you@gmail.com']);
     expect(c.redirectUri).toBe(`https://${DOMAIN}/api/remote/google/callback`);
-    expect(parseGoogleConfig(ENV, undefined)).toBeUndefined();
-    expect(parseGoogleConfig({ ...ENV, HABBLAUD_REMOTE_GOOGLE_EMAILS: '' }, DOMAIN)).toBeUndefined();
-    expect(parseGoogleConfig({ ...ENV, HABBLAUD_REMOTE_GOOGLE_EMAILS: 'a@b.com,$(x)' }, DOMAIN)).toBeUndefined();
-    expect(parseGoogleConfig({ ...ENV, HABBLAUD_REMOTE_GOOGLE_CLIENT_ID: undefined }, DOMAIN)).toBeUndefined();
-    expect(parseGoogleConfig({ ...ENV, HABBLAUD_REMOTE_GOOGLE_CLIENT_SECRET: undefined }, DOMAIN)).toBeUndefined();
+    const off = (env: NodeJS.ProcessEnv, d: string | null = DOMAIN) => parseGoogleConfig(env, d ?? undefined);
+    for (const r of [off(ENV, null), off({ ...ENV, HABBLAUD_REMOTE_GOOGLE_EMAILS: '' }), off({ ...ENV, HABBLAUD_REMOTE_GOOGLE_EMAILS: 'a@b.com,$(x)' }), off({ ...ENV, HABBLAUD_REMOTE_GOOGLE_CLIENT_ID: undefined }), off({ ...ENV, HABBLAUD_REMOTE_GOOGLE_CLIENT_SECRET: undefined })]) {
+      expect(r.google).toBeUndefined();
+      expect(r.warning).toMatch(/HABBLAUD_REMOTE_GOOGLE/); // set but unusable: told once at start, not silent
+    }
+    expect(off({}, DOMAIN)).toEqual({}); // nothing set: nothing to say
+  });
+  it('parseRemoteConfig passes the warning on', () => {
+    const r = parseRemoteConfig({ ...ENV, HABBLAUD_REMOTE_GOOGLE_EMAILS: 'a@b.com,$(x)' });
+    expect(r.config).not.toHaveProperty('google');
+    expect(r.warning).toMatch(/Google sign-in off/);
+    expect(parseRemoteConfig(ENV).warning).toBeUndefined();
   });
   it('parseRemoteConfig carries it only in domain mode', () => {
     expect(parseRemoteConfig(ENV).config?.google?.clientId).toBe(CID);
-    expect(parseRemoteConfig({ ...ENV, HABBLAUD_REMOTE_GOOGLE_EMAILS: '' }).config).not.toHaveProperty('google');
     expect(parseRemoteConfig({ ...ENV, HABBLAUD_REMOTE_DOMAIN: undefined, HABBLAUD_REMOTE_INSECURE_HTTP: '1' }).config?.google).toBeUndefined();
   });
   it('masks the email', () => expect(maskEmail('abc@gmail.com')).toBe('a***@gmail.com'));
@@ -147,7 +153,7 @@ describe('Google sign-in flow', () => {
     const sc = r.headers['set-cookie'] as string[];
     const session = sc.find((c) => c.startsWith('__Host-habblaud_remote='))!;
     expect(cleared(r)).toBe(true);
-    const pw = await s.passwordLogin();
+    const pw = (await s.passwordLogin()).cookie;
     expect(session.replace(/^[^;]*/, '')).toBe(pw.replace(/^[^;]*/, '')); // same name, flags and lifetime as the password login
     expect(session.split('=')[0]).toBe(pw.split('=')[0]);
     const token = session.split(';')[0].split('=')[1];
@@ -196,6 +202,8 @@ describe('Google sign-in flow', () => {
     ['email_verified as string', () => ({ email_verified: 'true' })],
     ['email not allowlisted', () => ({ email: 'stranger@gmail.com' })],
     ['email missing', () => ({ email: undefined })],
+    ['email with control/space characters', () => ({ email: 'me@gmail.com\n' })],
+    ['email with non-ASCII lookalike (fullwidth m)', () => ({ email: '\uFF4De@gmail.com' })],
   ];
   it.each(bad)('id_token with %s: no session, generic failure, counted', async (_n, token) => {
     const s = await setup({ token });
@@ -204,6 +212,18 @@ describe('Google sign-in flow', () => {
     expect(r.headers.location).toBe(FAIL);
     expect(String(r.headers['set-cookie'])).not.toContain('habblaud_remote=');
     expect(s.lines.some((l) => /google: /.test(l))).toBe(true);
+  });
+  it('non-gmail.com addresses need hd equal to their domain (Workspace only); gmail.com needs none', async () => {
+    const run = async (claims: Record<string, unknown>) => {
+      const s = await setup({ emails: 'me@gmail.com,boss@corp.example', token: () => claims });
+      const { loc, cookie } = await s.start();
+      return (await s.callback('C', loc!.searchParams.get('state')!, cookie)).headers.location;
+    };
+    expect(await run({ email: 'boss@corp.example', hd: 'corp.example' })).toBe('/');
+    expect(await run({ email: 'boss@corp.example', hd: 'CORP.example' })).toBe('/');
+    expect(await run({ email: 'boss@corp.example' })).toBe(FAIL); // allowlisted but no hd: a consumer account on that domain
+    expect(await run({ email: 'boss@corp.example', hd: 'other.example' })).toBe(FAIL);
+    expect(await run({ email: 'me@gmail.com' })).toBe('/');
   });
   it('accepts the bare accounts.google.com issuer', async () => {
     const s = await setup({ token: () => ({ iss: 'accounts.google.com' }) });
@@ -224,26 +244,78 @@ describe('Google sign-in flow', () => {
     const r = await s.callback('C', loc!.searchParams.get('state')!, cookie);
     expect(r.headers.location).toBe(FAIL);
   });
+  it('token response over 64 KB is refused', async () => {
+    const s = await setup({ reply: () => new Response(`{"id_token":"${'a'.repeat(70_000)}"}`, { status: 200 }) });
+    const { loc, cookie } = await s.start();
+    expect((await s.callback('C', loc!.searchParams.get('state')!, cookie)).headers.location).toBe(FAIL);
+  });
+  it('the used-state map is capped: over 10000 live states it fails closed, and an expired entry frees room', async () => {
+    const fetchOk = (() => new Response('{}', { status: 400 })) as unknown as typeof fetch;
+    let now = 1_800_000_000_000;
+    const g = new GoogleAuth(parseGoogleConfig(ENV, DOMAIN).google!, SECRET, { fetch: fetchOk, now: () => now });
+    for (let i = 0; i < 10_000; i++) {
+      const { location, cookie } = g.start();
+      expect((await g.finish({ code: 'C', state: new URL(location).searchParams.get('state')! }, cookie)).ok).toBe(false);
+    }
+    const { location, cookie } = g.start();
+    expect(await g.finish({ code: 'C', state: new URL(location).searchParams.get('state')! }, cookie)).toMatchObject({ reason: 'busy', count: false });
+    now += 11 * 60_000;
+    const again = g.start();
+    expect(await g.finish({ code: 'C', state: new URL(again.location).searchParams.get('state')! }, again.cookie)).toMatchObject({ reason: 'exchange' });
+  });
   it('token endpoint timeout fails closed', async () => {
-    const g = new GoogleAuth(parseGoogleConfig(ENV, DOMAIN)!, SECRET, {
+    const g = new GoogleAuth(parseGoogleConfig(ENV, DOMAIN).google!, SECRET, {
       timeoutMs: 30,
       fetch: ((_u: string, init: RequestInit) => new Promise((_ok, fail) => init.signal!.addEventListener('abort', () => fail(new Error('aborted'))))) as never,
     });
     const { location, cookie } = g.start();
     const st = new URL(location).searchParams.get('state')!;
-    expect(await g.finish({ code: 'C', state: st }, cookie)).toEqual({ ok: false, reason: 'exchange' });
+    expect(await g.finish({ code: 'C', state: st }, cookie)).toMatchObject({ ok: false, reason: 'exchange' });
   });
 
-  it('failures share the FailureWindow: 429 after the limit, then free after the window', async () => {
-    const s = await setup({ limit: 3 });
-    for (let i = 0; i < 3; i++) expect((await s.callback('C', 'x', undefined)).status).toBe(302);
+  it('failures after the verified state cookie count in the shared FailureWindow: 429 after the limit, free after the window', async () => {
+    const s = await setup({ limit: 3, token: () => ({ aud: 'other' }) });
+    for (let i = 0; i < 3; i++) {
+      const { loc, cookie } = await s.start();
+      expect((await s.callback('C', loc!.searchParams.get('state')!, cookie)).headers.location).toBe(FAIL);
+    }
     const r = await s.callback('C', 'x', undefined);
     expect(r.status).toBe(429);
     expect(Number(r.headers['retry-after'])).toBeGreaterThan(0);
-    expect((await s.start()).r.status).toBe(302); // start has its own window
     s.tick(601_000);
     expect((await s.callback('C', 'x', undefined)).status).toBe(302);
   });
+
+  it('a stranger page cannot lock the owner out: cookie-less, param-less or denied callbacks never count (password and passkey sign-in stay open)', async () => {
+    const s = await setup({ limit: 5 });
+    const a = await s.start();
+    const st = a.loc!.searchParams.get('state')!;
+    for (let i = 0; i < 10; i++) {
+      expect((await s.callback('C', st)).status).toBe(302); // no cookie
+      expect((await s.get('/api/remote/google/callback?error=x')).status).toBe(302); // denied
+      expect((await s.get('/api/remote/google/callback', { Cookie: a.cookie })).status).toBe(302); // no params
+      expect((await s.callback('C', 'y'.repeat(43), a.cookie)).status).toBe(302); // wrong state
+    }
+    expect((await s.start()).r.status).toBe(302);
+    expect(s.lines.filter((l) => /google: /.test(l)).length).toBeGreaterThan(30); // still logged
+    expect((await s.passwordLogin('203.0.113.7')).status).toBe(200);
+    const pk = await s.get('/api/remote/passkeys/login/options', O, 'POST');
+    expect(pk.status).not.toBe(429); // (no passkey service here: 404, but never the IP limit)
+  });
+
+  it('start refuses a cross-site navigation (Sec-Fetch-Site), without a cookie and without counting; same-origin, none and absent work', async () => {
+    const s = await setup();
+    for (const site of ['cross-site', 'same-site']) {
+      for (let i = 0; i < 12; i++) {
+        const r = await s.get('/api/remote/google/start', { 'Sec-Fetch-Site': site });
+        expect(r.status).toBe(403);
+        expect(r.headers['set-cookie']).toBeUndefined();
+        expect(r.headers.location).toBeUndefined();
+      }
+    }
+    for (const h of [{ 'Sec-Fetch-Site': 'same-origin' }, { 'Sec-Fetch-Site': 'none' }, {} as Record<string, string>]) expect((await s.get('/api/remote/google/start', h)).status).toBe(302);
+  });
+
   it('start has its own per-IP limit', async () => {
     const s = await setup();
     for (let i = 0; i < 10; i++) expect((await s.start()).r.status).toBe(302);
@@ -313,8 +385,10 @@ describe('remote:setup Google options', () => {
     for (const bad of [['--google-client-id', "a'b;touch x"], ['--google-client-id', '$(x)aaaaaaaaaa'], ['--google-client-id', 'short'], ['--google-email', 'a@b'], ['--google-email', 'a;b@c.com'], ['--google-email', '$(x)@c.com'], ['--google-email', 'a@b.com\nc@d.com'], ['--google', 'on'], ['--google-email', "a'b@c.com"], ['--google-email', 'a b@c.com']]) {
       expect(() => parseArgs(bad), bad.join(' ')).toThrow();
     }
-    expect(() => parseArgs(['--google-secret', CSECRET])).toThrow(/never an option/);
-    try { parseArgs([`--google-secret=${CSECRET}`]); } catch (e) { expect((e as Error).message).not.toContain(CSECRET); }
+    for (const bad of [['--google-secret', CSECRET], [`--google-secret=${CSECRET}`], [`--google-client-secret=${CSECRET}`], ['--Client-Secret', CSECRET], [`--secret=${CSECRET}`]]) {
+      expect(() => parseArgs(bad)).toThrow(/never an option/);
+      try { parseArgs(bad); } catch (e) { expect((e as Error).message).not.toContain(CSECRET); }
+    }
     expect(() => parseArgs(['--google', 'off', '--google-email', 'a@b.com'])).toThrow();
     expect(() => parseArgs(['--google-secret-stdin', '--password-stdin'])).toThrow();
   });
@@ -351,5 +425,44 @@ describe('remote:setup Google options', () => {
     const off = googleEnv(withG, { off: true });
     for (const k of KEYS) expect(off).not.toContain(k);
     expect(off).toBe(base);
+  });
+});
+
+describe('remote:setup as a program (Google only, no password, no TTY)', () => {
+  const TSX = join(__dirname, '../../node_modules/tsx/dist/cli.mjs');
+  const run = (dataDir: string, args: string[], env: Record<string, string> = {}, input = '') =>
+    spawnSync(process.execPath, [TSX, join(__dirname, '../../scripts/remote-setup.ts'), ...args], { encoding: 'utf8', input, env: { PATH: process.env.PATH ?? '', HOME: dataDir, HABBLAUD_DATA_DIR: dataDir, ...env } });
+  const seed = () => {
+    const d = tempDir();
+    closers.push(async () => d.cleanup());
+    const hub = join(d.dir, 'hub.env');
+    writeFileSync(hub, googleEnv(proxyEnv('', { user: 'bang', hash: 'scrypt:15:8:1:a+/=:b', domain: DOMAIN, port: 4748 }), { clientId: CID, emails: ['me@gmail.com'], secret: 'OLDSECRET-12345' }));
+    return { dir: d.dir, hub };
+  };
+
+  it('a lone GOOGLE_CLIENT_SECRET rotates the secret and leaves the password hash alone (never the normal setup)', () => {
+    const { dir, hub } = seed();
+    const before = readFileSync(hub, 'utf8');
+    const r = run(dir, [], { GOOGLE_CLIENT_SECRET: 'NEWSECRET-67890' });
+    expect(r.status, r.stderr).toBe(0);
+    const after = readFileSync(hub, 'utf8');
+    expect(readEnvValue(after, 'HABBLAUD_REMOTE_GOOGLE_CLIENT_SECRET')).toBe('NEWSECRET-67890');
+    expect(after.replace(/NEWSECRET-67890/, 'OLDSECRET-12345')).toBe(before);
+    expect(r.stdout + r.stderr).not.toContain('NEWSECRET');
+    expect(r.stdout).toContain(`https://${DOMAIN}/api/remote/google/callback`);
+  });
+  it('--google-secret-stdin reads the secret from standard input and never prints it', () => {
+    const { dir, hub } = seed();
+    const r = run(dir, ['--google-secret-stdin'], {}, 'STDINSECRET-111\n');
+    expect(r.status, r.stderr).toBe(0);
+    expect(readEnvValue(readFileSync(hub, 'utf8'), 'HABBLAUD_REMOTE_GOOGLE_CLIENT_SECRET')).toBe('STDINSECRET-111');
+    expect(r.stdout + r.stderr).not.toContain('STDINSECRET');
+  });
+  it('without a terminal the error points at --google-secret-stdin, not --password-stdin', () => {
+    const { dir } = seed();
+    const r = run(dir, ['--google-client-id', CID]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('--google-secret-stdin');
+    expect(r.stderr).not.toContain('--password-stdin');
   });
 });

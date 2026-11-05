@@ -125,6 +125,8 @@ export function parseArgs(argv: string[]): SetupArgs {
   const out: SetupArgs = { passwordStdin: false, googleSecretStdin: false, googleOff: false, service: true, off: false, help: false, behindProxy: false, resetPasskeys: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    // Any option that looks like it carries a secret is refused without echoing it (the secret never travels in argv).
+    if (/secret/i.test(a) && a !== '--google-secret-stdin') throw new Error(tr('the Google client secret is never an option: use GOOGLE_CLIENT_SECRET, --google-secret-stdin or the prompt'));
     const val = () => {
       const v = argv[++i];
       if (v === undefined) throw new Error(tr('missing value for {0}', [a]));
@@ -141,7 +143,7 @@ export function parseArgs(argv: string[]): SetupArgs {
     else if (a === '--google') {
       if (val() !== 'off') throw new Error(tr('invalid --google (only "off")'));
       out.googleOff = true;
-    } else if (a.startsWith('--google-secret') ) throw new Error(tr('the Google client secret is never an option: use GOOGLE_CLIENT_SECRET, --google-secret-stdin or the prompt'));
+    }
     else if (a === '--behind-proxy') out.behindProxy = true;
     else if (a === '--reset-passkeys') out.resetPasskeys = true;
     else if (a === '--password-stdin') out.passwordStdin = true;
@@ -180,7 +182,7 @@ async function googleSecret(args: SetupArgs, current: string): Promise<string | 
   const fromEnv = process.env.GOOGLE_CLIENT_SECRET?.trim();
   if (fromEnv) return fromEnv;
   if (args.googleSecretStdin) return (await readStdinLine()).trim();
-  if (args.googleClientId || !readEnvValue(current, GOOGLE_KEYS()[1])) return (await askHidden(tr('Google client secret (hidden while you type)'))).trim() || undefined;
+  if (args.googleClientId || !readEnvValue(current, GOOGLE_KEYS()[1])) return (await askHidden(tr('Google client secret (hidden while you type)'), tr('no terminal to ask for the Google client secret: use --google-secret-stdin or GOOGLE_CLIENT_SECRET'))).trim() || undefined;
   return undefined;
 }
 
@@ -274,9 +276,9 @@ function ask(question: string, fallback?: string): Promise<string> {
 }
 
 /** Prompts without echoing input (real terminal only). */
-function askHidden(question: string): Promise<string> {
+function askHidden(question: string, noTty = tr('no terminal to ask for the password: use --password-stdin')): Promise<string> {
   const stdin = process.stdin;
-  if (!stdin.isTTY) throw new Error(tr('no terminal to ask for the password: use --password-stdin'));
+  if (!stdin.isTTY) throw new Error(noTty);
   return new Promise((ok) => {
     process.stdout.write(`${question}: `);
     stdin.setRawMode(true);
@@ -424,7 +426,8 @@ async function main(): Promise<void> {
   const hub = hubEnvPath(process.env);
   const current = existsSync(hub) ? readFileSync(hub, 'utf8') : '';
 
-  if (args.googleOff || (wantsGoogle(args) && !args.behindProxy)) {
+  // A lone GOOGLE_CLIENT_SECRET (rotation) is Google-only too: it must never fall into the normal setup, which asks for a new password and ends every session.
+  if (args.googleOff || (!args.behindProxy && (wantsGoogle(args) || !!process.env.GOOGLE_CLIENT_SECRET?.trim()))) {
     // Google only: no password prompt, so the password hash (and every session) stays as it is.
     if (!existsSync(hub)) throw new Error(tr('no hub.env yet: run --behind-proxy first'));
     const next = googleEnv(current, args.googleOff ? { off: true } : { clientId: args.googleClientId, emails: args.googleEmails, secret: await googleSecret(args, current) });

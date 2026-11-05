@@ -156,20 +156,37 @@ on that account, and allowlist as few addresses as possible. A session issued th
 
 ### On this computer
 
-Run it in your own terminal and type the secret at the hidden prompt (or `export GOOGLE_CLIENT_SECRET=...` for that one
-command, or pipe it with `--google-secret-stdin`). Never paste the secret into a chat and never put it in an option.
+Run it in your own terminal and type the secret at the hidden prompt. For a script or a password manager use
+`--google-secret-stdin` (for example `pass show hub-google | npm run remote:setup -- --google-secret-stdin`).
+Do not `export GOOGLE_CLIENT_SECRET=...` by hand (it lands in shell history); never paste the secret into a chat and
+never put it in an option (any option containing "secret" is refused).
 
 ```bash
 npm run remote:setup -- --google-client-id <id>.apps.googleusercontent.com --google-email you@gmail.com
 systemctl --user restart bang-hub          # the settings are read at start
-journalctl --user -u bang-hub | grep 'Sign in with Google'    # "on (1 address(es) allowed)"
+journalctl --user -u bang-hub | grep -E 'Sign in with Google|bật đăng nhập bằng Google'    # "on (1 address(es) allowed)"
 ```
 
 This changes only the three Google keys in `~/.habblaud/hub.env` (no password prompt, sessions stay valid). To change
 the allowlist later, rerun with `--google-email` (it replaces the list). Rerunning the normal `--behind-proxy` command
-keeps the Google keys. The login page then shows "Sign in with Google"; every failure shows one generic message and
+keeps the Google keys. To rotate the secret later, rerun with `--google-secret-stdin` (or
+`--google-client-id <id>` again, which prompts); a lone `GOOGLE_CLIENT_SECRET` in the environment is also Google-only
+and never falls into the normal setup (which would ask for a new password and end every session). The login page then shows "Sign in with Google"; every failure shows one generic message and
 the reason (`state`, `aud`, `email`, ...) appears only in `journalctl` (never tokens, codes or secrets). Failures count
 in the same per-IP limit as passwords (5 in 10 minutes).
+
+**Allowlist.** `@gmail.com` addresses are matched exactly (lower-case). For any other domain only Google Workspace
+accounts of that very domain are accepted: the id_token must carry `hd` equal to the address's domain, so a personal
+Google account that merely uses a Workspace-looking address is refused. If the Google settings are present but
+invalid or incomplete, the server logs a warning at start and the button stays off.
+
+**Removing an email does not end its sessions.** A session already issued lasts its 7 days. To end them all, rerun
+`npm run remote:setup -- --behind-proxy --domain hub.finstar.pp.ua --user nhatbang` with the service stopped (the new
+password hash changes the signing key), or stop the service, delete `~/.habblaud/remote-secret` and start it.
+
+**Abuse limits.** `/api/remote/google/start` is refused when the browser says the navigation is cross-site
+(`Sec-Fetch-Site`) and is limited to 10 starts per IP per 10 minutes. A callback failure counts toward the shared
+5-in-10-minutes sign-in limit only after the signed state cookie checked out, so another web page cannot lock you out.
 
 ### Rollback
 

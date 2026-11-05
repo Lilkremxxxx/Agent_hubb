@@ -887,6 +887,8 @@ export const VI: Readonly<Record<string, string>> = {
   "Bang_ver hub": "Bang_ver hub",
   "Sign in with a passkey": "Đăng nhập bằng passkey",
   "Sign in with Google": "Đăng nhập bằng Google",
+  "Google sign-in off: the HABBLAUD_REMOTE_GOOGLE_* settings are incomplete or invalid (or there is no hub domain); run npm run remote:setup": "Đăng nhập Google tắt: các thiết lập HABBLAUD_REMOTE_GOOGLE_* thiếu hoặc không hợp lệ (hoặc chưa có tên miền hub); chạy npm run remote:setup",
+  "no terminal to ask for the Google client secret: use --google-secret-stdin or GOOGLE_CLIENT_SECRET": "không có terminal để hỏi khóa bí mật Google: dùng --google-secret-stdin hoặc GOOGLE_CLIENT_SECRET",
   "Couldn't sign in with Google.": "Không đăng nhập được bằng Google.",
   "Remote sign-in ok (google, {0}) from {1}, {2}": "Đăng nhập từ xa thành công (google, {0}) từ {1}, {2}",
   "Remote sign-in failed (google: {0}) from {1}, {2}": "Đăng nhập từ xa thất bại (google: {0}) từ {1}, {2}",
