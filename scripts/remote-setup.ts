@@ -16,6 +16,7 @@ import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { addToList, readEnvValue, updateEnv } from '../server/remote/envfile';
+import { GOOGLE_EMAIL_RE, GOOGLE_ID_RE, GOOGLE_SECRET_RE, googleRedirectUri } from '../server/remote/google';
 import { hashPassword } from '../server/remote/password';
 import { tr } from '../shared/i18n';
 import { caFingerprint, ensureServerCert, isValidDomain, isValidName, primaryIp, remoteTargets, remoteTlsBase, tlsPaths } from '../server/remote/tls';
@@ -31,6 +32,9 @@ export const hubEnvPath = (env: NodeJS.ProcessEnv): string => join(dataDirOf(env
 export const passkeysPath = (env: NodeJS.ProcessEnv): string => join(dataDirOf(env), 'remote', 'passkeys.json');
 export const MIN_PASSWORD = 10;
 const SERVICE_LABEL = 'com.habblaud.remote-mdns';
+function GOOGLE_KEYS(): string[] {
+  return ['HABBLAUD_REMOTE_GOOGLE_CLIENT_ID', 'HABBLAUD_REMOTE_GOOGLE_CLIENT_SECRET', 'HABBLAUD_REMOTE_GOOGLE_EMAILS'];
+}
 const REMOTE_KEYS = [
   'HABBLAUD_REMOTE_USER',
   'HABBLAUD_REMOTE_PASSWORD',
@@ -43,6 +47,7 @@ const REMOTE_KEYS = [
   'HABBLAUD_REMOTE_ALLOW',
   'HABBLAUD_REMOTE_HOST',
   'HABBLAUD_REMOTE_PASSWORD_LOGIN',
+  ...GOOGLE_KEYS(),
 ];
 
 // hub.env is read by sh (scripts/hub-env.sh) and systemd: what goes into it is validated at the trust boundary, and every
@@ -86,6 +91,10 @@ export interface SetupArgs {
   allow?: string;
   behindProxy: boolean;
   resetPasskeys: boolean;
+  googleClientId?: string;
+  googleEmails?: string[];
+  googleSecretStdin: boolean;
+  googleOff: boolean;
   passwordStdin: boolean;
   service: boolean;
   off: boolean;
@@ -106,10 +115,14 @@ With --behind-proxy the hub domain is accepted only on the remote port, never on
   --reset-passkeys     deletes the registered passkeys (stop the service first; the command tells you the steps)
   --password-stdin     reads the password from standard input (automation) instead of asking
   --no-service         doesn't install the <name>.local announcement service (run npm run remote:mdns yourself)
+  --google-client-id <id>   Sign in with Google: OAuth client id (see docs/deploy.md, "Google sign-in")
+  --google-email <addr>     allowed Google account (repeat the option or use a comma list; replaces the list)
+                            the client secret is read from the GOOGLE_CLIENT_SECRET variable, --google-secret-stdin, or a hidden prompt; never from an option
+  --google off              removes the three Google keys
   --off                turns off phone access (removes the lines from hub.env and the service; keeps the CA)`);
 
 export function parseArgs(argv: string[]): SetupArgs {
-  const out: SetupArgs = { passwordStdin: false, service: true, off: false, help: false, behindProxy: false, resetPasskeys: false };
+  const out: SetupArgs = { passwordStdin: false, googleSecretStdin: false, googleOff: false, service: true, off: false, help: false, behindProxy: false, resetPasskeys: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const val = () => {
@@ -122,6 +135,13 @@ export function parseArgs(argv: string[]): SetupArgs {
     else if (a === '--domain') out.domain = checkDomain(val().toLowerCase());
     else if (a === '--port') out.port = Number(val());
     else if (a === '--allow') out.allow = checkAllow(val());
+    else if (a === '--google-client-id') out.googleClientId = checkGoogle('client id', val(), GOOGLE_ID_RE);
+    else if (a === '--google-email') out.googleEmails = [...(out.googleEmails ?? []), ...val().split(',').map((e) => checkGoogle('email', e.trim().toLowerCase(), GOOGLE_EMAIL_RE))];
+    else if (a === '--google-secret-stdin') out.googleSecretStdin = true;
+    else if (a === '--google') {
+      if (val() !== 'off') throw new Error(tr('invalid --google (only "off")'));
+      out.googleOff = true;
+    } else if (a.startsWith('--google-secret') ) throw new Error(tr('the Google client secret is never an option: use GOOGLE_CLIENT_SECRET, --google-secret-stdin or the prompt'));
     else if (a === '--behind-proxy') out.behindProxy = true;
     else if (a === '--reset-passkeys') out.resetPasskeys = true;
     else if (a === '--password-stdin') out.passwordStdin = true;
@@ -130,8 +150,45 @@ export function parseArgs(argv: string[]): SetupArgs {
     else if (a === '--help' || a === '-h') out.help = true;
     else throw new Error(tr('unknown option: {0}', [a]));
   }
+  if (out.googleOff && (out.googleClientId || out.googleEmails || out.googleSecretStdin)) throw new Error(tr('--google off cannot be combined with other Google options'));
+  if (out.googleSecretStdin && out.passwordStdin) throw new Error(tr('--google-secret-stdin and --password-stdin both read standard input: use GOOGLE_CLIENT_SECRET for one of them'));
   if (out.port !== undefined && !(Number.isInteger(out.port) && out.port > 0 && out.port < 65536)) throw new Error(tr('invalid port'));
   return out;
+}
+
+function checkGoogle(what: string, v: string, re: RegExp): string {
+  if (!re.test(v)) throw new Error(tr('invalid Google {0}', [what])); // never echoes the value: it may be the secret
+  return v;
+}
+
+/** The .env with the three Google keys changed (omitted pieces keep their current value) or removed. Needs the hub domain. */
+export function googleEnv(current: string, g: { off?: boolean; clientId?: string; emails?: string[]; secret?: string }): string {
+  if (g.off) return updateEnv(current, Object.fromEntries(GOOGLE_KEYS().map((k) => [k, null])), { quote: true });
+  const domain = readEnvValue(current, 'HABBLAUD_REMOTE_DOMAIN');
+  if (!domain) throw new Error(tr('Google sign-in needs the hub domain: run with --behind-proxy --domain <address> first'));
+  const [idKey, secretKey, emailsKey] = GOOGLE_KEYS();
+  const clientId = checkGoogle('client id', g.clientId ?? readEnvValue(current, idKey) ?? '', GOOGLE_ID_RE);
+  const secret = checkGoogle('client secret', g.secret ?? readEnvValue(current, secretKey) ?? '', GOOGLE_SECRET_RE);
+  const emails = [...new Set(g.emails ?? (readEnvValue(current, emailsKey) ?? '').split(',').filter(Boolean))];
+  if (!emails.length) throw new Error(tr('Google sign-in needs at least one --google-email'));
+  for (const e of emails) checkGoogle('email', e, GOOGLE_EMAIL_RE);
+  return updateEnv(current, { [idKey]: clientId, [secretKey]: secret, [emailsKey]: emails.join(',') }, { quote: true });
+}
+
+/** Secret from GOOGLE_CLIENT_SECRET, stdin, or (new client id / nothing stored yet) a hidden prompt; undefined keeps the stored one. */
+async function googleSecret(args: SetupArgs, current: string): Promise<string | undefined> {
+  const fromEnv = process.env.GOOGLE_CLIENT_SECRET?.trim();
+  if (fromEnv) return fromEnv;
+  if (args.googleSecretStdin) return (await readStdinLine()).trim();
+  if (args.googleClientId || !readEnvValue(current, GOOGLE_KEYS()[1])) return (await askHidden(tr('Google client secret (hidden while you type)'))).trim() || undefined;
+  return undefined;
+}
+
+const wantsGoogle = (a: SetupArgs): boolean => !!(a.googleClientId || a.googleEmails || a.googleSecretStdin);
+
+function googleDone(current: string): string {
+  const domain = readEnvValue(current, 'HABBLAUD_REMOTE_DOMAIN') ?? '';
+  return tr('  Google sign-in: on for {0}. Redirect URI to register in Google Cloud Console: {1}', [readEnvValue(current, 'HABBLAUD_REMOTE_GOOGLE_EMAILS') ?? '', googleRedirectUri(domain)]);
 }
 
 /** Why the password is not accepted (undefined = valid). */
@@ -367,6 +424,15 @@ async function main(): Promise<void> {
   const hub = hubEnvPath(process.env);
   const current = existsSync(hub) ? readFileSync(hub, 'utf8') : '';
 
+  if (args.googleOff || (wantsGoogle(args) && !args.behindProxy)) {
+    // Google only: no password prompt, so the password hash (and every session) stays as it is.
+    if (!existsSync(hub)) throw new Error(tr('no hub.env yet: run --behind-proxy first'));
+    const next = googleEnv(current, args.googleOff ? { off: true } : { clientId: args.googleClientId, emails: args.googleEmails, secret: await googleSecret(args, current) });
+    writeEnv(next);
+    console.log(args.googleOff ? tr('[remote-setup] Google sign-in removed. Now: systemctl --user restart bang-hub') : `${tr('[remote-setup] Done.')}\n${googleDone(next)}\n${tr('  Now: systemctl --user restart bang-hub')}`);
+    return;
+  }
+
   if (args.off) {
     if (existsSync(hub)) writeEnv(updateEnv(current, Object.fromEntries(REMOTE_KEYS.map((k) => [k, null])), { quote: true }));
     removeService();
@@ -404,7 +470,9 @@ async function main(): Promise<void> {
     if (!dom || !isValidDomain(dom)) throw new Error(tr('--behind-proxy needs a valid --domain'));
     console.log(tr('[remote-setup] Generating the password hash…'));
     const proxyHash = await hashPassword(password);
-    writeEnv(proxyEnv(current, { user, hash: proxyHash, domain: dom, port: args.port ?? 4748, allow: args.allow }));
+    let next = proxyEnv(current, { user, hash: proxyHash, domain: dom, port: args.port ?? 4748, allow: args.allow });
+    if (wantsGoogle(args)) next = googleEnv(next, { clientId: args.googleClientId, emails: args.googleEmails, secret: await googleSecret(args, next) });
+    writeEnv(next);
     const allow = readEnvValue(readFileSync(hub, 'utf8'), 'HABBLAUD_REMOTE_ALLOW');
     console.log(
       [
@@ -412,6 +480,7 @@ async function main(): Promise<void> {
         tr('[remote-setup] Done. Settings are in {0} (mode 600); the repo .env is untouched.', [hub]),
         tr('  user "{0}", password stored only as a hash (scrypt), loopback port {1}, domain {2}', [user, args.port ?? 4748, dom]),
         ...(allow?.split(',').includes('terminal') ? [tr('  Warning: allow=terminal lets anyone with the password read session transcripts over the Internet. For view-only office use: --allow none.')] : []),
+        ...(wantsGoogle(args) ? [googleDone(next)] : []),
         tr('  Next: docs/deploy.md (go-live runbook).'),
       ].join('\n'),
     );

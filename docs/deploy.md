@@ -11,7 +11,7 @@ changes) is held only by the owner; no command here reads `Bang_ver/.env`.
   `/api/workers/*`, `/api/team`, `/api/pty` and `/api/spawn` answer 403 on the remote port.
 - `--behind-proxy` defaults to `HABBLAUD_REMOTE_ALLOW=terminal`: anyone who signs in can **read session transcripts
   (commands, files, prompts) over the Internet**. For office-only view use `--allow none` in step 2.
-- Losing the passkey or the password means someone reads the machine's agent activity. Keep passkey-only sign-in.
+- Losing the passkey or the password means someone reads the machine's agent activity. Keep passkey-only sign-in (Google sign-in, if turned on in section 9, is another way in).
 - After step 2 is (re)run, the hub domain is accepted only on the remote port (4748) and port 4747 refuses it (403), so a
   tunnel pointed at 4747 by mistake exposes nothing. An older `hub.env` may still list the domain in
   `HABBLAUD_ALLOWED_HOSTS`: step 2 removes it, and the server warns at start if it is there. Step 3 checks this.
@@ -130,3 +130,52 @@ Two things to know:
   `~/.habblaud/remote-secret` (a new one is created at start) and start it.
 - **Deleting the last passkey silently turns password sign-in back on** (it is off only while a passkey exists). If the
   password may be known to anyone else, change it (the same `remote:setup` command) at once: password sign-in works again immediately, on the next request, without a restart.
+
+## 9. Google sign-in (optional)
+
+"Sign in with Google" is a second way in, next to the password and passkeys. It is off unless the domain, a Google
+client id, a client secret and at least one allowed email are all set; the redirect URI is built only from
+`HABBLAUD_REMOTE_DOMAIN`, never from the Host header.
+
+**Policy (read first).** Google sign-in stays available even when a passkey exists, so a passkey no longer makes the
+hub passkey-only. The Google account's own security (its password and **2-Step Verification**) becomes part of the
+trust base: whoever controls an allowlisted Google account can open the hub. Turn on 2-Step Verification (or passkeys)
+on that account, and allowlist as few addresses as possible. A session issued through Google is the same as any other
+(7 days, can add or remove passkeys for 10 minutes after sign-in).
+
+### Google Cloud Console
+
+1. https://console.cloud.google.com, create (or pick) a project.
+2. APIs & Services, OAuth consent screen: user type **External**, publishing status **Testing**. Add the allowlisted
+   Google address as a **Test user**. Scopes: `openid` and `email` only (no sensitive scopes, so no verification is needed;
+   in Testing, only test users can sign in).
+3. APIs & Services, Credentials, Create credentials, OAuth client ID: application type **Web application**.
+4. **Authorized redirect URIs**: `https://hub.finstar.pp.ua/api/remote/google/callback` (exactly this). No JavaScript
+   origin is needed: the flow is a plain redirect.
+5. Copy the client id (`...apps.googleusercontent.com`) and the client secret.
+
+### On this computer
+
+Run it in your own terminal and type the secret at the hidden prompt (or `export GOOGLE_CLIENT_SECRET=...` for that one
+command, or pipe it with `--google-secret-stdin`). Never paste the secret into a chat and never put it in an option.
+
+```bash
+npm run remote:setup -- --google-client-id <id>.apps.googleusercontent.com --google-email you@gmail.com
+systemctl --user restart bang-hub          # the settings are read at start
+journalctl --user -u bang-hub | grep 'Sign in with Google'    # "on (1 address(es) allowed)"
+```
+
+This changes only the three Google keys in `~/.habblaud/hub.env` (no password prompt, sessions stay valid). To change
+the allowlist later, rerun with `--google-email` (it replaces the list). Rerunning the normal `--behind-proxy` command
+keeps the Google keys. The login page then shows "Sign in with Google"; every failure shows one generic message and
+the reason (`state`, `aud`, `email`, ...) appears only in `journalctl` (never tokens, codes or secrets). Failures count
+in the same per-IP limit as passwords (5 in 10 minutes).
+
+### Rollback
+
+```bash
+npm run remote:setup -- --google off       # removes the three keys
+systemctl --user restart bang-hub          # routes answer 404, no button
+```
+
+Also delete the OAuth client in the Google Cloud Console if you will not use it again.

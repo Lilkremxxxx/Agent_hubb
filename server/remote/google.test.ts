@@ -1,10 +1,16 @@
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createRemoteGate, FailureWindow, LoginThrottle, parseRemoteConfig, readCookie, RemoteSessions } from '../http/remote';
 import { createRequestGuard } from '../http/guard';
+import { googleEnv, parseArgs, proxyEnv, remoteEnv } from '../../scripts/remote-setup';
 import { setQuiet } from '../log';
+import { tempDir } from '../test/fixtures';
+import { readEnvValue } from './envfile';
 import { hashPassword, parsePasswordHash } from './password';
 import { GoogleAuth, GOOGLE_COOKIE, maskEmail, parseGoogleConfig, type GoogleConfig } from './google';
 import { loginPage } from './pages';
@@ -293,5 +299,57 @@ describe('Google off, page and main port', () => {
       expect(s.mainGuard({ headers: { host: DOMAIN }, method: 'GET', url: p } as never, res as never)).toBe(true);
       expect(res.code).toBe(403);
     }
+  });
+});
+
+describe('remote:setup Google options', () => {
+  const base = proxyEnv('', { user: 'bang', hash: 'scrypt:15:8:1:a+/=:b', domain: DOMAIN, port: 4748 });
+  const withG = googleEnv(base, { clientId: CID, emails: ['me@gmail.com', 'you@gmail.com'], secret: CSECRET });
+  const KEYS = ['HABBLAUD_REMOTE_GOOGLE_CLIENT_ID', 'HABBLAUD_REMOTE_GOOGLE_CLIENT_SECRET', 'HABBLAUD_REMOTE_GOOGLE_EMAILS'];
+
+  it('parseArgs: valid values, lower-cased repeatable emails, secret never an option', () => {
+    expect(parseArgs(['--google-client-id', CID, '--google-email', 'Me@Gmail.com,you@gmail.com', '--google-email', 'x@y.org'])).toMatchObject({ googleClientId: CID, googleEmails: ['me@gmail.com', 'you@gmail.com', 'x@y.org'] });
+    expect(parseArgs(['--google', 'off']).googleOff).toBe(true);
+    for (const bad of [['--google-client-id', "a'b;touch x"], ['--google-client-id', '$(x)aaaaaaaaaa'], ['--google-client-id', 'short'], ['--google-email', 'a@b'], ['--google-email', 'a;b@c.com'], ['--google-email', '$(x)@c.com'], ['--google-email', 'a@b.com\nc@d.com'], ['--google', 'on'], ['--google-email', "a'b@c.com"], ['--google-email', 'a b@c.com']]) {
+      expect(() => parseArgs(bad), bad.join(' ')).toThrow();
+    }
+    expect(() => parseArgs(['--google-secret', CSECRET])).toThrow(/never an option/);
+    try { parseArgs([`--google-secret=${CSECRET}`]); } catch (e) { expect((e as Error).message).not.toContain(CSECRET); }
+    expect(() => parseArgs(['--google', 'off', '--google-email', 'a@b.com'])).toThrow();
+    expect(() => parseArgs(['--google-secret-stdin', '--password-stdin'])).toThrow();
+  });
+
+  it('googleEnv: single-quoted, needs the domain and all three, rejects hostile values without echoing the secret', () => {
+    for (const k of KEYS) expect(withG).toMatch(new RegExp(`^${k}='[^']*'$`, 'm'));
+    expect(readEnvValue(withG, 'HABBLAUD_REMOTE_GOOGLE_EMAILS')).toBe('me@gmail.com,you@gmail.com');
+    expect(() => googleEnv('', { clientId: CID, emails: ['a@b.com'], secret: CSECRET })).toThrow(/domain/);
+    expect(() => googleEnv(base, { clientId: CID, emails: ['a@b.com'] })).toThrow(/secret/);
+    expect(() => googleEnv(base, { clientId: CID, secret: CSECRET })).toThrow(/email/);
+    for (const secret of ["x';touch /tmp/p;'aaaaaaaa", '$(touch /tmp/p)aaaaaaaa', 'aaaaaaaa\nHABBLAUD_X=1', 'aaaa aaaa', 'a`b`aaaaaaaa']) {
+      expect(() => googleEnv(base, { clientId: CID, emails: ['a@b.com'], secret })).toThrow(/invalid Google client secret$/);
+    }
+    expect(() => googleEnv(base, { clientId: CID, emails: ['a$(x)@b.com'], secret: CSECRET })).toThrow();
+  });
+
+  it('a hub.env with the Google keys, sourced by sh and by the loader, is data only', () => {
+    const d = tempDir();
+    closers.push(async () => d.cleanup());
+    const file = join(d.dir, 'hub.env');
+    writeFileSync(file, withG);
+    const r = spawnSync('sh', ['-c', `. '${join(__dirname, '../../scripts/hub-env.sh')}'; load_hub_env '${file}'; printf %s "$HABBLAUD_REMOTE_GOOGLE_CLIENT_ID|$HABBLAUD_REMOTE_GOOGLE_CLIENT_SECRET|$HABBLAUD_REMOTE_GOOGLE_EMAILS"`], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '' } });
+    expect(r.stdout).toBe(`${CID}|${CSECRET}|me@gmail.com,you@gmail.com`);
+  });
+
+  it('a rerun without Google flags keeps the keys (remoteEnv and proxyEnv), a Google-only change keeps everything else, --google off removes only them', () => {
+    const again = proxyEnv(withG, { user: 'bang', hash: 'scrypt:15:8:1:n+/=:n', domain: DOMAIN, port: 4748 });
+    for (const k of KEYS) expect(readEnvValue(again, k)).toBe(readEnvValue(withG, k));
+    expect(readEnvValue(remoteEnv(withG, { user: 'bang', hash: 'h', name: 'hub', port: 4748 }), KEYS[0])).toBe(CID);
+    const onlyEmails = googleEnv(withG, { emails: ['new@gmail.com'] });
+    expect(readEnvValue(onlyEmails, KEYS[2])).toBe('new@gmail.com');
+    expect(readEnvValue(onlyEmails, KEYS[1])).toBe(CSECRET);
+    expect(readEnvValue(onlyEmails, 'HABBLAUD_REMOTE_PASSWORD_HASH')).toBe(readEnvValue(withG, 'HABBLAUD_REMOTE_PASSWORD_HASH'));
+    const off = googleEnv(withG, { off: true });
+    for (const k of KEYS) expect(off).not.toContain(k);
+    expect(off).toBe(base);
   });
 });

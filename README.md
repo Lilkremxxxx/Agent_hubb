@@ -339,6 +339,7 @@ certificate), checking the fingerprint the setup showed.
 
 **Public hub behind Cloudflare** (`hub.finstar.pp.ua`, passkey sign-in, loopback HTTP): `npm run remote:setup -- --behind-proxy`
 writes `~/.habblaud/hub.env`; the go-live steps (service, tunnel, rollback, lost passkey) are in [docs/deploy.md](docs/deploy.md).
+Optional "Sign in with Google" (allowlisted emails, `remote:setup -- --google-client-id ... --google-email ...`): section 9 of the same file.
 
 Without HTTPS the remote port doesn't start; `HABBLAUD_REMOTE_INSECURE_HTTP=1` forces plain HTTP (password and cookie
 in the clear on the network). Also: `HABBLAUD_REMOTE_PORT` and `HABBLAUD_REMOTE_HOST` (default `0.0.0.0:4748`) and
