@@ -18,11 +18,13 @@
 //   HABBLAUD_REMOTE_DOMAIN  behind a proxy (Cloudflare Tunnel): plain HTTP on loopback only (any certificate on
 //                           disk is ignored), Secure cookie, every POST needs Origin https://<domain>, client IP
 //                           from CF-Connecting-IP (only on a loopback connection).
+//   HABBLAUD_REMOTE_GOOGLE_CLIENT_ID / _CLIENT_SECRET / _EMAILS  "Sign in with Google" (domain mode only; all three needed, see remote/google.ts).
 //   HABBLAUD_REMOTE_PASSWORD_LOGIN  allow password sign-in even when passkeys exist (default: off once a passkey exists; passwords are the way back in).
 //
 // Session: HttpOnly + SameSite=Lax cookie (+ Secure with HTTPS) signed with HMAC; key = random secret in
 // <dataDir>/remote-secret mixed with user and password hash: changing password revokes all sessions.
 import { LibLoadError, PasskeyService } from '../remote/passkeys';
+import { GOOGLE_COOKIE, GOOGLE_COOKIE_S, maskEmail, parseGoogleConfig, type GoogleAuth, type GoogleConfig } from '../remote/google';
 import { loginPage, securityPage } from '../remote/pages';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
@@ -60,6 +62,8 @@ export interface RemoteConfig {
   /** Lower-case public domain; present = behind a proxy. */
   domain?: string;
   passwordLogin: boolean;
+  /** Present = Sign in with Google is on (domain mode only). */
+  google?: GoogleConfig;
 }
 
 /** Cookie gets `Secure` when the port speaks HTTPS itself or sits behind an HTTPS proxy. */
@@ -87,6 +91,11 @@ export function defaultTlsDir(env: NodeJS.ProcessEnv): string {
   return join(env.HOME || homedir(), '.habblaud', 'remote-tls', 'server');
 }
 
+const googleOf = (env: NodeJS.ProcessEnv, domain: string): { google?: GoogleConfig } => {
+  const google = parseGoogleConfig(env, domain);
+  return google ? { google } : {};
+};
+
 /** Enables remote access from environment. `warning` explains why it stayed off when intentional. */
 export function parseRemoteConfig(
   env: NodeJS.ProcessEnv,
@@ -108,7 +117,7 @@ export function parseRemoteConfig(
     if (!isValidDomain(rawDomain)) return { warning: tr('remote access off: invalid HABBLAUD_REMOTE_DOMAIN "{0}"', [rawDomain]) };
     const host = env.HABBLAUD_REMOTE_HOST?.trim() || '127.0.0.1';
     if (!isLoopbackBind(host)) return { warning: tr('remote access off: behind a proxy (HABBLAUD_REMOTE_DOMAIN) the remote port listens on loopback only; HABBLAUD_REMOTE_HOST={0}', [host]) };
-    return { config: { port, host, user, passwordHash, passwordHashText: hashText, allow: parseAllow(env.HABBLAUD_REMOTE_ALLOW), domain: rawDomain, passwordLogin } };
+    return { config: { port, host, user, passwordHash, passwordHashText: hashText, allow: parseAllow(env.HABBLAUD_REMOTE_ALLOW), domain: rawDomain, passwordLogin, ...googleOf(env, rawDomain) } };
   }
   const dir = defaultTlsDir(env);
   const tls: RemoteTls = { dir, keyFile: join(dir, 'server.key'), certFile: join(dir, 'server.crt'), caFile: join(dir, 'ca.crt') };
@@ -446,6 +455,8 @@ export interface RemoteGateDeps {
   passkeys?: PasskeyService;
   /** HABBLAUD_REMOTE_PASSWORD_LOGIN: keep password sign-in on after a passkey exists. */
   passwordLogin?: boolean;
+  /** Sign in with Google (only behind a proxy; missing = the routes answer 404). */
+  google?: GoogleAuth;
 }
 
 /**
@@ -519,6 +530,43 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       .catch((e) => {
         if (e instanceof LibLoadError && !libWarned) { libWarned = true; deps.log?.warn(tr('passkey library could not load')); } // once, no stack
         if (!res.headersSent) sendJson(res, 400, { error: tr('invalid request') });
+      });
+  };
+  // Own per-IP limit on starting a flow (every start counts); callback failures count in the shared `failures`.
+  const googleStarts = new FailureWindow(10);
+  const googleRoute = (req: IncomingMessage, res: ServerResponse, url: URL, route: string): void => {
+    const g = deps.google;
+    req.resume();
+    if (!g || (route !== 'start' && route !== 'callback')) return sendJson(res, 404, { error: tr('not found') });
+    if (req.method !== 'GET') return sendJson(res, 405, { error: tr('method not allowed') }, { Allow: 'GET' });
+    const ip = clientIp(req, !!deps.domain);
+    const ua = (req.headers['user-agent'] ?? '-').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 80) || '-';
+    const oauthCookie = (v: string, maxAge: number) => `${GOOGLE_COOKIE}=${v}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+    const wait = route === 'start' ? googleStarts.retryAfter(ip) : failures.retryAfter(ip);
+    if (wait > 0) {
+      if (route === 'callback' && failures.noteBlocked(ip)) deps.log?.warn(tr('Remote sign-in blocked ({0}) from {1}, {2}', ['google', ip, ua]));
+      return sendJson(res, 429, { error: tr('Too many attempts. Try again in {0} s.', [wait]) }, { 'Retry-After': String(wait) });
+    }
+    if (route === 'start') {
+      googleStarts.fail(ip);
+      const { location, cookie } = g.start();
+      res.writeHead(302, { Location: location, 'Set-Cookie': oauthCookie(cookie, GOOGLE_COOKIE_S), 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+      return void res.end();
+    }
+    const q = url.searchParams;
+    const clear = oauthCookie('', 0); // single use: gone whatever happens next
+    g.finish({ code: q.get('code') ?? undefined, state: q.get('state') ?? undefined, error: q.get('error') ?? undefined }, readCookie(req.headers.cookie, GOOGLE_COOKIE))
+      .catch(() => ({ ok: false as const, reason: 'internal' }))
+      .then((r) => {
+        if (!r.ok) {
+          failures.fail(ip);
+          deps.log?.warn(tr('Remote sign-in failed (google: {0}) from {1}, {2}', [r.reason, ip, ua]));
+          return void res.writeHead(302, { Location: '/login?e=google', 'Set-Cookie': clear, 'Cache-Control': 'no-store' }).end();
+        }
+        failures.clear(ip);
+        deps.log?.info(tr('Remote sign-in ok (google, {0}) from {1}, {2}', [maskEmail(r.email), ip, ua]));
+        const { token, maxAgeS } = deps.sessions.issue();
+        res.writeHead(302, { Location: '/', 'Set-Cookie': [cookieHeader(token, maxAgeS, deps.secure), clear], 'Cache-Control': 'no-store' }).end();
       });
   };
   return (req, res, url) => {
@@ -599,6 +647,11 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       return true;
     }
 
+    if (path.startsWith('/api/remote/google/')) {
+      googleRoute(req, res, url, path.slice('/api/remote/google/'.length));
+      return true;
+    }
+
     if (path === '/api/remote/logout') {
       req.resume();
       if (method !== 'POST') sendJson(res, 405, { error: tr('method not allowed') }, { Allow: 'POST' });
@@ -632,7 +685,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       if (authed) {
         res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' });
         res.end();
-      } else sendHtml(res, loginPage({ caDownload: caAvailable(), passkeys: !!deps.passkeys && deps.passkeys.count() > 0, password: !passwordOff(), caPath: CA_PATH }));
+      } else sendHtml(res, loginPage({ caDownload: caAvailable(), passkeys: !!deps.passkeys && deps.passkeys.count() > 0, password: !passwordOff(), caPath: CA_PATH, google: !!deps.google, googleError: url.searchParams.get('e') === 'google' }));
       return true;
     }
 

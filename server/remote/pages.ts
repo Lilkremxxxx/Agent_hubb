@@ -35,6 +35,7 @@ const CSS = `
            background: linear-gradient(135deg, #3ec7d3, #6a8cff); border: 0; border-radius: 12px; transition: transform 150ms; }
   button:active { transform: scale(0.97); }
   button:disabled { opacity: .6; cursor: wait; }
+  a.btn { display: block; margin-top: 16px; padding: 12px; font-weight: 700; text-align: center; text-decoration: none; color: rgb(var(--ink)); background: rgb(255 255 255 / 0.08); border: 1px solid rgb(120 220 240 / 0.18); border-radius: 12px; }
   button.ghost { color: rgb(var(--ink)); background: rgb(255 255 255 / 0.08); border: 1px solid rgb(120 220 240 / 0.18); }
   button.small { width: auto; margin: 0; padding: 6px 12px; font-size: 13px; }
   #err { min-height: 20px; margin-top: 12px; color: #ff6b7a; font-size: 13px; }
@@ -82,12 +83,13 @@ const common = () => ({
   exists: tr('This device already has a passkey here.'),
 });
 
-export function loginPage(o: { caDownload: boolean; passkeys: boolean; password: boolean; caPath?: string }): string {
+export function loginPage(o: { caDownload: boolean; passkeys: boolean; password: boolean; caPath?: string; google?: boolean; googleError?: boolean }): string {
   const ca = o.caDownload
     ? `<p class="hr">${esc(tr('First time on this phone?'))} <a href="${o.caPath ?? '/remote/ca.crt'}" download="habblaud-ca.crt">${esc(tr('Install the Habblaud certificate'))}</a> ${esc(tr('to remove the security warning (check the fingerprint that npm run remote:setup showed).'))}</p>`
     : '';
   const body = `  <h1>${esc(tr('Bang_ver hub'))}</h1>
   ${o.passkeys ? `<button id="pk" type="button">${esc(tr('Sign in with a passkey'))}</button>` : ''}
+  ${o.google ? `<a class="btn" href="/api/remote/google/start">${esc(tr('Sign in with Google'))}</a>` : ''}
   ${o.password ? `<form id="f" method="post" action="/login" autocomplete="on">
     <label for="u">${esc(tr('Username'))}</label>
     <input id="u" name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required>
@@ -95,7 +97,7 @@ export function loginPage(o: { caDownload: boolean; passkeys: boolean; password:
     <input id="p" name="password" type="password" autocomplete="current-password" required>
     <button id="b" type="submit">${esc(tr('Sign in'))}</button>
   </form>` : ''}
-  <div id="err" role="alert"></div>
+  <div id="err" role="alert">${o.googleError ? esc(tr("Couldn't sign in with Google.")) : ''}</div>
   ${ca}`;
   return shell(tr('Habblaud · sign in'), 'login', common(), body, '/assets/brand/finstar-144.png');
 }
