@@ -17,6 +17,10 @@
   --ui-faint: #8790a6;
   --ui-accent: #7cc8ff;
   --ui-accent-soft: rgba(124, 200, 255, 0.13);
+  /* Portal glass tokens (Portal/assets/portal/custom.css): chrome only, never the canvas. */
+  --glass-bg: rgb(255 255 255 / 0.08);
+  --glass-border: rgb(255 255 255 / 0.14);
+  --glass-blur: 14px;
 
   --st-working: #4fd18b;
   --st-waiting: #ffb547;
@@ -169,10 +173,10 @@
 }
 
 .ui-panel {
-  background: var(--ui-bg);
-  -webkit-backdrop-filter: blur(14px) saturate(1.25);
-  backdrop-filter: blur(14px) saturate(1.25);
-  border: 1px solid var(--ui-line);
+  background: linear-gradient(var(--glass-bg), var(--glass-bg)), var(--ui-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius);
   box-shadow:
     0 12px 32px rgba(5, 7, 12, 0.34),
@@ -580,10 +584,10 @@
   gap: 12px;
   height: var(--bar-h);
   padding: 0 10px 0 8px;
-  background: var(--ui-bg);
-  -webkit-backdrop-filter: blur(14px) saturate(1.25);
-  backdrop-filter: blur(14px) saturate(1.25);
-  border-bottom: 1px solid var(--ui-line);
+  background: linear-gradient(var(--glass-bg), var(--glass-bg)), var(--ui-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  border-bottom: 1px solid var(--glass-border);
   box-shadow: 0 8px 24px rgba(5, 7, 12, 0.22);
 }
 
@@ -889,6 +893,25 @@
   flex: none;
   /* Tool buttons on the right edge (the counters stay with the brand). */
   margin-left: auto;
+}
+
+.ui-portal {
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  font: 600 12px/30px var(--font-ui);
+  color: var(--ui-muted);
+  text-decoration: none;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  transition:
+    background-color 0.2s var(--ease),
+    color 0.2s var(--ease);
+}
+
+.ui-portal:hover,
+.ui-portal:focus-visible {
+  color: var(--ui-text);
+  background: var(--ui-bg-hover);
 }
 
 .ui-btn-group {
@@ -3590,6 +3613,12 @@
 
 /* Mobile (up to 480 px): brand + 7 buttons take whole first row, so counters drop to cards row.
    Without this, with two active counters, right buttons jump to their own row and bar exceeds fixed height. */
+@media (max-width: 600px) {
+  .ui-portal {
+    display: none;
+  }
+}
+
 @media (max-width: 480px) {
   .ui-counters {
     order: 9;

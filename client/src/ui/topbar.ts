@@ -113,6 +113,8 @@ export class TopBar implements UiComponent {
       iconButton(ICONS.help, tr('Help (?)'), () => ctx.openHelp()),
     );
     this.panelGroup = panelGroup;
+    // target _top: inside the portal's iframe the link must leave the frame, not load the portal in it.
+    const portal = h('a', { class: 'ui-portal', title: tr('Open the portal'), text: tr('Portal'), attrs: { href: 'https://home.finstar.pp.ua/', target: '_top', rel: 'noopener' } });
 
     this.el = h(
       'header',
@@ -129,7 +131,7 @@ export class TopBar implements UiComponent {
         ),
       ),
       counterWrap,
-      h('div', { class: 'ui-topbar__right' }, viewGroup, panelGroup),
+      h('div', { class: 'ui-topbar__right' }, portal, viewGroup, panelGroup),
     );
   }
 

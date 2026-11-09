@@ -474,6 +474,8 @@ export const VI: Readonly<Record<string, string>> = {
   "Zoom in (+)": "Phóng to (+)",
   "Panels": "Bảng điều khiển",
   "Help (?)": "Trợ giúp (?)",
+  "Open the portal": "Mở cổng chính",
+  "Portal": "Cổng chính",
   "Connected": "Đã kết nối",
   "Disconnected": "Đã ngắt kết nối",
   "Reconnecting…": "Đang kết nối lại…",
