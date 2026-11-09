@@ -12,7 +12,7 @@ import { tempDir } from '../test/fixtures';
 import { createApiHandler, type ApiDeps } from './app';
 import { createRequestGuard, hostAllowed, hostnameOf, isLoopbackHost, originAllowed, parseAllowedHosts } from './guard';
 import { Hub } from './sse';
-import { createStaticHandler, IMMUTABLE, REVALIDATE } from './static';
+import { createStaticHandler, frameHeaders, IMMUTABLE, parseFrameAncestor, REVALIDATE } from './static';
 
 setQuiet(true);
 
@@ -408,5 +408,33 @@ describe('POST /api/team {openBoss}', () => {
       await a.close(); await b.close();
       a.cleanup(); b.cleanup();
     }
+  });
+});
+
+describe('frame ancestor (HABBLAUD_FRAME_ANCESTORS)', () => {
+  it('accepts one https origin and nothing else', () => {
+    expect(parseFrameAncestor('https://home.finstar.pp.ua')).toBe('https://home.finstar.pp.ua');
+    for (const bad of ['http://home.finstar.pp.ua', 'https://a.b; script-src *', 'https://a.b https://c.d', 'https://localhost', '', undefined]) {
+      expect(parseFrameAncestor(bad)).toBeUndefined();
+    }
+  });
+
+  it('frameHeaders: CSP when allowed, X-Frame-Options DENY otherwise', () => {
+    expect(frameHeaders('https://home.finstar.pp.ua')).toEqual({ 'Content-Security-Policy': 'frame-ancestors https://home.finstar.pp.ua' });
+    expect(frameHeaders()).toEqual({ 'X-Frame-Options': 'DENY' });
+  });
+
+  it('static pages carry the CSP and no X-Frame-Options when an ancestor is set', async () => {
+    const tmp = tempDir();
+    writeFileSync(join(tmp.dir, 'index.html'), '<!doctype html><title>Habblaud</title>');
+    const serve = createStaticHandler(tmp.dir, 'https://home.finstar.pp.ua');
+    const server = http.createServer((req, res) => serve(req, res, new URL(req.url ?? '/', 'http://x').pathname));
+    await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+    const res = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/room/any`);
+    expect(res.headers.get('content-security-policy')).toBe('frame-ancestors https://home.finstar.pp.ua');
+    expect(res.headers.get('x-frame-options')).toBeNull();
+    server.closeAllConnections();
+    await new Promise<void>((ok) => server.close(() => ok()));
+    tmp.cleanup();
   });
 });

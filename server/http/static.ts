@@ -9,6 +9,7 @@ import { createReadStream, statSync, type Stats } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join, resolve, sep } from 'node:path';
 import { tr } from '../../shared/i18n';
+import { isValidDomain } from '../remote/tls';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -70,7 +71,17 @@ export function isNotModified(req: IncomingMessage, etag: string, mtimeMs: numbe
   return false;
 }
 
-export function createStaticHandler(distDir: string): (req: IncomingMessage, res: ServerResponse, pathname: string) => void {
+/** HABBLAUD_FRAME_ANCESTORS: exactly one https origin (host only, no port/path/space/;), else undefined. */
+export function parseFrameAncestor(raw: string | undefined): string | undefined {
+  const m = /^https:\/\/([a-z0-9.-]+)$/.exec(raw ?? '');
+  return m && isValidDomain(m[1]) ? raw : undefined;
+}
+
+export function frameHeaders(ancestor?: string): Record<string, string> {
+  return ancestor ? { 'Content-Security-Policy': `frame-ancestors ${ancestor}` } : { 'X-Frame-Options': 'DENY' };
+}
+
+export function createStaticHandler(distDir: string, frameAncestor?: string): (req: IncomingMessage, res: ServerResponse, pathname: string) => void {
   const root = resolve(distDir);
   const index = join(root, 'index.html');
 
@@ -81,8 +92,8 @@ export function createStaticHandler(distDir: string): (req: IncomingMessage, res
       ETag: etag,
       'Last-Modified': new Date(st.mtimeMs).toUTCString(),
       'X-Content-Type-Options': 'nosniff',
-      // Page must not be embedded in third-party sites (clickjacking on settings).
-      'X-Frame-Options': 'DENY',
+      // Page must not be embedded in third-party sites (clickjacking on settings), except by the portal origin.
+      ...frameHeaders(frameAncestor),
       'Referrer-Policy': 'no-referrer',
     };
     if (isNotModified(req, etag, st.mtimeMs)) {

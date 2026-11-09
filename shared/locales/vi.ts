@@ -983,6 +983,7 @@ export const VI: Readonly<Record<string, string>> = {
   "invalid --allow \"{0}\" (only terminal, none)": "--allow \"{0}\" không hợp lệ (chỉ terminal, none)",
   "invalid host in HABBLAUD_ALLOWED_HOSTS: \"{0}\"": "tên máy không hợp lệ trong HABBLAUD_ALLOWED_HOSTS: \"{0}\"",
   "warning: {0} is writable by everyone; fix its permissions": "cảnh báo: ai cũng ghi được vào {0}; hãy sửa quyền",
+  "HABBLAUD_FRAME_ANCESTORS ignored: expected one https:// origin": "HABBLAUD_FRAME_ANCESTORS bị bỏ qua: cần đúng một origin https://",
   "HABBLAUD_ALLOWED_HOSTS still lists the hub domain: the local port would answer it. Run remote:setup --behind-proxy again.": "HABBLAUD_ALLOWED_HOSTS vẫn có tên miền hub: cổng cục bộ sẽ trả lời tên đó. Chạy lại remote:setup --behind-proxy.",
   "passkey library could not load": "không nạp được thư viện passkey",
   "Public domain (e.g. hub.example.com)": "Tên miền công khai (ví dụ hub.example.com)",

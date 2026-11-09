@@ -416,15 +416,15 @@ function readBody(req: IncomingMessage, max = 8 * 1024, cut = false): Promise<st
 
 export const CA_PATH = '/remote/ca.crt';
 
-function sendHtml(res: ServerResponse, html: string): void {
+function sendHtml(res: ServerResponse, html: string, frameAncestor?: string): void {
   res.writeHead(200, {
     'Content-Type': 'text/html; charset=utf-8',
     'Content-Length': Buffer.byteLength(html),
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
+    ...(frameAncestor ? {} : { 'X-Frame-Options': 'DENY' }),
     'Referrer-Policy': 'no-referrer',
-    'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors ${frameAncestor ?? "'none'"}`,
   });
   res.end(html);
 }
@@ -454,6 +454,8 @@ export interface RemoteGateDeps {
   passwordLogin?: boolean;
   /** Sign in with Google (only behind a proxy; missing = the routes answer 404). */
   google?: GoogleAuth;
+  /** HABBLAUD_FRAME_ANCESTORS: the one https origin allowed to embed the login and security pages. */
+  frameAncestor?: string;
 }
 
 /**
@@ -687,7 +689,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       if (authed) {
         res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' });
         res.end();
-      } else sendHtml(res, loginPage({ caDownload: caAvailable(), passkeys: !!deps.passkeys && deps.passkeys.count() > 0, password: !passwordOff(), caPath: CA_PATH, google: !!deps.google, googleError: url.searchParams.get('e') === 'google' }));
+      } else sendHtml(res, loginPage({ caDownload: caAvailable(), passkeys: !!deps.passkeys && deps.passkeys.count() > 0, password: !passwordOff(), caPath: CA_PATH, google: !!deps.google, googleError: url.searchParams.get('e') === 'google' }), deps.frameAncestor);
       return true;
     }
 
@@ -696,7 +698,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       // shortcut: LAN mode has no passkeys, so the settings link 404s there; hide it if LAN mode is ever used.
       if (!deps.passkeys) sendJson(res, 404, { error: tr('not found') });
       else if (!authed) { res.writeHead(302, { Location: '/login', 'Cache-Control': 'no-store' }); res.end(); }
-      else sendHtml(res, securityPage());
+      else sendHtml(res, securityPage(), deps.frameAncestor);
       return true;
     }
 

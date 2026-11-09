@@ -756,12 +756,12 @@ describe('passkey routes', () => {
     verifyRegistrationResponse: (async () => ({ verified: true, registrationInfo: { credential: { id: 'cred-1', publicKey: new Uint8Array([1]), counter: 0 } } })) as never,
     verifyAuthenticationResponse: (async () => { verifyCalls++; return { verified: ok, authenticationInfo: { newCounter: 1 } }; }) as never,
   });
-  async function mk(o: { passkeys?: boolean; ok?: boolean; passwordLogin?: boolean; limit?: number; service?: unknown } = {}) {
+  async function mk(o: { passkeys?: boolean; ok?: boolean; passwordLogin?: boolean; limit?: number; service?: unknown; frameAncestor?: string } = {}) {
     const tmp = tempDir();
     verifyCalls = 0; pwCalls = 0; clock = Date.now(); lines = [];
     const passkeys = (o.service as PasskeyService | undefined) ?? (o.passkeys === false ? undefined : new PasskeyService({ domain: DOMAIN, user: 'ana', store: new PasskeyStore(join(tmp.dir, 'pk.json')), lib: lib(o.ok) }));
     const guard = createRequestGuard({ allowedHosts: new Set([DOMAIN]) });
-    const gate = createRemoteGate({ config: CFG, sessions: new RemoteSessions(SECRET, CFG, () => clock), secure: true, domain: DOMAIN, passkeys, passwordLogin: o.passwordLogin, log: { info: (m) => lines.push(m), warn: (m) => lines.push(m) }, verify: (pw, h) => { pwCalls++; return verifyPassword(pw, h); }, failures: new FailureWindow(o.limit ?? 5, 600_000) });
+    const gate = createRemoteGate({ config: CFG, sessions: new RemoteSessions(SECRET, CFG, () => clock), secure: true, domain: DOMAIN, passkeys, passwordLogin: o.passwordLogin, frameAncestor: o.frameAncestor, log: { info: (m) => lines.push(m), warn: (m) => lines.push(m) }, verify: (pw, h) => { pwCalls++; return verifyPassword(pw, h); }, failures: new FailureWindow(o.limit ?? 5, 600_000) });
     const server = http.createServer((req, res) => {
       if (guard(req, res)) return;
       if (!gate(req, res, new URL(req.url ?? '/', 'http://x'))) res.writeHead(204).end();
@@ -831,6 +831,12 @@ describe('passkey routes', () => {
     expect(page.status).toBe(200);
     expect(page.body).toContain('data-page="security"');
     expect((await request(await mk({ passkeys: false }), '/remote/security', { headers: { ...H, Cookie: '' } })).status).toBe(404);
+  });
+
+  it('frameAncestor: login page may be framed by that origin only, with no X-Frame-Options', async () => {
+    const page = await request(await mk({ frameAncestor: 'https://home.finstar.pp.ua' }), '/login', { headers: H });
+    expect(page.headers['content-security-policy']).toMatch(/; frame-ancestors https:\/\/home\.finstar\.pp\.ua$/);
+    expect(page.headers['x-frame-options']).toBeUndefined();
   });
 
   it('login page: CSP header, no passkey button until one exists, password never read from the URL', async () => {

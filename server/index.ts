@@ -14,7 +14,7 @@ import { PasskeyService, PasskeyStore } from './remote/passkeys';
 import { GoogleAuth } from './remote/google';
 import { createRemoteGate, FailureWindow, isRemoteRequest, isSecureRemote, listsHubDomain, loadSecret, remoteAllowedHosts, RemoteSessions, startRemoteListener, type RemoteListener } from './http/remote';
 import { Hub } from './http/sse';
-import { createStaticHandler } from './http/static';
+import { createStaticHandler, parseFrameAncestor } from './http/static';
 import { TerminalStreams } from './http/terminal';
 import { errMsg, log } from './log';
 import { NameStore } from './model/names';
@@ -350,6 +350,9 @@ const api = createApiHandler({
   remote: config.remote ? { is: isRemoteRequest, allows: (f) => config.remote!.allow.has(f) } : undefined,
 });
 
+const frameAncestor = parseFrameAncestor(process.env.HABBLAUD_FRAME_ANCESTORS);
+if (process.env.HABBLAUD_FRAME_ANCESTORS && !frameAncestor) log.warn(tr('HABBLAUD_FRAME_ANCESTORS ignored: expected one https:// origin'));
+
 const server = http.createServer();
 let closeVite: (() => Promise<void>) | undefined;
 
@@ -374,7 +377,7 @@ if (config.dev) {
   closeVite = () => vite.close();
   fallback = (req, res) => vite.middlewares(req, res);
 } else {
-  const serveStatic = createStaticHandler(join(config.rootDir, 'dist', 'client'));
+  const serveStatic = createStaticHandler(join(config.rootDir, 'dist', 'client'), frameAncestor);
   fallback = (req, res, url) => serveStatic(req, res, url.pathname);
 }
 
@@ -418,6 +421,7 @@ if (config.remote) {
     domain: remote.domain,
     passkeys,
     passwordLogin: remote.passwordLogin,
+    frameAncestor,
     failures: new FailureWindow(),
     log,
     caFile: remote.tls?.caFile,
