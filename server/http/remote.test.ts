@@ -688,7 +688,7 @@ describe('GET /api/remote/sso (LD ticket sign-in)', () => {
   const T = 'abcDEF123_-abcDEF123_-abcDEF123_-abcDEF12345';
   let ldCalls: Array<{ auth?: string; body: string; method?: string; url?: string }> = [];
   let lines: string[] = [];
-  async function mk(o: { ld?: (res: http.ServerResponse) => void; sso?: boolean; limit?: number } = {}) {
+  async function mk(o: { ld?: (res: http.ServerResponse) => void; sso?: boolean; limit?: number; passkeys?: boolean } = {}) {
     ldCalls = []; lines = [];
     const ld = http.createServer((req, res) => {
       const chunks: Buffer[] = [];
@@ -702,7 +702,7 @@ describe('GET /api/remote/sso (LD ticket sign-in)', () => {
     closers.push(() => new Promise<void>((ok) => { ld.closeAllConnections(); ld.close(() => ok()); }));
     const sso = o.sso === false ? undefined : { url: `http://127.0.0.1:${(ld.address() as AddressInfo).port}`, secret: 'ld-secret-xyz', timeoutMs: 300 };
     const guard = createRequestGuard({ allowedHosts: new Set([DOMAIN]) });
-    const gate = createRemoteGate({ config: CFG, sessions: new RemoteSessions(SECRET, CFG), secure: true, domain: DOMAIN, sso, log: { info: (m) => lines.push(m), warn: (m) => lines.push(m) }, failures: new FailureWindow(o.limit ?? 5, 600_000) });
+    const gate = createRemoteGate({ config: CFG, sessions: new RemoteSessions(SECRET, CFG), secure: true, domain: DOMAIN, sso, passkeys: o.passkeys ? ({ count: () => 0, list: () => [] } as unknown as PasskeyService) : undefined, log: { info: (m) => lines.push(m), warn: (m) => lines.push(m) }, failures: new FailureWindow(o.limit ?? 5, 600_000) });
     const server = http.createServer((req, res) => {
       if (guard(req, res)) return;
       if (!gate(req, res, new URL(req.url ?? '/', 'http://x'))) res.writeHead(204).end();
@@ -711,12 +711,13 @@ describe('GET /api/remote/sso (LD ticket sign-in)', () => {
     closers.push(() => new Promise<void>((ok) => { server.closeAllConnections(); server.close(() => ok()); }));
     return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   }
-  const sso = (b: string, t = T) => request(b, `/api/remote/sso?ticket=${t}`, { headers: H });
+  const NAV = { 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Site': 'same-site' };
+  const sso = (b: string, t = T, extra: Record<string, string> = NAV) => request(b, `/api/remote/sso?ticket=${t}`, { headers: { ...H, ...extra } });
 
   it('success: asks LD with the bearer secret, sets the session cookie, 302 /', async () => {
     const r = await sso(await mk());
     expect([r.status, r.headers.location, r.headers['cache-control'], r.headers['referrer-policy']]).toEqual([302, '/', 'no-store', 'no-referrer']);
-    expect(r.headers['set-cookie']?.[0]).toMatch(/^__Host-habblaud_remote=.+; Path=\/; HttpOnly; SameSite=Lax; Max-Age=604800; Secure$/);
+    expect(r.headers['set-cookie']?.[0]).toMatch(/^__Host-habblaud_remote=.+; Path=\/; HttpOnly; SameSite=Lax; Max-Age=43200; Secure$/);
     expect(ldCalls).toEqual([{ auth: 'Bearer ld-secret-xyz', body: JSON.stringify({ ticket: T }), method: 'POST', url: '/api/v1/integrations/hub/consume' }]);
     expect(lines.join('\n')).not.toMatch(new RegExp(`${T}|ld-secret-xyz`));
   });
@@ -748,6 +749,36 @@ describe('GET /api/remote/sso (LD ticket sign-in)', () => {
     expect(ldCalls).toHaveLength(3);
     expect((await sso(b)).headers.location).toBe('/login?e=sso');
     expect(ldCalls).toHaveLength(3);
+  });
+
+  it('SSO session is view-only: it can never register or delete passkeys', async () => {
+    const b = await mk({ passkeys: true });
+    const cookie = (await sso(b)).headers['set-cookie']?.[0].split(';')[0] ?? '';
+    for (const [path, body] of [['/api/remote/passkeys/register/options', {}], ['/api/remote/passkeys/register/verify', { response: {} }], ['/api/remote/passkeys/delete', { id: 'x' }]] as const) {
+      expect((await request(b, path, { method: 'POST', headers: { ...H, Cookie: cookie }, body })).status, path).toBe(403);
+    }
+    expect((await request(b, '/api/remote/passkeys', { headers: { ...H, Cookie: cookie } })).status).toBe(200);
+  });
+
+  it('only a navigation counts: no sec-fetch-*, subresource modes or cross-site get 403, never reach LD, never burn the IP window', async () => {
+    const b = await mk({ ld: (r) => r.writeHead(401).end('{}'), limit: 2 });
+    for (const extra of [{} as Record<string, string>, { 'Sec-Fetch-Mode': 'no-cors', 'Sec-Fetch-Site': 'cross-site' }, { 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Site': 'cross-site' }, { 'Sec-Fetch-Mode': 'cors' }]) {
+      for (let i = 0; i < 3; i++) expect((await sso(b, 'x', extra)).status).toBe(403);
+    }
+    expect(ldCalls).toHaveLength(0);
+    expect((await sso(b)).headers.location).toBe('/login?e=sso'); // window still empty: LD is asked
+    expect(ldCalls).toHaveLength(1);
+    expect((await sso(b, T, { 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Site': 'same-origin' })).status).toBe(302);
+  });
+
+  it('LD unreachable is not counted, a genuine LD 401 is, and a blocked IP is logged', async () => {
+    const down = await mk({ ld: () => {}, limit: 2 });
+    for (let i = 0; i < 4; i++) await sso(down);
+    expect(ldCalls).toHaveLength(4);
+    const b = await mk({ ld: (r) => r.writeHead(401).end('{}'), limit: 2 });
+    for (let i = 0; i < 3; i++) await sso(b);
+    expect(ldCalls).toHaveLength(2);
+    expect(lines.some((l) => l.includes('blocked'))).toBe(true);
   });
 
   it('login page shows a message for e=sso', async () => {

@@ -79,6 +79,7 @@ export const cookieName = (secure: boolean): string => (secure ? `__Host-${COOKI
 /** Registering or deleting a passkey needs a sign-in at most this old. */
 const RECENT_MS = 10 * 60_000;
 export const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
+const SSO_SESSION_MS = 12 * 60 * 60 * 1000;
 /** Timeout for first byte of a connection on remote port (before knowing if HTTPS). */
 const FIRST_BYTE_MS = 15_000;
 
@@ -186,10 +187,11 @@ export class RemoteSessions {
     return createHmac('sha256', this.key).update(payload, 'utf8').digest('base64url');
   }
 
-  issue(): { token: string; maxAgeS: number } {
-    const exp = this.now() + SESSION_MS;
+  /** A shorter `ttlMs` also makes the session never `recent()` (its implied issue time is far in the past). */
+  issue(ttlMs = SESSION_MS): { token: string; maxAgeS: number } {
+    const exp = this.now() + ttlMs;
     const payload = `v1.${exp}`;
-    return { token: `${payload}.${this.sign(payload)}`, maxAgeS: Math.floor(SESSION_MS / 1000) };
+    return { token: `${payload}.${this.sign(payload)}`, maxAgeS: Math.floor(ttlMs / 1000) };
   }
 
   verify(token: string | undefined): boolean {
@@ -592,14 +594,20 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
     const ip = clientIp(req, !!deps.domain);
     const ua = (req.headers['user-agent'] ?? '-').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 80) || '-';
     const headers = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
-    const bad = (reason: string) => {
-      failures.fail(ip);
+    const bad = (reason: string, count = true) => {
+      if (count) failures.fail(ip);
       deps.log?.warn(tr('Remote sign-in failed (ld: {0}) from {1}, {2}', [reason, ip, ua]));
       res.writeHead(302, { Location: '/login?e=sso', ...headers }).end();
     };
     req.resume();
+    // Only a navigation (the portal iframe is same-site) may spend the shared IP window: an <img>/fetch from any page gets a free 403.
+    const site = req.headers['sec-fetch-site'];
+    if (req.headers['sec-fetch-mode'] !== 'navigate' || (site !== undefined && site !== 'same-origin' && site !== 'same-site')) return sendJson(res, 403, { error: tr('cross-site request refused') });
     const ticket = url.searchParams.get('ticket') ?? '';
-    if (failures.retryAfter(ip) > 0) return void res.writeHead(302, { Location: '/login?e=sso', ...headers }).end();
+    if (failures.retryAfter(ip) > 0) {
+      if (failures.noteBlocked(ip)) deps.log?.warn(tr('Remote sign-in blocked ({0}) from {1}, {2}', ['ld', ip, ua]));
+      return void res.writeHead(302, { Location: '/login?e=sso', ...headers }).end();
+    }
     if (!TICKET.test(ticket)) return bad('ticket');
     fetch(`${sso.url}/api/v1/integrations/hub/consume`, {
       method: 'POST',
@@ -613,10 +621,11 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
         if (r.status !== 200) return bad(`status ${r.status}`);
         failures.clear(ip);
         deps.log?.info(tr('Remote sign-in ok ({0}) from {1}, {2}', ['ld', ip, ua]));
-        const { token, maxAgeS } = deps.sessions.issue();
+        // 12 h, never recent(): a granted viewer must not manage credentials, and a revoked LD grant lapses soon.
+        const { token, maxAgeS } = deps.sessions.issue(SSO_SESSION_MS);
         res.writeHead(302, { Location: '/', 'Set-Cookie': cookieHeader(token, maxAgeS, deps.secure), ...headers }).end();
       },
-      () => bad('unreachable'),
+      () => bad('unreachable', false), // LD down is not the user's fault
     );
   };
   return (req, res, url) => {
