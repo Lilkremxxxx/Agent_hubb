@@ -682,6 +682,85 @@ describe('Google routes are not on the main port', () => {
   });
 });
 
+describe('GET /api/remote/sso (LD ticket sign-in)', () => {
+  const DOMAIN = 'hub.finstar.pp.ua';
+  const H = { Connection: 'close', Host: DOMAIN, Origin: `https://${DOMAIN}`, 'CF-Connecting-IP': '203.0.113.9' };
+  const T = 'abcDEF123_-abcDEF123_-abcDEF123_-abcDEF12345';
+  let ldCalls: Array<{ auth?: string; body: string; method?: string; url?: string }> = [];
+  let lines: string[] = [];
+  async function mk(o: { ld?: (res: http.ServerResponse) => void; sso?: boolean; limit?: number } = {}) {
+    ldCalls = []; lines = [];
+    const ld = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        ldCalls.push({ auth: req.headers.authorization, body: Buffer.concat(chunks).toString(), method: req.method, url: req.url });
+        (o.ld ?? ((r) => { r.writeHead(200, { 'Content-Type': 'application/json' }).end('{"email":"a@b.c","name":"A"}'); }))(res);
+      });
+    });
+    await new Promise<void>((ok) => ld.listen(0, '127.0.0.1', ok));
+    closers.push(() => new Promise<void>((ok) => { ld.closeAllConnections(); ld.close(() => ok()); }));
+    const sso = o.sso === false ? undefined : { url: `http://127.0.0.1:${(ld.address() as AddressInfo).port}`, secret: 'ld-secret-xyz', timeoutMs: 300 };
+    const guard = createRequestGuard({ allowedHosts: new Set([DOMAIN]) });
+    const gate = createRemoteGate({ config: CFG, sessions: new RemoteSessions(SECRET, CFG), secure: true, domain: DOMAIN, sso, log: { info: (m) => lines.push(m), warn: (m) => lines.push(m) }, failures: new FailureWindow(o.limit ?? 5, 600_000) });
+    const server = http.createServer((req, res) => {
+      if (guard(req, res)) return;
+      if (!gate(req, res, new URL(req.url ?? '/', 'http://x'))) res.writeHead(204).end();
+    });
+    await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+    closers.push(() => new Promise<void>((ok) => { server.closeAllConnections(); server.close(() => ok()); }));
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  }
+  const sso = (b: string, t = T) => request(b, `/api/remote/sso?ticket=${t}`, { headers: H });
+
+  it('success: asks LD with the bearer secret, sets the session cookie, 302 /', async () => {
+    const r = await sso(await mk());
+    expect([r.status, r.headers.location, r.headers['cache-control'], r.headers['referrer-policy']]).toEqual([302, '/', 'no-store', 'no-referrer']);
+    expect(r.headers['set-cookie']?.[0]).toMatch(/^__Host-habblaud_remote=.+; Path=\/; HttpOnly; SameSite=Lax; Max-Age=604800; Secure$/);
+    expect(ldCalls).toEqual([{ auth: 'Bearer ld-secret-xyz', body: JSON.stringify({ ticket: T }), method: 'POST', url: '/api/v1/integrations/hub/consume' }]);
+    expect(lines.join('\n')).not.toMatch(new RegExp(`${T}|ld-secret-xyz`));
+  });
+
+  it('LD 401, LD timeout and LD redirect all end at /login?e=sso without a cookie', async () => {
+    for (const ld of [(r: http.ServerResponse) => r.writeHead(401).end('{}'), () => {}, (r: http.ServerResponse) => r.writeHead(302, { Location: '/x' }).end()]) {
+      const r = await sso(await mk({ ld }));
+      expect([r.status, r.headers.location, r.headers['set-cookie']]).toEqual([302, '/login?e=sso', undefined]);
+    }
+    expect(lines.join('\n')).not.toMatch(new RegExp(`${T}|ld-secret-xyz`));
+  });
+
+  it('a bad ticket shape never reaches LD', async () => {
+    const b = await mk();
+    for (const t of ['x', 'a'.repeat(101), 'abc%20def' + 'a'.repeat(20), '']) {
+      const r = await sso(b, t);
+      expect([r.status, r.headers.location]).toEqual([302, '/login?e=sso']);
+    }
+    expect(ldCalls).toHaveLength(0);
+  });
+
+  it('without LD_SSO_SECRET/LD_INTERNAL_URL the route is a 404', async () => {
+    expect((await sso(await mk({ sso: false }))).status).toBe(404);
+  });
+
+  it('failures count in the per-IP limiter, then LD is not asked any more; success clears', async () => {
+    const b = await mk({ ld: (r) => r.writeHead(401).end('{}'), limit: 3 });
+    for (let i = 0; i < 3; i++) await sso(b);
+    expect(ldCalls).toHaveLength(3);
+    expect((await sso(b)).headers.location).toBe('/login?e=sso');
+    expect(ldCalls).toHaveLength(3);
+  });
+
+  it('login page shows a message for e=sso', async () => {
+    const page = await request(await mk(), '/login?e=sso', { headers: H });
+    expect(page.body).toMatch(/id="err"[^>]*>[^<]+</);
+  });
+
+  it('port 4747 has no /api/remote/sso route', async () => {
+    const s = await start();
+    for (const host of ['localhost', '127.0.0.1']) expect((await request(s.localBase, `/api/remote/sso?ticket=${T}`, { headers: { Host: host } })).status).toBe(404);
+  });
+});
+
 describe('local port (unaltered)', () => {
   it('without login, local Host lock applies as before', async () => {
     const h = await start();

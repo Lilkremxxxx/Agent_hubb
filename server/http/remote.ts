@@ -456,7 +456,22 @@ export interface RemoteGateDeps {
   google?: GoogleAuth;
   /** HABBLAUD_FRAME_ANCESTORS: the one https origin allowed to embed the login and security pages. */
   frameAncestor?: string;
+  /** LD_SSO_SECRET + LD_INTERNAL_URL: sign in with a one-time ticket from the Linux Dashboard (missing = the route answers 404). */
+  sso?: { url: string; secret: string; timeoutMs?: number };
 }
+
+/** LD_INTERNAL_URL must be plain http(s) on loopback: the hub sends a bearer secret there (SSRF guard). */
+export function parseSsoEnv(env: Record<string, string | undefined>): { sso?: { url: string; secret: string }; warning?: string } {
+  const { LD_SSO_SECRET: secret, LD_INTERNAL_URL: raw } = env;
+  if (!secret || !raw) return {};
+  try {
+    const u = new URL(raw);
+    if ((u.protocol === 'http:' || u.protocol === 'https:') && (u.hostname === '127.0.0.1' || u.hostname === 'localhost')) return { sso: { url: u.origin, secret } };
+  } catch { /* falls through */ }
+  return { warning: tr('LD sign-in off: LD_INTERNAL_URL must be http(s)://127.0.0.1 or localhost') };
+}
+
+const TICKET = /^[A-Za-z0-9_-]{20,100}$/;
 
 /**
  * Remote port gate, after guard (Host/Origin/JSON) and before API: returns true when already handled (login,
@@ -573,6 +588,37 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
         res.writeHead(302, { Location: '/', 'Set-Cookie': [cookieHeader(token, maxAgeS, deps.secure), clear], 'Cache-Control': 'no-store' }).end();
       });
   };
+  const ssoRoute = (req: IncomingMessage, res: ServerResponse, url: URL, sso: NonNullable<RemoteGateDeps['sso']>): void => {
+    const ip = clientIp(req, !!deps.domain);
+    const ua = (req.headers['user-agent'] ?? '-').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 80) || '-';
+    const headers = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
+    const bad = (reason: string) => {
+      failures.fail(ip);
+      deps.log?.warn(tr('Remote sign-in failed (ld: {0}) from {1}, {2}', [reason, ip, ua]));
+      res.writeHead(302, { Location: '/login?e=sso', ...headers }).end();
+    };
+    req.resume();
+    const ticket = url.searchParams.get('ticket') ?? '';
+    if (failures.retryAfter(ip) > 0) return void res.writeHead(302, { Location: '/login?e=sso', ...headers }).end();
+    if (!TICKET.test(ticket)) return bad('ticket');
+    fetch(`${sso.url}/api/v1/integrations/hub/consume`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${sso.secret}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticket }),
+      redirect: 'manual',
+      signal: AbortSignal.timeout(sso.timeoutMs ?? 3000),
+    }).then(
+      (r) => {
+        void r.body?.cancel();
+        if (r.status !== 200) return bad(`status ${r.status}`);
+        failures.clear(ip);
+        deps.log?.info(tr('Remote sign-in ok ({0}) from {1}, {2}', ['ld', ip, ua]));
+        const { token, maxAgeS } = deps.sessions.issue();
+        res.writeHead(302, { Location: '/', 'Set-Cookie': cookieHeader(token, maxAgeS, deps.secure), ...headers }).end();
+      },
+      () => bad('unreachable'),
+    );
+  };
   return (req, res, url) => {
     const path = url.pathname;
     const method = req.method ?? 'GET';
@@ -684,12 +730,18 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       return true;
     }
 
+    if (path === '/api/remote/sso') {
+      if (!deps.sso || method !== 'GET') { req.resume(); sendJson(res, 404, { error: tr('not found') }); }
+      else ssoRoute(req, res, url, deps.sso);
+      return true;
+    }
+
     if (path === '/login') {
       req.resume();
       if (authed) {
         res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' });
         res.end();
-      } else sendHtml(res, loginPage({ caDownload: caAvailable(), passkeys: !!deps.passkeys && deps.passkeys.count() > 0, password: !passwordOff(), caPath: CA_PATH, google: !!deps.google, googleError: url.searchParams.get('e') === 'google' }), deps.frameAncestor);
+      } else sendHtml(res, loginPage({ caDownload: caAvailable(), passkeys: !!deps.passkeys && deps.passkeys.count() > 0, password: !passwordOff(), caPath: CA_PATH, google: !!deps.google, googleError: url.searchParams.get('e') === 'google', ssoError: url.searchParams.get('e') === 'sso' }), deps.frameAncestor);
       return true;
     }
 

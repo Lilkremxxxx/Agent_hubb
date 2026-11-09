@@ -83,7 +83,7 @@ const common = () => ({
   exists: tr('This device already has a passkey here.'),
 });
 
-export function loginPage(o: { caDownload: boolean; passkeys: boolean; password: boolean; caPath?: string; google?: boolean; googleError?: boolean }): string {
+export function loginPage(o: { caDownload: boolean; passkeys: boolean; password: boolean; caPath?: string; google?: boolean; googleError?: boolean; ssoError?: boolean }): string {
   const ca = o.caDownload
     ? `<p class="hr">${esc(tr('First time on this phone?'))} <a href="${o.caPath ?? '/remote/ca.crt'}" download="habblaud-ca.crt">${esc(tr('Install the Habblaud certificate'))}</a> ${esc(tr('to remove the security warning (check the fingerprint that npm run remote:setup showed).'))}</p>`
     : '';
@@ -97,7 +97,7 @@ export function loginPage(o: { caDownload: boolean; passkeys: boolean; password:
     <input id="p" name="password" type="password" autocomplete="current-password" required>
     <button id="b" type="submit">${esc(tr('Sign in'))}</button>
   </form>` : ''}
-  <div id="err" role="alert">${o.googleError ? esc(tr("Couldn't sign in with Google.")) : ''}</div>
+  <div id="err" role="alert">${o.googleError ? esc(tr("Couldn't sign in with Google.")) : o.ssoError ? esc(tr("Couldn't sign in from the Linux Dashboard. Try again from there.")) : ''}</div>
   ${ca}`;
   return shell(tr('Habblaud · sign in'), 'login', common(), body, '/assets/brand/finstar-144.png');
 }

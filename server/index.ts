@@ -12,7 +12,7 @@ import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard } from './http/guard';
 import { PasskeyService, PasskeyStore } from './remote/passkeys';
 import { GoogleAuth } from './remote/google';
-import { createRemoteGate, FailureWindow, isRemoteRequest, isSecureRemote, listsHubDomain, loadSecret, remoteAllowedHosts, RemoteSessions, startRemoteListener, type RemoteListener } from './http/remote';
+import { createRemoteGate, FailureWindow, isRemoteRequest, isSecureRemote, listsHubDomain, loadSecret, parseSsoEnv, remoteAllowedHosts, RemoteSessions, startRemoteListener, type RemoteListener } from './http/remote';
 import { Hub } from './http/sse';
 import { createStaticHandler, parseFrameAncestor } from './http/static';
 import { TerminalStreams } from './http/terminal';
@@ -412,6 +412,8 @@ if (config.remote) {
   const passkeys = remote.domain
     ? new PasskeyService({ domain: remote.domain, user: remote.user, store: new PasskeyStore(join(config.dataDir, 'remote', 'passkeys.json'), log) })
     : undefined;
+  const { sso, warning: ssoWarning } = parseSsoEnv(process.env);
+  if (ssoWarning) log.warn(ssoWarning);
   const secret = loadSecret(join(config.dataDir, 'remote-secret'));
   const gate = createRemoteGate({
     config: remote,
@@ -422,6 +424,7 @@ if (config.remote) {
     passkeys,
     passwordLogin: remote.passwordLogin,
     frameAncestor,
+    sso,
     failures: new FailureWindow(),
     log,
     caFile: remote.tls?.caFile,
