@@ -38,6 +38,7 @@ middle one (0.**3**.0).
 - **`npm run office -- stop|restart`**; they only stop this repo's own server on the port (exact command and folder check).
 
 ### Fixed
+- Office stutter on phones: the office no longer renders at 3x the screen resolution on touch screens (starts at 2x) and steps down to 1x by itself when frames stay slow, so it runs about 3x faster on a phone.
 
 - The top bar sits at the very top of the page again: it kept 32 px of room for the office tabs removed earlier.
 - **Cancelling or timing out an Antigravity job closes the terminal that job started** (only that one, matched by pid), so no orphan `agy -i` stays in the seat on cancel or timeout.

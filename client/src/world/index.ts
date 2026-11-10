@@ -14,6 +14,7 @@ import { Overlay } from './render/overlay';
 import { Renderer } from './render/renderer';
 import { Sim } from './sim/sim';
 import { SoundCues } from './sound-cues';
+import { FrameBudget, startDprCap } from './quality';
 
 export * from './api';
 export type { WorldDebug } from './debug';
@@ -47,8 +48,10 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore): Worl
 
   // ------------------------------------------------------------------ size/DPR
 
+  const budget = new FrameBudget(startDprCap(window.matchMedia?.('(pointer: coarse)').matches ?? false));
+  const renderDpr = () => Math.max(1, Math.min(budget.cap, window.devicePixelRatio || 1));
   const resize = () => {
-    const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    const dpr = renderDpr();
     const w = canvas.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || window.innerHeight;
     const pw = Math.floor(w * dpr);
@@ -244,12 +247,13 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore): Worl
   const loop = (ts: number) => {
     raf = requestAnimationFrame(loop);
     const real = Date.now();
+    if (lastTs) budget.add(ts - lastTs);
     const realDt = lastTs ? Math.min(0.1, Math.max(0, (ts - lastTs) / 1000)) : 1 / 60;
     lastTs = ts;
     const dt = realDt;
     const now = real;
     try {
-      const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+      const dpr = renderDpr();
       if (canvas.clientWidth !== camera.viewW || canvas.clientHeight !== camera.viewH || dpr !== camera.dpr) resize();
       sim.update(dt, now);
       renderer.sync();
