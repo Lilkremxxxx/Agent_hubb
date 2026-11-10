@@ -114,7 +114,7 @@ export class TopBar implements UiComponent {
     );
     this.panelGroup = panelGroup;
     // target _top: inside the portal's iframe the link must leave the frame, not load the portal in it.
-    const portal = h('a', { class: 'ui-portal', title: tr('Open the portal'), text: tr('Portal'), attrs: { href: 'https://home.finstar.pp.ua/', target: '_top', rel: 'noopener' } });
+    const portal = h('a', { class: 'ui-portal', title: tr('Open the portal'), text: tr('Portal'), attrs: { href: 'https://linux.finstar.pp.ua/app', target: '_top', rel: 'noopener' } });
 
     this.el = h(
       'header',
