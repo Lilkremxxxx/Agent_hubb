@@ -11,6 +11,8 @@ const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 /** Stable per-session key (the token signature is never stored raw). */
 export const sessionKey = (sig: string): string => sha(sig);
 
+const dead = (res: ServerResponse): boolean => res.destroyed || res.writableEnded;
+
 interface Open { ptyId: string; key: string; res: ServerResponse; timer: NodeJS.Timeout }
 
 export class PtyAccess {
@@ -39,19 +41,27 @@ export class PtyAccess {
 
   /** Registers an attached stream; it ends at `sessionExp` and unregisters when it closes. */
   open(ptyId: string, key: string, sessionExp: number, res: ServerResponse): void {
-    const o: Open = { ptyId, key, res, timer: setTimeout(() => res.end(), Math.min(2 ** 31 - 1, Math.max(0, sessionExp - Date.now()))) };
+    if (dead(res)) return; // a stream that already closed would stay "live" forever
+    const o: Open = { ptyId, key, res, timer: setTimeout(() => this.end(o), Math.min(2 ** 31 - 1, Math.max(0, sessionExp - Date.now()))) };
     o.timer.unref();
     this.opens.add(o);
     res.once('close', () => { clearTimeout(o.timer); this.opens.delete(o); });
   }
 
   live(ptyId: string, key: string): boolean {
-    for (const o of this.opens) if (o.ptyId === ptyId && o.key === key) return true;
+    for (const o of this.opens) if (o.ptyId === ptyId && o.key === key && !dead(o.res)) return true;
     return false;
   }
 
+  /** Removes the entry first: it must not stay live if `end()` never produces a 'close'. */
+  private end(o: Open): void {
+    clearTimeout(o.timer);
+    this.opens.delete(o);
+    o.res.end();
+  }
+
   endSession(key: string): void {
-    for (const o of [...this.opens]) if (o.key === key) o.res.end();
+    for (const o of [...this.opens]) if (o.key === key) this.end(o);
     for (const [h, g] of this.grants) if (g.key === key) this.grants.delete(h);
   }
 }

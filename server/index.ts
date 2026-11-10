@@ -413,7 +413,7 @@ let remoteListener: RemoteListener | undefined;
 if (config.remote) {
   const remote = config.remote;
   const passkeys = remote.domain
-    ? new PasskeyService({ domain: remote.domain, user: remote.user, store: new PasskeyStore(join(config.dataDir, 'remote', 'passkeys.json'), log) })
+    ? new PasskeyService({ domain: remote.domain, user: remote.user, store: new PasskeyStore(join(config.dataDir, 'remote', 'passkeys.json'), log), topOrigin: frameAncestor })
     : undefined;
   late.passkeys = passkeys;
   const { sso, warning: ssoWarning } = parseSsoEnv(process.env);
@@ -460,6 +460,7 @@ if (config.remote) {
     const allow = [...remote.allow].join(', ') || tr('view only');
     const scheme = remote.domain ? tr('HTTP behind a proxy for {0}', [remote.domain]) : remote.tls ? 'HTTPS' : tr('HTTP WITHOUT encryption (HABBLAUD_REMOTE_INSECURE_HTTP)');
     if (/\bspawn\b/i.test(process.env.HABBLAUD_REMOTE_ALLOW ?? '')) log.warn(tr('   Remote access: "spawn" is no longer a remote feature and is ignored (only "terminal").'));
+    if (!remote.ownerEmail && (passkeys?.count() ?? 0) > 0) log.warn(tr('   Remote access: passkeys exist but HABBLAUD_REMOTE_OWNER_EMAIL is not set: nobody can register or delete passkeys.'));
     if (remote.ownerEmail) log.info(tr('   Remote access: owner {0}; may view terminals, and type in them after a passkey check ({1} passkey(s)).', [maskEmail(remote.ownerEmail), passkeys?.count() ?? 0]));
     if (remote.google) log.info(tr('   Remote access: Sign in with Google on ({0} address(es) allowed).', [remote.google.emails.size]));
     if (passkeys) log.info(tr('   Remote access: {0} passkey(s); password sign-in {1}.', [passkeys.count(), passkeys.count() > 0 && !remote.passwordLogin ? tr('off') : tr('on')]));

@@ -167,7 +167,7 @@ export class PtyPanel implements UiComponent, PtyControl {
 
   async takeover(agentId: string): Promise<void> {
     const p = await takeoverAgent(agentId);
-    if (p) this.show(p, true, p.grant);
+    if (p) this.show(p, true, p.grant ?? undefined);
   }
 
   async newSession(cwd: string, account?: string): Promise<PtyInfo | undefined> {

@@ -873,12 +873,12 @@ describe('passkey routes', () => {
     verifyRegistrationResponse: (async () => ({ verified: true, registrationInfo: { credential: { id: 'cred-1', publicKey: new Uint8Array([1]), counter: 0 } } })) as never,
     verifyAuthenticationResponse: (async () => { verifyCalls++; return { verified: ok, authenticationInfo: { newCounter: 1 } }; }) as never,
   });
-  async function mk(o: { passkeys?: boolean; ok?: boolean; passwordLogin?: boolean; limit?: number; service?: unknown; frameAncestor?: string } = {}) {
+  async function mk(o: { passkeys?: boolean; ok?: boolean; passwordLogin?: boolean; limit?: number; service?: unknown; frameAncestor?: string; noOwner?: boolean } = {}) {
     const tmp = tempDir();
     verifyCalls = 0; pwCalls = 0; clock = Date.now(); lines = [];
     const passkeys = (o.service as PasskeyService | undefined) ?? (o.passkeys === false ? undefined : new PasskeyService({ domain: DOMAIN, user: 'ana', store: new PasskeyStore(join(tmp.dir, 'pk.json')), lib: lib(o.ok) }));
     const guard = createRequestGuard({ allowedHosts: new Set([DOMAIN]) });
-    const gate = createRemoteGate({ config: CFG, sessions: new RemoteSessions(SECRET, CFG, () => clock), secure: true, domain: DOMAIN, passkeys, passwordLogin: o.passwordLogin, frameAncestor: o.frameAncestor, log: { info: (m) => lines.push(m), warn: (m) => lines.push(m) }, verify: (pw, h) => { pwCalls++; return verifyPassword(pw, h); }, failures: new FailureWindow(o.limit ?? 5, 600_000) });
+    const gate = createRemoteGate({ config: CFG, sessions: new RemoteSessions(SECRET, { ...CFG, ownerEmail: 'owner@example.com' }, () => clock), secure: true, domain: DOMAIN, passkeys, ownerEmail: o.noOwner ? undefined : 'owner@example.com', ptyAccess: new PtyAccess(), passwordLogin: o.passwordLogin, frameAncestor: o.frameAncestor, log: { info: (m) => lines.push(m), warn: (m) => lines.push(m) }, verify: (pw, h) => { pwCalls++; return verifyPassword(pw, h); }, failures: new FailureWindow(o.limit ?? 5, 600_000) });
     const server = http.createServer((req, res) => {
       if (guard(req, res)) return;
       if (!gate(req, res, new URL(req.url ?? '/', 'http://x'))) res.writeHead(204).end();
@@ -889,6 +889,18 @@ describe('passkey routes', () => {
   }
   const post = (b: string, path: string, body: unknown = {}, headers: Record<string, string> = {}) => request(b, path, { method: 'POST', headers: { ...H, ...headers }, body });
   const pwCookie = async (b: string) => (await post(b, '/api/remote/login', CREDS)).headers['set-cookie']?.[0].split(';')[0] ?? '';
+  /** A step-up grant for a passkey change (fake library: any stored credential id verifies). */
+  const grantFor = async (b: string, cookie: string, action: string) => {
+    const o = await post(b, '/api/remote/stepup/options', {}, { Cookie: cookie });
+    expect(o.status).toBe(200);
+    const v = await post(b, '/api/remote/stepup/verify', { response: { id: 'cred-1' }, action }, { Cookie: cookie });
+    expect(v.status).toBe(200);
+    return JSON.parse(v.body).grant as string;
+  };
+  const register = async (b: string, cookie: string) => {
+    await post(b, '/api/remote/passkeys/register/options', {}, { Cookie: cookie });
+    return (await post(b, '/api/remote/passkeys/register/verify', { response: { id: 'cred-1' }, name: 'Phone' }, { Cookie: cookie })).status;
+  };
 
   it('a full challenge map answers 429 with Retry-After = the challenge TTL (120 s)', async () => {
     const b = await mk({ service: { count: () => 0, list: () => [], loginOptions: async () => null } });
@@ -920,8 +932,8 @@ describe('passkey routes', () => {
     const v = await post(b, '/api/remote/passkeys/login/verify', { id: 'cred-1' });
     expect(v.status).toBe(200);
     expect(v.headers['set-cookie']?.[0]).toMatch(/^__Host-habblaud_remote=.*SameSite=Lax.*Secure/);
-    expect((await post(b, '/api/remote/passkeys/delete', { id: 'nope' }, C)).status).toBe(404);
-    expect((await post(b, '/api/remote/passkeys/delete', { id: 'cred-1' }, C)).status).toBe(200);
+    expect((await post(b, '/api/remote/passkeys/delete', { id: 'nope', grant: await grantFor(b, C.Cookie, 'passkey:del') }, C)).status).toBe(404);
+    expect((await post(b, '/api/remote/passkeys/delete', { id: 'cred-1', grant: await grantFor(b, C.Cookie, 'passkey:del') }, C)).status).toBe(200);
   });
 
   it('state-changing routes need the Origin and a JSON body; bad body is 400; wrong method 405', async () => {
@@ -1037,6 +1049,116 @@ describe('passkey routes', () => {
   });
 });
 
+describe('passkey changes need a step-up once a passkey exists', () => {
+  const DOMAIN = 'hub.finstar.pp.ua';
+  const H = { Connection: 'close', Host: DOMAIN, Origin: `https://${DOMAIN}`, 'CF-Connecting-IP': '203.0.113.7' };
+  let clock = Date.now();
+  async function mk(o: { noOwner?: boolean } = {}) {
+    const tmp = tempDir();
+    clock = Date.now();
+    const lib: WebAuthnLib = {
+      ...webauthn,
+      verifyRegistrationResponse: (async () => ({ verified: true, registrationInfo: { credential: { id: 'cred-1', publicKey: new Uint8Array([1]), counter: 0 } } })) as never,
+      verifyAuthenticationResponse: (async () => ({ verified: true, authenticationInfo: { newCounter: 1 } })) as never,
+    };
+    const passkeys = new PasskeyService({ domain: DOMAIN, user: 'ana', store: new PasskeyStore(join(tmp.dir, 'pk.json')), lib });
+    const guard = createRequestGuard({ allowedHosts: new Set([DOMAIN]) });
+    const gate = createRemoteGate({ config: CFG, sessions: new RemoteSessions(SECRET, { ...CFG, ownerEmail: 'owner@example.com' }, () => clock), secure: true, domain: DOMAIN, passkeys, ownerEmail: o.noOwner ? undefined : 'owner@example.com', ptyAccess: new PtyAccess(), passwordLogin: true, failures: new FailureWindow(50, 600_000) });
+    const server = http.createServer((req, res) => {
+      if (guard(req, res)) return;
+      if (!gate(req, res, new URL(req.url ?? '/', 'http://x'))) res.writeHead(204).end();
+    });
+    await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+    closers.push(() => new Promise<void>((ok) => server.close(() => { tmp.cleanup(); ok(); })));
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  }
+  const post = (b: string, path: string, c: string, body: unknown = {}) => request(b, path, { method: 'POST', headers: { ...H, Cookie: c }, body });
+  const login = async (b: string) => { clock += 1; return (await request(b, '/api/remote/login', { method: 'POST', headers: H, body: CREDS })).headers['set-cookie']?.[0].split(';')[0] ?? ''; };
+  const grant = async (b: string, c: string, action: string) => {
+    expect((await post(b, '/api/remote/stepup/options', c)).status).toBe(200);
+    const v = await post(b, '/api/remote/stepup/verify', c, { response: { id: 'cred-1' }, action });
+    expect(v.status).toBe(200);
+    return JSON.parse(v.body).grant as string;
+  };
+  /** Bootstraps the first passkey (count 0: recent owner is enough). */
+  const bootstrap = async (b: string) => {
+    const c = await login(b);
+    expect((await post(b, '/api/remote/passkeys/register/options', c)).status).toBe(200);
+    expect((await post(b, '/api/remote/passkeys/register/verify', c, { response: { id: 'cred-1' }, name: 'P' })).status).toBe(200);
+  };
+
+  it('count 0: a recent owner bootstraps the first passkey without a grant', async () => {
+    await bootstrap(await mk());
+  });
+
+  it('register: no grant is 403; a grant works once; a reused grant and another session\'s grant are 403', async () => {
+    const b = await mk();
+    await bootstrap(b);
+    const A = await login(b), B = await login(b);
+    expect((await post(b, '/api/remote/passkeys/register/options', A)).status).toBe(403);
+    expect((await post(b, '/api/remote/passkeys/register/options', A, { grant: 'junk' })).status).toBe(403);
+    const g = await grant(b, A, 'passkey:add');
+    expect((await post(b, '/api/remote/passkeys/register/options', B, { grant: g })).status).toBe(403); // another session, and it burns the grant
+    expect((await post(b, '/api/remote/passkeys/register/options', A, { grant: g })).status).toBe(403);
+    const g2 = await grant(b, A, 'passkey:add');
+    expect((await post(b, '/api/remote/passkeys/register/options', A, { grant: g2 })).status).toBe(200);
+    expect((await post(b, '/api/remote/passkeys/register/options', A, { grant: g2 })).status).toBe(403); // reused
+  });
+
+  it('register/verify only follows a granted options call from the same session', async () => {
+    const b = await mk();
+    await bootstrap(b);
+    const A = await login(b), B = await login(b);
+    expect((await post(b, '/api/remote/passkeys/register/verify', A, { response: { id: 'cred-2' }, name: 'x' })).status).toBe(403);
+    expect((await post(b, '/api/remote/passkeys/register/options', A, { grant: await grant(b, A, 'passkey:add') })).status).toBe(200);
+    expect((await post(b, '/api/remote/passkeys/register/verify', B, { response: { id: 'cred-2' }, name: 'x' })).status).toBe(403);
+    expect((await post(b, '/api/remote/passkeys/register/verify', A, { response: { id: 'cred-2' }, name: 'x' })).status).not.toBe(403);
+    expect((await post(b, '/api/remote/passkeys/register/verify', A, { response: { id: 'cred-2' }, name: 'x' })).status).toBe(403); // the pending flag is single use
+  });
+
+  it('delete: no grant 403; an add grant on delete 403; a del grant works once; another session 403', async () => {
+    const b = await mk();
+    await bootstrap(b);
+    const A = await login(b), B = await login(b);
+    expect((await post(b, '/api/remote/passkeys/delete', A, { id: 'cred-1' })).status).toBe(403);
+    expect((await post(b, '/api/remote/passkeys/delete', A, { id: 'cred-1', grant: await grant(b, A, 'passkey:add') })).status).toBe(403);
+    expect((await post(b, '/api/remote/passkeys/delete', B, { id: 'cred-1', grant: await grant(b, A, 'passkey:del') })).status).toBe(403);
+    const g = await grant(b, A, 'passkey:del');
+    expect((await post(b, '/api/remote/passkeys/delete', A, { id: 'cred-1', grant: g })).status).toBe(200);
+    // (reuse is covered by the register test: with the last passkey gone the bootstrap rule applies again)
+    expect(g).toBeTruthy();
+  });
+
+  it('step-up accepts only the two passkey actions, and exactly one target', async () => {
+    const b = await mk();
+    await bootstrap(b);
+    const A = await login(b);
+    await post(b, '/api/remote/stepup/options', A);
+    for (const body of [{ response: { id: 'cred-1' }, action: 'passkey:evil' }, { response: { id: 'cred-1' }, action: 'passkey:add', ptyId: 'p1' }, { response: { id: 'cred-1' }, action: 'pty:p1' }]) {
+      expect((await post(b, '/api/remote/stepup/verify', A, body)).status, JSON.stringify(body)).toBe(400);
+    }
+  });
+
+  it('a pty or agent grant cannot change passkeys', async () => {
+    const b = await mk();
+    await bootstrap(b);
+    const A = await login(b);
+    await post(b, '/api/remote/stepup/options', A);
+    const v = await post(b, '/api/remote/stepup/verify', A, { response: { id: 'cred-1' }, ptyId: 'passkey' });
+    expect(v.status).toBe(200);
+    expect((await post(b, '/api/remote/passkeys/register/options', A, { grant: JSON.parse(v.body).grant })).status).toBe(403);
+  });
+
+  it('no owner configured: register and delete are refused with a clear message', async () => {
+    const b = await mk({ noOwner: true });
+    const c = await login(b);
+    const r = await post(b, '/api/remote/passkeys/register/options', c);
+    expect(r.status).toBe(403);
+    expect(r.body).toContain('HABBLAUD_REMOTE_OWNER_EMAIL');
+    expect((await post(b, '/api/remote/passkeys/delete', c, { id: 'x' })).status).toBe(403);
+  });
+});
+
 describe('owner identity (HABBLAUD_REMOTE_OWNER_EMAIL)', () => {
   const DOMAIN = 'hub.finstar.pp.ua';
   const OWNER = 'owner@example.com';
@@ -1092,6 +1214,21 @@ describe('owner identity (HABBLAUD_REMOTE_OWNER_EMAIL)', () => {
     });
   });
 
+  describe('owner env rotation', () => {
+    const now = 1_800_000_000_000;
+    const mkS = (ownerEmail?: string) => new RemoteSessions(SECRET, { ...CFG, ...(ownerEmail ? { ownerEmail } : {}) }, () => now);
+    it('an owner token dies when the owner email is unset or changed; unchanged keeps working', () => {
+      const t = mkS(OWNER).issue(SESSION_MS, true).token;
+      expect(mkS(OWNER).isOwner(t)).toBe(true);
+      expect([mkS().verify(t), mkS().isOwner(t)]).toEqual([false, false]);
+      expect([mkS('other@example.com').verify(t), mkS('other@example.com').isOwner(t)]).toEqual([false, false]);
+    });
+    it('with no owner configured the signing key is unchanged (existing viewer cookies keep working)', () => {
+      const t = new RemoteSessions(SECRET, CFG, () => now).issue().token;
+      expect(mkS().verify(t)).toBe(true);
+    });
+  });
+
   describe('who becomes owner', () => {
     let ldBody = '{"email":"owner@example.com","name":"A","owner":true}';
     let googleEmail = OWNER;
@@ -1106,7 +1243,7 @@ describe('owner identity (HABBLAUD_REMOTE_OWNER_EMAIL)', () => {
       const passkeys = new PasskeyService({ domain: DOMAIN, user: 'ana', store: new PasskeyStore(join(tmp.dir, 'pk.json')), lib: { ...webauthn, verifyRegistrationResponse: (async () => ({ verified: true, registrationInfo: { credential: { id: 'cred-1', publicKey: new Uint8Array([1]), counter: 0 } } })) as never, verifyAuthenticationResponse: (async () => ({ verified: true, authenticationInfo: { newCounter: 1 } })) as never } });
       if (passkeyCount) { await passkeys.registerOptions(); await passkeys.verifyRegister({ response: {}, name: 'x' }); }
       const gate = createRemoteGate({
-        config: CFG, sessions: new RemoteSessions(SECRET, CFG, () => clock), secure: true, domain: DOMAIN, ownerEmail: ownerEmail ?? undefined, passkeys, passwordLogin: true,
+        config: CFG, sessions: new RemoteSessions(SECRET, { ...CFG, ...(ownerEmail ? { ownerEmail } : {}) }, () => clock), secure: true, domain: DOMAIN, ownerEmail: ownerEmail ?? undefined, ptyAccess: new PtyAccess(), passkeys, passwordLogin: true,
         sso: { url: `http://127.0.0.1:${(ld.address() as AddressInfo).port}`, secret: 's', timeoutMs: 500 },
         google: { start: () => ({ location: '/x', cookie: 'c' }), finish: async () => ({ ok: true as const, email: googleEmail }) } as never,
         failures: new FailureWindow(50, 600_000),
@@ -1166,7 +1303,7 @@ describe('owner identity (HABBLAUD_REMOTE_OWNER_EMAIL)', () => {
     });
     it('an old cookie (legacy format) is a viewer', async () => {
       const b = await mk();
-      const legacy = new RemoteSessions(SECRET, CFG, () => clock).issue().token;
+      const legacy = new RemoteSessions(SECRET, { ...CFG, ownerEmail: OWNER }, () => clock).issue().token;
       expect(await owner(b, `__Host-habblaud_remote=${legacy}`)).toBe(false);
     });
     it('passkey register and delete need recent AND (no owner email OR owner)', async () => {
@@ -1180,14 +1317,20 @@ describe('owner identity (HABBLAUD_REMOTE_OWNER_EMAIL)', () => {
         expect((await post(path, viewer, body)).status, path).toBe(403);
       }
       const o = await viaPassword(b);
-      expect((await post('/api/remote/passkeys/register/options', o)).status).toBe(200);
+      expect((await post('/api/remote/passkeys/register/options', o)).status).toBe(403); // a passkey exists: needs the step-up grant too
       const sso = await viaSso(b); // owner, but SSO is never recent
       expect((await post('/api/remote/passkeys/register/options', sso)).status).toBe(403);
+    });
+    it('without an owner email nobody may register or delete passkeys', async () => {
+      clock = Date.now(); passkeyCount = 0;
       const none = await mk(null);
-      googleEmail = 'other@example.com';
-      const anyone = await viaGoogle(none);
-      googleEmail = OWNER;
-      expect((await request(none, '/api/remote/passkeys/register/options', { method: 'POST', headers: { ...H, Cookie: anyone }, body: {} })).status).toBe(200); // env unset: as today
+      const anyone = await viaPassword(none);
+      for (const [path, body] of [['/api/remote/passkeys/register/options', {}], ['/api/remote/passkeys/register/verify', { response: {} }], ['/api/remote/passkeys/delete', { id: 'x' }]] as const) {
+        const r = await request(none, path, { method: 'POST', headers: { ...H, Cookie: anyone }, body });
+        expect(r.status, path).toBe(403);
+        expect(r.body).toContain('HABBLAUD_REMOTE_OWNER_EMAIL');
+      }
+      passkeyCount = 1;
     });
   });
 });
@@ -1204,6 +1347,7 @@ describe('remote pty step-up', () => {
   let sessions: RemoteSessions;
   let access: PtyAccess;
   let streams: http.ServerResponse[] = [];
+  let takeoverHook: (() => void) | undefined;
 
   async function mk(o: { limit?: number } = {}) {
     grantClock = 1_000_000; verifyCalls = 0; lines = []; rec = []; streams = [];
@@ -1234,7 +1378,7 @@ describe('remote pty step-up', () => {
       resize: (id: string) => void rec.push(`resize ${id}`),
       close: (id: string) => void rec.push(`close ${id}`),
       stop: async (id: string) => void rec.push(`stop ${id}`),
-      takeover: async (id: string) => { rec.push(`takeover ${id}`); return { id: 'p9', agentId: 'x' }; },
+      takeover: async (id: string) => { rec.push(`takeover ${id}`); takeoverHook?.(); return { id: 'p9', agentId: 'x' }; },
       create: () => { rec.push('create'); return { id: 'pnew' }; },
       list: () => { rec.push('list'); return []; },
       status: () => ({ enabled: true }),
@@ -1507,6 +1651,17 @@ describe('remote pty step-up', () => {
       expect((await takeover(b, 'a1', c, await stepup(b, c, { ptyId: 'a1' }))).status).toBe(403);
       expect((await get(b, streamPath('a1', await stepup(b, c, { agentId: 'a1' })), c)).status).toBe(403);
       expect(rec).toEqual([]);
+    });
+
+    it('when no grant slot is free for the new terminal, the takeover still succeeds and says grant: null', async () => {
+      const b = await mk();
+      const c = cookie(true);
+      const g = await stepup(b, c, { agentId: 'a1' });
+      takeoverHook = () => { for (let i = 0; i < 20; i++) access.issue('other', `pty:x${i}`); };
+      const r = await takeover(b, 'a1', c, g);
+      takeoverHook = undefined;
+      expect(r.status).toBe(201);
+      expect(JSON.parse(r.body)).toMatchObject({ id: 'p9', grant: null });
     });
 
     it('a viewer: 403', async () => {

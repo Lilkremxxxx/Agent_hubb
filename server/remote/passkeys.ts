@@ -145,8 +145,10 @@ export class PasskeyService {
   private readonly now: () => number;
   private readonly domain: string;
   private readonly user: string;
+  private readonly topOrigin?: string;
 
-  constructor(o: { domain: string; user: string; store: PasskeyStore; lib?: WebAuthnLib; now?: () => number }) {
+  constructor(o: { domain: string; user: string; store: PasskeyStore; lib?: WebAuthnLib; now?: () => number; topOrigin?: string }) {
+    this.topOrigin = o.topOrigin;
     this.domain = o.domain; this.user = o.user; this.store = o.store; this.lib = o.lib ?? lazyLib; this.now = o.now ?? Date.now;
     this.loginCh = new Challenges(this.now, MAX_LOGIN_CHALLENGES, MAX_LOGIN_CHALLENGES_PER_IP);
     this.registerCh = new Challenges(this.now, MAX_REGISTER_CHALLENGES, MAX_REGISTER_CHALLENGES);
@@ -187,6 +189,9 @@ export class PasskeyService {
         expectedChallenge: take,
         expectedOrigin: `https://${this.domain}`,
         expectedRPID: this.domain,
+        // Inside the portal iframe Chrome adds crossOrigin + topOrigin; the library rejects that unless this is exactly the one
+        // configured frame ancestor. Top-level assertions carry no topOrigin and are unaffected. Never an arbitrary value.
+        ...(this.topOrigin ? { expectedTopOrigin: this.topOrigin } : {}),
         requireUserVerification: true,
         credential: { id: p.id, publicKey: Buffer.from(p.publicKey, 'base64url'), counter: p.counter, transports: cleanTransports(p.transports) as never },
       });

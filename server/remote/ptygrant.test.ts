@@ -3,11 +3,11 @@ import type { ServerResponse } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GRANT_TTL_MS, MAX_GRANTS, PtyAccess, sessionKey } from './ptygrant';
 
-const fakeRes = () => {
-  const r = new EventEmitter() as EventEmitter & { ended: boolean; end(): void };
-  r.ended = false;
-  r.end = () => { r.ended = true; r.emit('close'); };
-  return r as unknown as ServerResponse & { ended: boolean };
+const fakeRes = (closeOnEnd = true) => {
+  const r = new EventEmitter() as EventEmitter & { ended: boolean; destroyed: boolean; writableEnded: boolean; end(): void };
+  r.ended = false; r.destroyed = false; r.writableEnded = false;
+  r.end = () => { r.ended = true; r.writableEnded = true; if (closeOnEnd) r.emit('close'); };
+  return r as unknown as ServerResponse & { ended: boolean; destroyed: boolean; writableEnded: boolean };
 };
 
 afterEach(() => vi.useRealTimers());
@@ -75,6 +75,39 @@ describe('PtyAccess grants', () => {
     vi.advanceTimersByTime(2);
     expect(res.ended).toBe(true);
     expect(a.live('p1', 'k1')).toBe(false);
+  });
+  it('open ignores a response that is already destroyed or ended', () => {
+    const a = new PtyAccess();
+    const dead = fakeRes(); dead.destroyed = true;
+    const done = fakeRes(); done.writableEnded = true;
+    a.open('p1', 'k1', Date.now() + 60_000, dead);
+    a.open('p1', 'k1', Date.now() + 60_000, done);
+    expect(a.live('p1', 'k1')).toBe(false);
+  });
+  it('endSession removes the entries even when end() never emits close', () => {
+    const a = new PtyAccess();
+    const res = fakeRes(false);
+    a.open('p1', 'k1', Date.now() + 60_000, res);
+    a.endSession('k1');
+    expect(res.ended).toBe(true);
+    expect(a.live('p1', 'k1')).toBe(false);
+  });
+  it('the expiry timer removes the entry even when end() never emits close', () => {
+    vi.useFakeTimers();
+    const a = new PtyAccess();
+    const res = fakeRes(false);
+    a.open('p1', 'k1', Date.now() + 1000, res);
+    vi.advanceTimersByTime(1001);
+    expect(a.live('p1', 'k1')).toBe(false);
+  });
+  it('live skips a response that was destroyed or ended behind our back', () => {
+    const a = new PtyAccess();
+    const r1 = fakeRes(), r2 = fakeRes();
+    a.open('p1', 'k1', Date.now() + 60_000, r1);
+    a.open('p2', 'k1', Date.now() + 60_000, r2);
+    r1.destroyed = true;
+    r2.writableEnded = true;
+    expect([a.live('p1', 'k1'), a.live('p2', 'k1')]).toEqual([false, false]);
   });
   it('sessionKey is a sha256 hex of the signature', () => {
     expect(sessionKey('abc')).toMatch(/^[0-9a-f]{64}$/);

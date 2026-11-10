@@ -15,23 +15,56 @@ async function call(post: Post, path: string, body: unknown): Promise<Reply> {
 }
 const refusal = (r: Reply, t: Texts) => (typeof r.body.error === 'string' && r.body.error) || t.failed;
 
-/** Options, ceremony, verify. undefined = done; a string = the text to show. Never throws. */
-async function ceremony(post: Post, start: Ceremony, t: Texts, base: string, name?: string): Promise<string | undefined> {
+const cancelled = (e: unknown, t: Texts) => {
+  const n = (e as { name?: string })?.name;
+  return n === 'NotAllowedError' || n === 'AbortError' ? t.cancelled : n === 'InvalidStateError' ? t.exists : t.unusable;
+};
+
+/** Once a passkey exists, a change needs a fresh passkey check. A grant, or the text to show. Never throws. */
+async function stepUpGrant(post: Post, start: Ceremony, t: Texts, action: 'passkey:add' | 'passkey:del'): Promise<{ grant: string } | { error: string }> {
   try {
-    const o = await call(post, `${P}/${base}/options`, {});
+    const o = await call(post, '/api/remote/stepup/options', {});
+    if (!o.ok) return { error: refusal(o, t) };
+    let response: unknown;
+    try { response = await start({ optionsJSON: o.body as never }); } catch (e) { return { error: cancelled(e, t) }; }
+    const v = await call(post, '/api/remote/stepup/verify', { response, action });
+    return v.ok && typeof v.body.grant === 'string' ? { grant: v.body.grant } : { error: refusal(v, t) };
+  } catch { return { error: t.offline }; }
+}
+
+/** Options, ceremony, verify. undefined = done; a string = the text to show. Never throws. `stepup`: a passkey exists already. */
+async function ceremony(post: Post, start: Ceremony, t: Texts, base: string, name?: string, stepup = false): Promise<string | undefined> {
+  try {
+    let first: unknown = {};
+    if (stepup) {
+      const g = await stepUpGrant(post, start, t, 'passkey:add');
+      if ('error' in g) return g.error;
+      first = { grant: g.grant };
+    }
+    const o = await call(post, `${P}/${base}/options`, first);
     if (!o.ok) return refusal(o, t);
     let res: unknown;
-    try { res = await start({ optionsJSON: o.body as never }); } catch (e) {
-      const n = (e as { name?: string })?.name;
-      return n === 'NotAllowedError' || n === 'AbortError' ? t.cancelled : n === 'InvalidStateError' ? t.exists : t.unusable;
-    }
+    try { res = await start({ optionsJSON: o.body as never }); } catch (e) { return cancelled(e, t); }
     const v = await call(post, `${P}/${base}/verify`, name === undefined ? res : { response: res, name });
     return v.ok ? undefined : refusal(v, t);
   } catch { return t.offline; }
 }
 
 export const signInWithPasskey = (post: Post, start: Ceremony, t: Texts) => ceremony(post, start, t, 'login');
-export const addPasskey = (name: string, post: Post, start: Ceremony, t: Texts) => ceremony(post, start, t, 'register', name);
+export const addPasskey = (name: string, post: Post, start: Ceremony, t: Texts, stepup = false) => ceremony(post, start, t, 'register', name, stepup);
+
+export async function removePasskey(id: string, post: Post, start: Ceremony, t: Texts, stepup = false): Promise<string | undefined> {
+  let grant: string | undefined;
+  if (stepup) {
+    const g = await stepUpGrant(post, start, t, 'passkey:del');
+    if ('error' in g) return g.error;
+    grant = g.grant;
+  }
+  try {
+    const d = await call(post, `${P}/delete`, grant ? { id, grant } : { id });
+    return d.ok ? undefined : refusal(d, t);
+  } catch { return t.offline; }
+}
 
 export async function signInWithPassword(user: string, password: string, post: Post, t: Texts): Promise<string | undefined> {
   try {
@@ -77,6 +110,7 @@ async function main(): Promise<void> {
 
   // Passkeys page
   const list = $('list')!, again = $<HTMLButtonElement>('again')!, add = $<HTMLButtonElement>('add')!;
+  let count = 0; // passkeys registered: once there is one, changes need a passkey check
   const fail = (m: string) => { show(m); again.hidden = lastStatus !== 403 && lastStatus !== 401; };
   const load = async () => {
     try {
@@ -84,6 +118,7 @@ async function main(): Promise<void> {
       if (r.status === 401) return location.replace('/login'); // session gone
       if (!r.ok) { lastStatus = r.status; return fail(t.loadFail); }
       const items = ((await r.json()) as { passkeys?: Array<{ id: string; name: string; createdAt: number }> }).passkeys ?? [];
+      count = items.length;
       list.replaceChildren(...(items.length ? items : [{ id: '', name: t.none, createdAt: 0 }]).map((p) => {
         const li = document.createElement('li'), s = document.createElement('span');
         s.textContent = p.name;
@@ -94,10 +129,8 @@ async function main(): Promise<void> {
           b.type = 'button'; b.className = 'ghost small'; b.textContent = t.remove;
           b.addEventListener('click', async () => {
             busy(b, true); show();
-            try {
-              const d = await call(post, `${P}/delete`, { id: p.id });
-              if (!d.ok) { fail(refusal(d, t)); busy(b, false); return; }
-            } catch { fail(t.offline); busy(b, false); return; }
+            const m = await removePasskey(p.id, post, startAuth, t, items.length > 0);
+            if (m !== undefined) { fail(m); busy(b, false); return; }
             show(t.removed); again.hidden = true; await load();
           });
           li.append(b);
@@ -109,7 +142,7 @@ async function main(): Promise<void> {
   add.addEventListener('click', async () => {
     busy(add, true); show();
     const name = ($<HTMLInputElement>('n')!.value.trim() || t.defaultName).slice(0, 60);
-    const m = await addPasskey(name, post, startReg, t);
+    const m = await addPasskey(name, post, startReg, t, count > 0);
     busy(add, false);
     if (m !== undefined) return fail(m);
     show(t.added); again.hidden = true; await load();

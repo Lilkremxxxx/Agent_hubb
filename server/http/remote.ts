@@ -201,12 +201,14 @@ export class RemoteSessions {
 
   constructor(
     secret: Buffer,
-    cfg: Pick<RemoteConfig, 'user' | 'passwordHashText'>,
+    cfg: Pick<RemoteConfig, 'user' | 'passwordHashText' | 'ownerEmail'>,
     private readonly now: () => number = Date.now,
     /** Where list of revoked tokens survives restarts (missing = memory only). */
     private readonly revokedFile?: string,
   ) {
-    this.key = createHmac('sha256', secret).update(`${cfg.user}\0${cfg.passwordHashText}`, 'utf8').digest();
+    // The owner email is part of the key: unsetting or changing it invalidates every session (old `.o` cookies cannot stay owner).
+    // Unset keeps the key exactly as before, so existing cookies survive.
+    this.key = createHmac('sha256', secret).update(`${cfg.user}\0${cfg.passwordHashText}${cfg.ownerEmail ? `\0${cfg.ownerEmail}` : ''}`, 'utf8').digest();
     this.loadRevoked();
   }
 
@@ -546,6 +548,8 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
   const passwordOff = () => !!deps.passkeys && deps.passkeys.count() > 0 && !deps.passwordLogin;
   const caAvailable = () => !!deps.caFile && existsSync(deps.caFile);
   let libWarned = false;
+  /** Sessions that just got registration options through a step-up grant (key -> until). */
+  const registering = new Map<string, number>();
   const passkeyRoute = (req: IncomingMessage, res: ServerResponse, route: string, authed: boolean): void => {
     const pk = deps.passkeys;
     const POST = ['/login/options', '/login/verify', '/register/options', '/register/verify', '/delete'];
@@ -567,11 +571,22 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
     }
     const change = route === '/register/options' || route === '/register/verify' || route === '/delete';
     const cookie = readCookie(req.headers.cookie, cname);
-    if (change && !(deps.sessions.recent(cookie, RECENT_MS) && (!deps.ownerEmail || deps.sessions.isOwner(cookie)))) {
+    if (change && !deps.ownerEmail) {
+      // Without an owner nobody can prove they may add an authenticator (and an authenticator is a way in to the terminal).
+      req.resume();
+      deps.log?.warn(tr('Remote passkey change refused ({0}) from {1}, {2}', [route.slice(1), ip, ua]));
+      return sendJson(res, 403, { error: tr('registering or deleting passkeys needs HABBLAUD_REMOTE_OWNER_EMAIL') });
+    }
+    if (change && !(deps.sessions.recent(cookie, RECENT_MS) && deps.sessions.isOwner(cookie))) {
       req.resume();
       deps.log?.warn(tr('Remote passkey change refused ({0}) from {1}, {2}', [route.slice(1), ip, ua]));
       return sendJson(res, 403, { error: tr('sign in again to change passkeys') });
     }
+    const sess = deps.sessions.info(cookie);
+    const sKey = sess ? sessionKey(sess.sig) : '';
+    // Once a passkey exists, changing them also needs a fresh passkey check (grant `passkey:add` / `passkey:del`):
+    // a stolen owner cookie must not be able to add its own authenticator.
+    const guarded = change && pk.count() > 0;
     readBody(req, 32 * 1024, true)
       .then(async (raw) => {
         const body: unknown = raw.trim() === '' && route.endsWith('/options') ? {} : JSON.parse(raw);
@@ -579,7 +594,18 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
           const o = await pk.loginOptions(ip);
           return o ? sendJson(res, 200, o) : sendJson(res, 429, { error: tr('Too many attempts. Try again in {0} s.', [CHALLENGE_TTL_S]) }, { 'Retry-After': String(CHALLENGE_TTL_S) });
         }
-        if (route === '/register/options') return sendJson(res, 200, await pk.registerOptions());
+        const grantOk = (action: string) => !!deps.ptyAccess && typeof (body as { grant?: unknown })?.grant === 'string' && deps.ptyAccess.consume((body as { grant: string }).grant, sKey, action);
+        const refuse = () => {
+          deps.log?.warn(tr('Remote passkey change refused ({0}) from {1}, {2}', [route.slice(1), ip, ua]));
+          return sendJson(res, 403, { error: tr('changing passkeys needs a passkey check') });
+        };
+        if (route === '/register/options') {
+          if (guarded && !grantOk('passkey:add')) return refuse();
+          const o = await pk.registerOptions();
+          for (const [k, until] of registering) if (until <= Date.now()) registering.delete(k);
+          registering.set(sKey, Date.now() + CHALLENGE_TTL_S * 1000);
+          return sendJson(res, 200, o);
+        }
         if (route === '/login/verify') {
           if (!(await pk.verifyLogin(body))) {
             failures.fail(ip);
@@ -592,10 +618,15 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
           return sendJson(res, 200, { ok: true }, { 'Set-Cookie': cookieHeader(token, maxAgeS, deps.secure) });
         }
         if (route === '/register/verify') {
+          // The grant was spent at /register/options; this session must have just got options through it.
+          const until = registering.get(sKey);
+          registering.delete(sKey);
+          if (guarded && !(until && until > Date.now())) return refuse();
           const r = await pk.verifyRegister(body);
           if (r.ok) deps.log?.info(tr('Remote passkey registered from {0}, {1}', [ip, ua]));
           return r.ok ? sendJson(res, 200, { passkey: r.passkey }) : sendJson(res, 400, { error: r.error });
         }
+        if (guarded && !grantOk('passkey:del')) return refuse();
         const id = !!body && typeof body === 'object' && typeof (body as { id?: unknown }).id === 'string' ? (body as { id: string }).id : '';
         if (!pk.remove(id)) return sendJson(res, 404, { error: tr('not found') });
         deps.log?.info(tr('Remote passkey removed from {0}, {1}', [ip, ua]));
@@ -609,6 +640,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
   // Passkey step-up: the owner proves presence again before typing into a terminal (or taking an agent over).
   // The grant it returns is single use, 60 s, bound to this session and to one target.
   const TARGET_ID = /^[A-Za-z0-9_-]{1,64}$/;
+  const PASSKEY_ACTIONS = new Set(['passkey:add', 'passkey:del']);
   const stepupRoute = (req: IncomingMessage, res: ServerResponse, route: string, session: SessionInfo | undefined): void => {
     const pk = deps.passkeys;
     const access = deps.ptyAccess;
@@ -636,13 +668,13 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
     }
     readBody(req, 32 * 1024, true)
       .then(async (raw) => {
-        const body = JSON.parse(raw) as { response?: unknown; ptyId?: unknown; agentId?: unknown };
-        const ids = [body?.ptyId, body?.agentId].filter((x) => x !== undefined);
+        const body = JSON.parse(raw) as { response?: unknown; ptyId?: unknown; agentId?: unknown; action?: unknown };
+        const ids = [body?.ptyId, body?.agentId, body?.action].filter((x) => x !== undefined);
         const id = ids[0];
-        if (!body || typeof body !== 'object' || !body.response || typeof body.response !== 'object' || ids.length !== 1 || typeof id !== 'string' || !TARGET_ID.test(id)) {
+        if (!body || typeof body !== 'object' || !body.response || typeof body.response !== 'object' || ids.length !== 1 || typeof id !== 'string' || !(body.action !== undefined ? PASSKEY_ACTIONS.has(id) : TARGET_ID.test(id))) {
           return sendJson(res, 400, { error: tr('invalid request') });
         }
-        const target = `${body.ptyId !== undefined ? 'pty' : 'agent'}:${id}`;
+        const target = body.action !== undefined ? id : `${body.ptyId !== undefined ? 'pty' : 'agent'}:${id}`;
         if (!(await pk.verifyStepup(body.response, key))) {
           failures.fail(ip);
           deps.log?.warn(tr('Remote passkey step-up failed from {0}, {1}', [ip, ua]));

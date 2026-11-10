@@ -54,9 +54,9 @@ export async function stepUp(target: StepUpTarget, start: Ceremony = defaultStar
 }
 
 /** Ends session in another terminal and continues the same conversation here. Remote: passkey check first; the answer carries a grant to attach the new terminal. */
-export async function takeoverAgent(agentId: string, start?: Ceremony): Promise<(PtyInfo & { grant?: string }) | undefined> {
+export async function takeoverAgent(agentId: string, start?: Ceremony): Promise<(PtyInfo & { grant?: string | null }) | undefined> {
   const grant = access().remote ? await stepUp({ agentId }, start) : undefined;
-  return postPty<PtyInfo & { grant?: string }>(`/api/agents/${encodeURIComponent(agentId)}/takeover`, grant ? { ...SIZE, grant } : SIZE);
+  return postPty<PtyInfo & { grant?: string | null }>(`/api/agents/${encodeURIComponent(agentId)}/takeover`, grant ? { ...SIZE, grant } : SIZE);
 }
 
 /** Stops agent (here or in another terminal). */

@@ -95,7 +95,8 @@ export function createPtyRoutes(ptys: PtyManager, remote?: RemotePty): (req: Inc
       if (!take(body.grant ?? queryGrant, `agent:${id}`)) throw needGrant();
       const info = await ptys.takeover(id, { cols: body.cols, rows: body.rows });
       // The owner just proved presence for this takeover: hand over the grant for the new terminal so it opens without a second prompt.
-      return sendJson(res, 201, { ...info, grant: rp.access.issue(key, `pty:${info.id}`) });
+      // null when 20 grants are outstanding: the client then asks for a passkey check as for any attach.
+      return sendJson(res, 201, { ...info, grant: rp.access.issue(key, `pty:${info.id}`) ?? null });
     }
     const m = /^\/api\/pty\/([^/]+)\/(stream|input|resize)$/.exec(path);
     if (!m) throw new HttpError(403, tr('the interactive terminal can only be used on the computer running Habblaud'));

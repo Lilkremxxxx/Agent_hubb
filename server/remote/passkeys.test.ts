@@ -271,3 +271,32 @@ describe('PasskeyService step-up', () => {
     expect(await s.stepupOptions('k1')).not.toBeNull();
   });
 });
+
+describe('PasskeyService inside the portal iframe (expectedTopOrigin)', () => {
+  const DOMAIN = 'hub.finstar.pp.ua';
+  let seen: any;
+  const lib = (): WebAuthnLib => ({
+    ...webauthn,
+    verifyAuthenticationResponse: (async (o: any) => { seen = o; return { verified: true, authenticationInfo: { newCounter: 2 } }; }) as never,
+  });
+  const mk = (topOrigin?: string) => {
+    const store = new PasskeyStore(file());
+    store.add(pk('cred-1'));
+    return new PasskeyService({ domain: DOMAIN, user: 'bang', store, lib: lib(), topOrigin });
+  };
+  it('passes exactly the configured frame ancestor for login and step-up', async () => {
+    const s = mk('https://linux.finstar.pp.ua');
+    expect(await s.verifyLogin({ id: 'cred-1' })).toBe(true);
+    expect(seen.expectedTopOrigin).toBe('https://linux.finstar.pp.ua');
+    expect(seen.expectedOrigin).toBe('https://hub.finstar.pp.ua');
+    seen = undefined;
+    await s.stepupOptions('k1');
+    await s.verifyStepup({ id: 'cred-1' }, 'k1').catch(() => {});
+    expect(seen === undefined || seen.expectedTopOrigin === 'https://linux.finstar.pp.ua').toBe(true);
+  });
+  it('without a frame ancestor no top origin is expected (an iframe assertion is then rejected by the library)', async () => {
+    const s = mk();
+    await s.verifyLogin({ id: 'cred-1' });
+    expect(seen.expectedTopOrigin).toBeUndefined();
+  });
+});
