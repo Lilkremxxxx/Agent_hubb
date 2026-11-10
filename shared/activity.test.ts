@@ -209,12 +209,13 @@ describe('AskUserQuestion in the office', () => {
         index: 0,
         question: 'Which database to use?',
         header: 'Database',
+        total: 2,
         options: [
           { index: 0, label: 'Postgres', description: 'Relational, already used in project' },
           { index: 1, label: 'SQLite' },
         ],
       },
-      { index: 1, question: 'Which tests to run?', multiSelect: true, options: [{ index: 0, label: 'Unit' }, { index: 1, label: 'E2E' }] },
+      { index: 1, question: 'Which tests to run?', multiSelect: true, total: 2, options: [{ index: 0, label: 'Unit' }, { index: 1, label: 'E2E' }] },
     ]);
   });
 
@@ -227,6 +228,8 @@ describe('AskUserQuestion in the office', () => {
     // Positions match the original (office reply returns through them), with invalid ones counted.
     expect(d.questions![0]!.index).toBe(2);
     expect(d.questions![0]!.options).toEqual([{ index: 1, label: 'Yes' }]);
+    // total counts the original options, invalid ones included: that is where the "Other" row sits in Claude Code.
+    expect(d.questions![0]!.total).toBe(2);
   });
 
   it('without valid questions, does not create the field', () => {

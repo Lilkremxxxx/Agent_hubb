@@ -24,7 +24,8 @@ function askQuestions(raw: unknown): AskQuestion[] {
     if (!obj(q)) return [];
     const question = clean(q.question, 300);
     if (!question) return [];
-    const opts = Array.isArray(q.options) ? q.options.slice(0, MAX_OPTIONS) : [];
+    const all = Array.isArray(q.options) ? q.options : [];
+    const opts = all.slice(0, MAX_OPTIONS);
     const options = opts.flatMap((o, index) => {
       if (!obj(o)) return [];
       const label = clean(o.label, 80);
@@ -33,7 +34,7 @@ function askQuestions(raw: unknown): AskQuestion[] {
       return [{ index, label, ...(description ? { description } : {}) }];
     });
     const header = clean(q.header, 30);
-    return [{ index, question, ...(header ? { header } : {}), ...(q.multiSelect === true ? { multiSelect: true } : {}), options }];
+    return [{ index, question, ...(header ? { header } : {}), ...(q.multiSelect === true ? { multiSelect: true } : {}), total: all.length, options }];
   });
 }
 

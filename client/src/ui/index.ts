@@ -174,7 +174,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
     get interactiveEnabled() {
       return pty.enabled;
     },
-    newSession: (cwd, account) => pty.newSession(cwd, account),
+    newSession: (cwd, account, prompt) => pty.newSession(cwd, account, prompt),
     showPty: (info) => pty.openPty(info),
     open(id, opener) {
       const readOnly = !!store.snapshot?.meta.terminal;

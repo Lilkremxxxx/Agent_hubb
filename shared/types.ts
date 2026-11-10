@@ -91,7 +91,7 @@ export interface Activity {
 }
 
 /**
- * An AskUserQuestion question, masked and trimmed. The answer is given in Claude Code.
+ * An AskUserQuestion question, masked and trimmed. The answer is given in Claude Code (or typed into its terminal from the office).
  */
 export interface AskQuestion {
   /** Question position in `tool_input.questions` (invalid entries skipped, so there may be gaps). */
@@ -99,6 +99,8 @@ export interface AskQuestion {
   question: string;
   header?: string;
   multiSelect?: boolean;
+  /** Number of original options (before trimming): the "Other" row of Claude Code sits right after them. */
+  total: number;
   /** `index` = option position in original `options`. */
   options: Array<{ index: number; label: string; description?: string }>;
 }
@@ -416,6 +418,8 @@ export interface OfficeInfo {
   /** Room of the folder (RoomInfo.id), while someone works there. */
   roomId?: string;
   workers: WorkerId[];
+  /** The seats of team.json with their kind (the pipeline dialog's choices). */
+  seats?: { name: WorkerId; kind: WorkerKind }[];
   /** The boss's account (AccountInfo.id); absent = no boss. */
   bossAccount?: string;
   bossKind?: WorkerKind;

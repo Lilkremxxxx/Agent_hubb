@@ -369,6 +369,16 @@ describe('POST /api/team {openBoss}', () => {
     await foe.close(); foe.cleanup();
   });
 
+  it('passes the first prompt on to openBoss, and tells when the boss was already open', async () => {
+    const pty = { id: 'p1-9', pid: 9, cwd: '/w/p', account: '.claude', agentId: '.claude:9', startedAt: 1 };
+    const seen: unknown[] = [];
+    const env = await start({ team: { appoint: () => ({ ok: true }), openBoss: async (prompt) => (seen.push(prompt), { ok: true, pty, reused: true }) } });
+    const r = await fetch(`${env.base}/api/team`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ openBoss: true, prompt: '/x' }) });
+    expect(await r.json()).toEqual({ ok: true, pty, reused: true });
+    expect(seen).toEqual(['/x']);
+    await env.close(); env.cleanup();
+  });
+
   it('POST /api/advisor and GET /api/advisor/:id: the question, 409 with its code, 404, and only from this computer', async () => {
     const q = { id: 'a1', slot: 'W2', ref: 'T2', question: 'q', status: 'answered' as const, askedAt: 1, answer: 'A' };
     const env = await start({

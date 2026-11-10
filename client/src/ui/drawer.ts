@@ -1,5 +1,5 @@
 // Details drawer (right): selected agent or room.
-import type { Activity, AgentInfo, FeedItem, RoomInfo, ShellJob, TaskItem } from '../../../shared/types';
+import type { Activity, AgentInfo, AskQuestion, FeedItem, RoomInfo, ShellJob, TaskItem } from '../../../shared/types';
 import { roomTheme } from '../art';
 import { createAvatarPlaceholder, updateAvatar } from './avatar';
 import { CharacterEditor } from './character-editor';
@@ -42,7 +42,9 @@ import { access } from '../net/access';
 import { canRenameRoom } from './roomrename';
 import { appointBoss, sessionOfAgent } from './workers-api';
 import { accountChipLabel, providerOf } from './provider';
-import { ptyControllable } from './ptyapi';
+import { askPipelineHere } from './pipeline-dialog';
+import { askKeys, type AskPick } from './askkeys';
+import { postPty, ptyControllable } from './ptyapi';
 import { createAgentRow, updateAgentRow } from './rows';
 import { TERMINAL_UNAVAILABLE_HINT, type TerminalControl } from './terminal';
 import { Movable } from './movable';
@@ -216,7 +218,7 @@ class AgentView {
   private workerTermSec: ReturnType<typeof section>;
   private alert: HTMLElement;
   private alertText: HTMLElement;
-  /** Pending AskUserQuestion questions and options, read-only. */
+  /** Pending AskUserQuestion questions and options; answerable when the session runs in a Habblaud terminal. */
   private alertQuestions: HTMLElement;
   private alertQuestionsKey = '';
   private shellBox: HTMLElement;
@@ -604,9 +606,9 @@ class AgentView {
       const where = tr('the {0} terminal', [accName]);
       setText(this.alertText, tr('Go to {0} in {1} to reply{2}', [where, room?.name ?? tr('your project'), a.waitingFor ? `: ${a.waitingFor}` : '.']));
     }
-    // AskUserQuestion questions (read-only).
+    // AskUserQuestion questions.
     const asking = waiting && a.activity?.kind === 'ask' ? a.activity : undefined;
-    this.renderQuestions(asking);
+    this.renderQuestions(asking, a.id);
 
     // Waiting on shell.
     setHidden(this.shellBox, !wait);
@@ -674,31 +676,88 @@ class AgentView {
     this.renderStats(a, now);
   }
 
-  /** Lists pending questions with options, read-only (without office request, answer in Claude Code). */
-  private renderQuestions(act: Activity | undefined): void {
+  /** Lists pending questions; with a live Habblaud terminal for the agent they can be answered here (keys typed into it). */
+  private renderQuestions(act: Activity | undefined, agentId: string): void {
     const qs = act?.questions ?? [];
     setHidden(this.alertQuestions, qs.length === 0);
-    const key = qs.length ? `${act!.id}|${qs.length}` : '';
+    // Question positions are the tab positions in Claude Code: with gaps we cannot type the answer.
+    // Remote: only the owner (passkey step-up) may type; a viewer stays read-only.
+    const typing = !access().remote || access().ptyStepUp === true;
+    const ptyId = qs.length && typing && qs.every((q, i) => q.index === i) ? this.pty.ptyOf(agentId)?.id : undefined;
+    const key = qs.length ? `${act!.id}|${qs.length}|${ptyId ?? ''}` : '';
     if (key === this.alertQuestionsKey) return;
     this.alertQuestionsKey = key;
-    this.alertQuestions.replaceChildren(
-      ...qs.map((q) =>
-        h(
-          'div',
-          { class: 'ui-ask__q' },
-          q.header ? h('span', { class: 'ui-ask__tag', text: q.header }) : null,
-          h('p', { class: 'ui-ask__question', text: q.question }),
-          q.multiSelect ? h('p', { class: 'ui-ask__hint', text: tr('You can pick more than one') }) : null,
-          h(
-            'ol',
-            { class: 'ui-ask__opts' },
-            ...q.options.map((o) =>
-              h('li', {}, h('strong', { text: o.label }), o.description ? h('span', { class: 'ui-ask__desc', text: o.description }) : null),
-            ),
-          ),
-        ),
-      ),
-    );
+    const fields: Array<{ radios: HTMLInputElement[]; other: HTMLInputElement }> = [];
+    const blocks = qs.map((q, i) => {
+      const head = [
+        q.header ? h('span', { class: 'ui-ask__tag', text: q.header }) : null,
+        h('p', { class: 'ui-ask__question', text: q.question }),
+        q.multiSelect ? h('p', { class: 'ui-ask__hint', text: tr('You can pick more than one') }) : null,
+      ];
+      if (!ptyId) {
+        const opts = q.options.map((o) => h('li', {}, h('strong', { text: o.label }), o.description ? h('span', { class: 'ui-ask__desc', text: o.description }) : null));
+        return h('div', { class: 'ui-ask__q' }, ...head, h('ol', { class: 'ui-ask__opts' }, ...opts));
+      }
+      const radios = q.options.map((o) => h('input', { type: q.multiSelect ? 'checkbox' : 'radio', attrs: { name: `ui-ask-${act!.id}-${i}`, value: String(o.index) } }));
+      const other = h('input', { class: 'ui-msg__input ui-ask__other', type: 'text', attrs: { maxlength: 300, placeholder: tr('Other'), autocomplete: 'off', 'aria-label': tr('Other') } });
+      if (!q.multiSelect) {
+        for (const r of radios) r.addEventListener('change', () => (other.value = ''));
+        other.addEventListener('input', () => other.value && radios.forEach((r) => (r.checked = false)));
+      }
+      fields.push({ radios, other });
+      const opts = q.options.map((o, k) =>
+        h('label', { class: 'ui-ask__opt' }, radios[k]!, h('span', {}, h('strong', { text: o.label }), o.description ? h('span', { class: 'ui-ask__desc', text: o.description }) : null)),
+      );
+      return h('div', { class: 'ui-ask__q' }, ...head, h('div', { class: 'ui-ask__opts' }, ...opts), other);
+    });
+    if (!ptyId) {
+      this.alertQuestions.replaceChildren(...blocks, h('p', { class: 'ui-ask__hint', text: tr('Take over the session to answer here') }));
+      return;
+    }
+    const status = h('p', { class: 'ui-msg__status', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
+    const send = h('button', { class: 'ui-btn ui-ask__send', type: 'button', text: tr('Send answer') });
+    const picks = (): AskPick[] => fields.map((f) => ({ opts: f.radios.filter((r) => r.checked).map((r) => Number(r.value)), other: f.other.value }));
+    const go = () => void this.sendAnswer(agentId, ptyId, act!.id, qs, picks(), send, status);
+    send.addEventListener('click', go);
+    for (const f of fields) f.other.addEventListener('keydown', (ev) => ev.key === 'Enter' && !ev.isComposing && go());
+    this.alertQuestions.replaceChildren(...blocks, send, status);
+  }
+
+  /** Types the answer into the agent's terminal (same route as the terminal pane), one key group per write, like a person would. */
+  private async sendAnswer(agentId: string, ptyId: string, actId: string, qs: AskQuestion[], picks: AskPick[], btn: HTMLButtonElement, status: HTMLElement): Promise<void> {
+    const show = (text: string) => {
+      setHidden(status, !text);
+      setText(status, text);
+      status.classList.add('is-error');
+    };
+    const waitingHere = () => this.id === agentId && this.last?.status === 'waiting' && this.last.activity?.id === actId;
+    const keys = askKeys(qs, picks);
+    if (!keys) return show(tr('Answer every question first.'));
+    if (!waitingHere()) return show(tr('The agent is no longer waiting for this answer.'));
+    if (btn.disabled) return;
+    btn.disabled = true;
+    let written = 0;
+    try {
+      for (const [i, data] of keys.entries()) {
+        if (i) await new Promise((r) => setTimeout(r, 60));
+        if (i && !waitingHere()) return show(tr('The agent is no longer waiting for this answer.'));
+        await postPty(`/api/pty/${encodeURIComponent(ptyId)}/input`, { data });
+        written++;
+      }
+    } catch (e) {
+      // Keys already typed assume the cursor is on option 1: sending again would corrupt the dialog.
+      if (written) return show(tr('The agent is still waiting: check its terminal.'));
+      btn.disabled = false;
+      // Remote: the input route answers 403 until this terminal passed the passkey check (opening it does that).
+      const need = access().remote && (e as { status?: number }).status === 403;
+      return show(need ? tr("Open this agent's terminal first (passkey check), then send.") : (e as Error).message);
+    }
+    show('');
+    // Answered: the activity changes and this block is rebuilt; if not, the dialog did not take the keys.
+    setTimeout(() => {
+      btn.disabled = false;
+      if (waitingHere()) show(tr('The agent is still waiting: check its terminal.'));
+    }, 5000);
   }
 
   private renderTerminalButton(live: boolean): void {
@@ -823,7 +882,7 @@ class RoomView {
     private ctx: UiContext,
     private pty: PtyControl,
   ) {
-    this.newBtn = h('button', { class: 'ui-btn', type: 'button', text: tr('New session'), title: tr('Opens a new Claude Code in this folder, in an interactive terminal'), on: { click: () => this.newSession() } });
+    this.newBtn = h('button', { class: 'ui-btn', type: 'button', text: tr('New session'), title: tr('Opens a new Claude Code in this folder, in an interactive terminal'), on: { click: () => void this.newSession() } });
     this.newMsg = h('p', { class: 'ui-actions__msg is-error', role: 'status', hidden: true });
     this.swatch = h('span', { class: 'ui-room-hero__swatch', attrs: { 'aria-hidden': 'true' } });
     this.name = h('h2', { class: 'ui-hero__name' });
@@ -897,13 +956,15 @@ class RoomView {
   }
 
   /** New session in room folder, using account of someone in it (or default). */
-  private newSession(): void {
+  private async newSession(): Promise<void> {
     const r = this.last;
     if (!r) return;
     // Claude Code accounts only; if none in room, server uses default.
     const account = (this.ctx.store.snapshot?.agents ?? []).find((a) => a.roomId === r.id && ptyControllable(a))?.account;
     setHidden(this.newMsg, true);
-    this.pty.newSession(r.path, account).catch((err: Error) => {
+    const choice = await askPipelineHere(this.ctx, account, false);
+    if (!choice) return;
+    this.pty.newSession(r.path, choice.account, choice.prompt).catch((err: Error) => {
       setText(this.newMsg, tr("Didn't work: {0}", [err.message]));
       setHidden(this.newMsg, false);
     });

@@ -14,6 +14,7 @@ import { groupRoles, roleKey, roleScope, type AgentNode, type RoleGroup, type Ro
 import { teamOffices } from './offices';
 import { appointBoss, openBoss, sessionOfAgent } from './workers-api';
 import { officeIsEmpty } from './overlays';
+import { askPipelineHere } from './pipeline-dialog';
 import { createAgentRow, setAgentRowPlace, updateAgentRow } from './rows';
 import { tr } from '../../../shared/i18n';
 
@@ -287,9 +288,17 @@ export class Sidebar implements UiComponent {
   /** ＋ on Boss: the server opens the boss in the office folder; its terminal shows here. */
   private async openBoss(): Promise<void> {
     try {
-      const pty = await openBoss();
+      const office = this.ctx.selectedOffice();
+      // Already open: just show its terminal, no roster to send.
+      const bossId = office?.bossAgentId ?? office?.pendingBoss;
+      const live = bossId ? this.ctx.store.snapshot?.ptys?.find((p) => p.agentId === bossId && p.exitedAt === undefined) : undefined;
+      if (live) return void this.ctx.terminals?.showPty?.(live);
+      // An Antigravity boss has no roster to choose: it opens as before.
+      const choice = office?.bossKind === 'agy' ? undefined : await askPipelineHere(this.ctx, office?.bossAccount, true);
+      if (choice === null) return;
+      const { pty, reused } = await openBoss(choice?.prompt);
       if (pty) this.ctx.terminals?.showPty?.(pty);
-      this.ctx.announce(tr('The boss is opening in the terminal…'));
+      this.ctx.announce(reused && choice ? tr('The boss is already open: the roster was not sent') : tr('The boss is opening in the terminal…'));
     } catch (e) {
       this.ctx.announce(tr("Didn't work: {0}", [e instanceof Error ? e.message : String(e)]));
     }

@@ -73,7 +73,7 @@ turns into a party) or 10 min. Push only notifies. The same CI seen again within
 | `DELETE /api/agents/:id/character` | "Back to random": removes character from room; `200 {ok}` or `404`; local access only |
 | `GET /api/sessions/recent` | `RecentSessionsResponse`: sessions from last 7 days across all accounts (up to 150); same terminal lock |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE of conversation for a historical session (same terminal protocol); same lock |
-| `POST /api/team` | `{openBoss: true}` opens the boss (`boss.kind`) in `folder` (`400` without a folder); `{boss}` appoints an open session; local access only. Seats are edited in `team.json`, not here |
+| `POST /api/team` | `{openBoss: true, prompt?}` opens the boss (`boss.kind`) in `folder` (`400` without a folder); `prompt` is the first prompt of a Claude boss, ignored when the boss is already open (`reused: true` in the answer); `{boss}` appoints an open session; local access only. Seats are edited in `team.json`, not here |
 | `GET /api/health` | `{ok, version, remote, terminal, pty, sources, accounts:[{id, usageStatus}]}` |
 
 The snapshot (SSE and `GET /api/snapshot`) carries only the last 8 activities of each agent in `recent`; history of up

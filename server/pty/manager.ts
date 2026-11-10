@@ -105,6 +105,8 @@ const MAX_SCROLLBACK = 512 * 1024;
 /** Exited terminals stay in the list for a while so the final screen can still be viewed. */
 const EXITED_KEEP_MS = 10 * 60_000;
 export const MAX_PTYS = 12;
+/** Longest first prompt of a new session. */
+const MAX_PROMPT = 20_000;
 /** How long to wait for external process to exit before resuming session here (afterwards, force-killed). */
 const TAKEOVER_WAIT_MS = 5_000;
 /** After force-killing: how much longer to wait. */
@@ -191,6 +193,12 @@ export class PtyError extends Error {
   }
 }
 
+/** The prompt is claude's positional argument (argv, no shell): a leading "-" would be read as an option and a NUL makes node-pty throw. Throws a 400. */
+export function checkPrompt(prompt: unknown): asserts prompt is string | undefined {
+  if (prompt !== undefined && (typeof prompt !== 'string' || !prompt || prompt.length > MAX_PROMPT || prompt.startsWith('-') || prompt.includes('\0')))
+    throw new PtyError(400, tr('invalid prompt (text of up to {0} characters, not starting with "-")', [MAX_PROMPT]));
+}
+
 export class PtyManager {
   private ptys = new Map<string, Pty>();
   private seq = 0;
@@ -235,8 +243,10 @@ export class PtyManager {
   }
 
   /** Opens a new Claude Code session in directory (absolute `cwd`), in requested account (or default). */
-  create(p: { cwd: unknown; account?: unknown; cols?: unknown; rows?: unknown }): PtyInfo {
-    return this.spawn(this.plan(p, this.takeovers.size));
+  create(p: { cwd: unknown; account?: unknown; cols?: unknown; rows?: unknown; prompt?: unknown }): PtyInfo {
+    checkPrompt(p.prompt);
+    const plan = this.plan(p, this.takeovers.size);
+    return this.spawn(plan, { prompt: p.prompt });
   }
 
   /**
@@ -490,7 +500,7 @@ export class PtyManager {
     return env;
   }
 
-  private spawn(plan: SpawnPlan, p: { resume?: string; from?: string } = {}): PtyInfo {
+  private spawn(plan: SpawnPlan, p: { resume?: string; from?: string; prompt?: string } = {}): PtyInfo {
     const spawn = this.opts.spawn;
     if (!spawn) throw new PtyError(503, tr('terminal disabled: {0}', [this.opts.disabledReason ?? tr('unavailable')]));
     const { cwd, account, cols, rows } = plan;
@@ -500,7 +510,7 @@ export class PtyManager {
 
     let proc: PtyProcess;
     try {
-      const args = p.resume ? ['--resume', p.resume] : [];
+      const args = p.resume ? ['--resume', p.resume] : p.prompt ? [p.prompt] : [];
       proc = spawn(this.opts.claudeBin, args, { cwd, cols, rows, env });
     } catch (err) {
       throw new PtyError(500, tr("couldn't open Claude Code: {0}", [errMsg(err)]));

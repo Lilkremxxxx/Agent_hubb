@@ -21,15 +21,15 @@ export async function postPty<T = unknown>(url: string, body: unknown): Promise<
   }
   if (res.status === 204) return undefined;
   const j = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) throw new Error(j.error ?? tr('error {0}', [res.status]));
+  if (!res.ok) throw Object.assign(new Error(j.error ?? tr('error {0}', [res.status])), { status: res.status });
   return j as T;
 }
 
 const SIZE = { cols: 120, rows: 32 };
 
-/** New Claude Code session in the specified directory (and account). */
-export function createPty(cwd: string, account?: string): Promise<PtyInfo | undefined> {
-  return postPty<PtyInfo>('/api/pty', { cwd, account, ...SIZE });
+/** New Claude Code session in the specified directory (and account), optionally with a first prompt. */
+export function createPty(cwd: string, account?: string, prompt?: string): Promise<PtyInfo | undefined> {
+  return postPty<PtyInfo>('/api/pty', { cwd, account, prompt, ...SIZE });
 }
 
 export type StepUpTarget = { ptyId: string } | { agentId: string };

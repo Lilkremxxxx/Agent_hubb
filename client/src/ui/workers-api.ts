@@ -32,8 +32,8 @@ export function appointBoss(agentId: string | null, pendingAccount?: string): Pr
 }
 
 /** Opens the boss terminal (by the boss kind in team.json, in the office folder); the server answers with its terminal. */
-export async function openBoss(): Promise<PtyInfo | undefined> {
-  return (await post<{ pty?: PtyInfo }>('/api/team', { openBoss: true })).pty;
+export async function openBoss(prompt?: string): Promise<{ pty?: PtyInfo; reused?: boolean }> {
+  return post<{ pty?: PtyInfo; reused?: boolean }>('/api/team', { openBoss: true, ...(prompt ? { prompt } : {}) });
 }
 
 export interface AskRequest {

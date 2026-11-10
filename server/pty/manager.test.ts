@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { ptyRequestProblem } from '../http/pty';
 import {
+  checkPrompt,
   claudeBinFrom,
   findExecutable,
   fixSpawnHelper,
@@ -132,6 +133,29 @@ describe('PtyManager: check process before stopping', () => {
     const s = setup({ proc: undefined });
     await rejects(s.manager.stop(`acc:${PID}`), 409);
     expect(s.killPid).not.toHaveBeenCalled();
+  });
+});
+
+describe('PtyManager: first prompt', () => {
+  it('goes to claude as its one positional argument; none = no arguments', () => {
+    const s = setup();
+    s.manager.create({ cwd: tmpdir(), prompt: '/bang-skill:pipeline\ncoder: x' });
+    s.manager.create({ cwd: tmpdir() });
+    expect(s.spawned.map((x) => x.args)).toEqual([['/bang-skill:pipeline\ncoder: x'], []]);
+  });
+
+  it('checkPrompt: accepts undefined and text, throws a 400 PtyError otherwise', () => {
+    expect(() => checkPrompt(undefined)).not.toThrow();
+    expect(() => checkPrompt('/bang-skill:pipeline')).not.toThrow();
+    expect(() => checkPrompt('a\0b')).toThrow(PtyError);
+  });
+
+  it('rejects a prompt that is not a string, empty, too long or starts with "-" (400, nothing opens)', () => {
+    const s = setup();
+    for (const prompt of [5, '', '--dangerously-skip-permissions', 'x'.repeat(20_001), 'a\0b']) {
+      expect(() => s.manager.create({ cwd: tmpdir(), prompt })).toThrow(PtyError);
+    }
+    expect(s.spawned).toEqual([]);
   });
 });
 

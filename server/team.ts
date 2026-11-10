@@ -324,7 +324,7 @@ export class TeamService {
 
   private info(workers: string[]): OfficeInfo {
     const folder = this.folder;
-    const out: OfficeInfo = { id: 'main', name: basename(folder) || 'Office', folder, workers };
+    const out: OfficeInfo = { id: 'main', name: basename(folder) || 'Office', folder, workers, seats: this.team.workers.map(({ name, kind }) => ({ name, kind })) };
     if (folder) {
       const room = this.opts.office.roomList().find((r) => officeFolder(r.path) === folder);
       if (room) out.roomId = room.id;

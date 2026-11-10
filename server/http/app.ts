@@ -67,7 +67,7 @@ export interface ApiDeps {
   team?: {
     appoint: (agentId: string | null, pending?: { account: string }) => TeamResult;
     /** {openBoss: true}: opens the boss's terminal by boss.kind in the office folder; absent = the interactive terminal is off. */
-    openBoss?: () => Promise<{ ok: true; pty: PtyInfo } | { ok: false; status: number; error: string }>;
+    openBoss?: (prompt?: unknown) => Promise<{ ok: true; pty: PtyInfo; reused?: true } | { ok: false; status: number; error: string }>;
   };
   /** Worker terminals (/api/workers/*, server/workers): jobs, cancel; this computer only. */
   workers?: {
@@ -444,12 +444,12 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else
         readJson(req)
           .then(async (body) => {
-            const b = (body ?? {}) as { boss?: unknown; pendingAccount?: unknown; openBoss?: unknown };
+            const b = (body ?? {}) as { boss?: unknown; pendingAccount?: unknown; openBoss?: unknown; prompt?: unknown };
             if (b.openBoss === true) {
               if (!deps.team!.openBoss) throw new HttpError(503, tr('the interactive terminal is off (HABBLAUD_PTY=1)'));
-              const o = await deps.team!.openBoss();
+              const o = await deps.team!.openBoss(b.prompt);
               if (!o.ok) throw new HttpError(o.status, o.error);
-              sendJson(res, 200, { ok: true, pty: o.pty });
+              sendJson(res, 200, { ok: true, pty: o.pty, ...(o.reused ? { reused: true } : {}) });
               return;
             }
             if (!('boss' in b) || Object.keys(b).some((k) => k !== 'boss' && k !== 'pendingAccount')) throw new HttpError(400, tr('expected {boss}'));
