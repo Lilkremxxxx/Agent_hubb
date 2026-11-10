@@ -1,6 +1,6 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdirSync, readFileSync, statSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AccountsService } from '../accounts/service';
@@ -932,8 +932,9 @@ describe('passkey routes', () => {
     const v = await post(b, '/api/remote/passkeys/login/verify', { id: 'cred-1' });
     expect(v.status).toBe(200);
     expect(v.headers['set-cookie']?.[0]).toMatch(/^__Host-habblaud_remote=.*SameSite=Lax.*Secure/);
-    expect((await post(b, '/api/remote/passkeys/delete', { id: 'nope', grant: await grantFor(b, C.Cookie, 'passkey:del') }, C)).status).toBe(404);
-    expect((await post(b, '/api/remote/passkeys/delete', { id: 'cred-1', grant: await grantFor(b, C.Cookie, 'passkey:del') }, C)).status).toBe(200);
+    // the last passkey cannot be removed over the remote port, grant or not
+    expect((await post(b, '/api/remote/passkeys/delete', { id: 'cred-1', grant: await grantFor(b, C.Cookie, 'passkey:del') }, C)).status).toBe(403);
+    expect(JSON.parse((await request(b, '/api/remote/passkeys', { headers: { ...H, ...C } })).body).passkeys).toHaveLength(1);
   });
 
   it('state-changing routes need the Origin and a JSON body; bad body is 400; wrong method 405', async () => {
@@ -1053,14 +1054,15 @@ describe('passkey changes need a step-up once a passkey exists', () => {
   const DOMAIN = 'hub.finstar.pp.ua';
   const H = { Connection: 'close', Host: DOMAIN, Origin: `https://${DOMAIN}`, 'CF-Connecting-IP': '203.0.113.7' };
   let clock = Date.now();
-  async function mk(o: { noOwner?: boolean } = {}) {
+  async function mk(o: { noOwner?: boolean; corrupt?: boolean } = {}) {
     const tmp = tempDir();
     clock = Date.now();
     const lib: WebAuthnLib = {
       ...webauthn,
-      verifyRegistrationResponse: (async () => ({ verified: true, registrationInfo: { credential: { id: 'cred-1', publicKey: new Uint8Array([1]), counter: 0 } } })) as never,
+      verifyRegistrationResponse: (async (o: { response?: { id?: string } }) => ({ verified: true, registrationInfo: { credential: { id: o.response?.id ?? 'cred-1', publicKey: new Uint8Array([1]), counter: 0 } } })) as never,
       verifyAuthenticationResponse: (async () => ({ verified: true, authenticationInfo: { newCounter: 1 } })) as never,
     };
+    if (o.corrupt) { mkdirSync(tmp.dir, { recursive: true }); writeFileSync(join(tmp.dir, 'pk.json'), '{not json'); }
     const passkeys = new PasskeyService({ domain: DOMAIN, user: 'ana', store: new PasskeyStore(join(tmp.dir, 'pk.json')), lib });
     const guard = createRequestGuard({ allowedHosts: new Set([DOMAIN]) });
     const gate = createRemoteGate({ config: CFG, sessions: new RemoteSessions(SECRET, { ...CFG, ownerEmail: 'owner@example.com' }, () => clock), secure: true, domain: DOMAIN, passkeys, ownerEmail: o.noOwner ? undefined : 'owner@example.com', ptyAccess: new PtyAccess(), passwordLogin: true, failures: new FailureWindow(50, 600_000) });
@@ -1085,6 +1087,11 @@ describe('passkey changes need a step-up once a passkey exists', () => {
     const c = await login(b);
     expect((await post(b, '/api/remote/passkeys/register/options', c)).status).toBe(200);
     expect((await post(b, '/api/remote/passkeys/register/verify', c, { response: { id: 'cred-1' }, name: 'P' })).status).toBe(200);
+  };
+  /** A second passkey (needs a grant now), so the first can be deleted. */
+  const addSecond = async (b: string, c: string) => {
+    expect((await post(b, '/api/remote/passkeys/register/options', c, { grant: await grant(b, c, 'passkey:add') })).status).toBe(200);
+    expect((await post(b, '/api/remote/passkeys/register/verify', c, { response: { id: 'cred-2' }, name: 'Q' })).status).toBe(200);
   };
 
   it('count 0: a recent owner bootstraps the first passkey without a grant', async () => {
@@ -1120,13 +1127,45 @@ describe('passkey changes need a step-up once a passkey exists', () => {
     const b = await mk();
     await bootstrap(b);
     const A = await login(b), B = await login(b);
+    await addSecond(b, A);
     expect((await post(b, '/api/remote/passkeys/delete', A, { id: 'cred-1' })).status).toBe(403);
     expect((await post(b, '/api/remote/passkeys/delete', A, { id: 'cred-1', grant: await grant(b, A, 'passkey:add') })).status).toBe(403);
     expect((await post(b, '/api/remote/passkeys/delete', B, { id: 'cred-1', grant: await grant(b, A, 'passkey:del') })).status).toBe(403);
     const g = await grant(b, A, 'passkey:del');
     expect((await post(b, '/api/remote/passkeys/delete', A, { id: 'cred-1', grant: g })).status).toBe(200);
-    // (reuse is covered by the register test: with the last passkey gone the bootstrap rule applies again)
-    expect(g).toBeTruthy();
+    expect((await post(b, '/api/remote/passkeys/delete', A, { id: 'cred-2', grant: g })).status).toBe(403); // reused (and it would be the last one)
+  });
+
+  it('the last passkey cannot be deleted over the remote port, even with a valid grant, and the grant is not burned', async () => {
+    const b = await mk();
+    await bootstrap(b);
+    const A = await login(b);
+    const g = await grant(b, A, 'passkey:del');
+    const r = await post(b, '/api/remote/passkeys/delete', A, { id: 'cred-1', grant: g });
+    expect(r.status).toBe(403);
+    expect(r.body).toContain('last passkey');
+    await addSecond(b, A);
+    expect((await post(b, '/api/remote/passkeys/delete', A, { id: 'cred-1', grant: g })).status).toBe(200); // the same grant still works
+  });
+
+  it('options at count 0 do not let that session finish a registration after another passkey was added', async () => {
+    const b = await mk();
+    const X = await login(b), Y = await login(b);
+    expect((await post(b, '/api/remote/passkeys/register/options', X)).status).toBe(200); // count 0: no grant needed
+    expect((await post(b, '/api/remote/passkeys/register/options', Y)).status).toBe(200);
+    expect((await post(b, '/api/remote/passkeys/register/verify', Y, { response: { id: 'cred-1' }, name: 'Y' })).status).toBe(200);
+    const r = await post(b, '/api/remote/passkeys/register/verify', X, { response: { id: 'cred-9' }, name: 'X' });
+    expect(r.status).toBe(403);
+  });
+
+  it('an unreadable passkeys file is a refusal state: no bootstrap, no step-up', async () => {
+    const b = await mk({ corrupt: true });
+    const c = await login(b);
+    for (const [path, body] of [['/api/remote/passkeys/register/options', {}], ['/api/remote/passkeys/register/verify', { response: { id: 'x' } }], ['/api/remote/passkeys/delete', { id: 'x' }], ['/api/remote/stepup/options', {}]] as const) {
+      const r = await post(b, path, c, body);
+      expect(r.status, path).toBe(403);
+      expect(r.body, path).toContain('passkeys.json');
+    }
   });
 
   it('step-up accepts only the two passkey actions, and exactly one target', async () => {
@@ -1362,6 +1401,7 @@ describe('remote pty step-up', () => {
     access = new PtyAccess(() => grantClock);
     const passkeys = {
       count: () => passkeyCount,
+      broken: () => false,
       list: () => [],
       stepupOptions: async () => ({ challenge: 'c' }),
       verifyStepup: async (assertion: { ok?: boolean }) => { verifyCalls++; return assertion?.ok === true; },

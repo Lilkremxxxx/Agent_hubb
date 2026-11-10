@@ -461,6 +461,8 @@ if (config.remote) {
     const scheme = remote.domain ? tr('HTTP behind a proxy for {0}', [remote.domain]) : remote.tls ? 'HTTPS' : tr('HTTP WITHOUT encryption (HABBLAUD_REMOTE_INSECURE_HTTP)');
     if (/\bspawn\b/i.test(process.env.HABBLAUD_REMOTE_ALLOW ?? '')) log.warn(tr('   Remote access: "spawn" is no longer a remote feature and is ignored (only "terminal").'));
     if (!remote.ownerEmail && (passkeys?.count() ?? 0) > 0) log.warn(tr('   Remote access: passkeys exist but HABBLAUD_REMOTE_OWNER_EMAIL is not set: nobody can register or delete passkeys.'));
+    if (passkeys?.broken()) log.warn(tr('   Remote access: passkeys.json is unreadable: remote passkey changes and typing in terminals are refused until it is fixed.'));
+    else if (remote.ownerEmail && passkeys && passkeys.count() === 0) log.warn(tr('   Remote access: an owner is set but no passkey is registered: typing in terminals stays off until the owner adds one at /remote/security.'));
     if (remote.ownerEmail) log.info(tr('   Remote access: owner {0}; may view terminals, and type in them after a passkey check ({1} passkey(s)).', [maskEmail(remote.ownerEmail), passkeys?.count() ?? 0]));
     if (remote.google) log.info(tr('   Remote access: Sign in with Google on ({0} address(es) allowed).', [remote.google.emails.size]));
     if (passkeys) log.info(tr('   Remote access: {0} passkey(s); password sign-in {1}.', [passkeys.count(), passkeys.count() > 0 && !remote.passwordLogin ? tr('off') : tr('on')]));

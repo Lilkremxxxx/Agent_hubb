@@ -550,6 +550,12 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
   let libWarned = false;
   /** Sessions that just got registration options through a step-up grant (key -> until). */
   const registering = new Map<string, number>();
+  const unreadable = (res: ServerResponse, req: IncomingMessage): void => {
+    req.resume();
+    if (!brokenWarned) { brokenWarned = true; deps.log?.warn(tr('passkeys.json is unreadable: remote passkey changes and step-ups are refused until it is fixed on the computer running Habblaud')); }
+    return sendJson(res, 403, { error: tr('passkeys.json is unreadable: fix or remove it on the computer running Habblaud') });
+  };
+  let brokenWarned = false;
   const passkeyRoute = (req: IncomingMessage, res: ServerResponse, route: string, authed: boolean): void => {
     const pk = deps.passkeys;
     const POST = ['/login/options', '/login/verify', '/register/options', '/register/verify', '/delete'];
@@ -582,6 +588,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       deps.log?.warn(tr('Remote passkey change refused ({0}) from {1}, {2}', [route.slice(1), ip, ua]));
       return sendJson(res, 403, { error: tr('sign in again to change passkeys') });
     }
+    if (change && pk.broken()) return unreadable(res, req);
     const sess = deps.sessions.info(cookie);
     const sKey = sess ? sessionKey(sess.sig) : '';
     // Once a passkey exists, changing them also needs a fresh passkey check (grant `passkey:add` / `passkey:del`):
@@ -601,9 +608,12 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
         };
         if (route === '/register/options') {
           if (guarded && !grantOk('passkey:add')) return refuse();
-          const o = await pk.registerOptions();
-          for (const [k, until] of registering) if (until <= Date.now()) registering.delete(k);
-          registering.set(sKey, Date.now() + CHALLENGE_TTL_S * 1000);
+          const o = await pk.registerOptions(sKey);
+          if (guarded) {
+            // Only a granted options call opens the window: one made at count 0 must not finish once another passkey exists.
+            for (const [k, until] of registering) if (until <= Date.now()) registering.delete(k);
+            registering.set(sKey, Date.now() + CHALLENGE_TTL_S * 1000);
+          }
           return sendJson(res, 200, o);
         }
         if (route === '/login/verify') {
@@ -622,9 +632,13 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
           const until = registering.get(sKey);
           registering.delete(sKey);
           if (guarded && !(until && until > Date.now())) return refuse();
-          const r = await pk.verifyRegister(body);
+          const r = await pk.verifyRegister(body, sKey);
           if (r.ok) deps.log?.info(tr('Remote passkey registered from {0}, {1}', [ip, ua]));
           return r.ok ? sendJson(res, 200, { passkey: r.passkey }) : sendJson(res, 400, { error: r.error });
+        }
+        if (pk.count() <= 1) {
+          deps.log?.warn(tr('Remote passkey change refused ({0}) from {1}, {2}', [route.slice(1), ip, ua]));
+          return sendJson(res, 403, { error: tr('remove the last passkey on the computer running Habblaud') });
         }
         if (guarded && !grantOk('passkey:del')) return refuse();
         const id = !!body && typeof body === 'object' && typeof (body as { id?: unknown }).id === 'string' ? (body as { id: string }).id : '';
@@ -648,6 +662,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
     if (req.method !== 'POST') { req.resume(); return sendJson(res, 405, { error: tr('method not allowed') }, { Allow: 'POST' }); }
     if (!session) { req.resume(); return sendJson(res, 401, { error: tr('sign in: open Habblaud on this port in your browser and enter your username and password') }); }
     if (!session.owner) { req.resume(); return sendJson(res, 403, { error: tr('only the owner can type in the terminal') }); }
+    if (pk.broken()) return unreadable(res, req);
     if (pk.count() === 0) { req.resume(); return sendJson(res, 403, { error: tr('typing in the terminal needs a passkey: register one first') }); }
     const key = sessionKey(session.sig);
     const ip = clientIp(req, !!deps.domain);

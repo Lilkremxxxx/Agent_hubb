@@ -300,3 +300,36 @@ describe('PasskeyService inside the portal iframe (expectedTopOrigin)', () => {
     expect(seen.expectedTopOrigin).toBeUndefined();
   });
 });
+
+describe('registration challenge and unreadable store', () => {
+  const DOMAIN = 'hub.finstar.pp.ua';
+  let last = '';
+  const lib = (): WebAuthnLib => ({
+    ...webauthn,
+    generateRegistrationOptions: (async (o: any) => { const r = await webauthn.generateRegistrationOptions(o); last = r.challenge; return r; }) as never,
+    verifyRegistrationResponse: (async (o: any) => {
+      if (!(await o.expectedChallenge(last))) throw new Error('challenge');
+      return { verified: true, registrationInfo: { credential: { id: 'c9', publicKey: new Uint8Array([1]), counter: 0 } } };
+    }) as never,
+  });
+  const mk = () => new PasskeyService({ domain: DOMAIN, user: 'bang', store: new PasskeyStore(file()), lib: lib() });
+
+  it('a registration challenge belongs to the session that asked for it', async () => {
+    const s = mk();
+    await s.registerOptions('k1');
+    expect((await s.verifyRegister({ response: {}, name: 'x' }, 'k2')).ok).toBe(false);
+    await s.registerOptions('k1');
+    expect((await s.verifyRegister({ response: {}, name: 'x' }, 'k1')).ok).toBe(true);
+  });
+
+  it('a corrupt file reports broken (and a missing one does not)', () => {
+    expect(new PasskeyStore(file()).broken).toBe(false);
+    mkdirSync(join(t.dir, 'remote'), { recursive: true });
+    writeFileSync(file(), '{not json');
+    const warn: string[] = [];
+    const s = new PasskeyStore(file(), { warn: (m) => warn.push(m) });
+    expect(s.broken).toBe(true);
+    expect(warn).toHaveLength(1);
+    expect(new PasskeyService({ domain: DOMAIN, user: 'x', store: s, lib: lib() }).broken()).toBe(true);
+  });
+});

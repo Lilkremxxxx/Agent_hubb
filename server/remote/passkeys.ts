@@ -20,11 +20,16 @@ export const NAME_MAX = 60;
 
 export class PasskeyStore {
   private items: StoredPasskey[] = [];
+  /** The file exists but could not be read or parsed: this is not "0 passkeys" and must not be treated as a fresh start. */
+  broken = false;
 
   constructor(private readonly file: string, private readonly log: { warn(m: string): void } = { warn: () => {} }) {
     let raw: string;
     try { raw = readFileSync(file, 'utf8'); } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') this.log.warn(tr('passkeys.json is unreadable; no passkeys loaded ({0})', [(e as Error).message]));
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+        this.broken = true;
+        this.log.warn(tr('passkeys.json is unreadable; no passkeys loaded ({0})', [(e as Error).message]));
+      }
       return;
     }
     try {
@@ -33,6 +38,7 @@ export class PasskeyStore {
       this.items = v as StoredPasskey[];
     } catch (e) {
       // Not overwritten here: only a successful add() replaces the file.
+      this.broken = true;
       this.log.warn(tr('passkeys.json is unreadable; no passkeys loaded ({0})', [(e as Error).message]));
     }
   }
@@ -151,11 +157,13 @@ export class PasskeyService {
     this.topOrigin = o.topOrigin;
     this.domain = o.domain; this.user = o.user; this.store = o.store; this.lib = o.lib ?? lazyLib; this.now = o.now ?? Date.now;
     this.loginCh = new Challenges(this.now, MAX_LOGIN_CHALLENGES, MAX_LOGIN_CHALLENGES_PER_IP);
-    this.registerCh = new Challenges(this.now, MAX_REGISTER_CHALLENGES, MAX_REGISTER_CHALLENGES);
+    this.registerCh = new Challenges(this.now, MAX_REGISTER_CHALLENGES, 3);
     this.stepupCh = new Challenges(this.now, MAX_STEPUP_CHALLENGES, MAX_STEPUP_CHALLENGES_PER_SESSION);
   }
 
   count(): number { return this.store.count(); }
+  /** The passkeys file could not be loaded: remote changes and step-ups are refused until it is fixed on the computer. */
+  broken(): boolean { return this.store.broken; }
   list(): PasskeyView[] { return this.store.list().map(view); }
   remove(id: string): boolean { return this.store.remove(id); }
 
@@ -201,7 +209,7 @@ export class PasskeyService {
     } catch { return false; } // a library error text could echo credential material: never logged
   }
 
-  async registerOptions(): Promise<object> {
+  async registerOptions(sessionKey = ''): Promise<object> {
     const o = await this.lib.generateRegistrationOptions({
       rpName: 'Bang_ver hub',
       rpID: this.domain,
@@ -212,17 +220,17 @@ export class PasskeyService {
       excludeCredentials: this.store.list().map((p) => ({ id: p.id, transports: cleanTransports(p.transports) })),
       timeout: CHALLENGE_TTL_MS,
     });
-    this.registerCh.add('register', o.challenge);
+    this.registerCh.add('register', o.challenge, sessionKey); // bound to the asking session, like step-up
     return o;
   }
 
-  async verifyRegister(body: unknown): Promise<{ ok: true; passkey: PasskeyView } | { ok: false; error: string }> {
+  async verifyRegister(body: unknown, sessionKey = ''): Promise<{ ok: true; passkey: PasskeyView } | { ok: false; error: string }> {
     const fail = { ok: false as const, error: tr("Couldn't verify the passkey.") };
     try {
       if (!isObj(body) || !isObj(body.response)) return fail;
       const r = await this.lib.verifyRegistrationResponse({
         response: body.response as never,
-        expectedChallenge: (c) => this.registerCh.take('register', c),
+        expectedChallenge: (c) => this.registerCh.take('register', c, sessionKey),
         expectedOrigin: `https://${this.domain}`,
         expectedRPID: this.domain,
         requireUserVerification: true,
