@@ -1443,7 +1443,8 @@ describe('remote pty step-up', () => {
     return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   }
   let n = 0;
-  const cookie = (owner: boolean, ttl = SESSION_MS) => `${CK}=${sessions.issue(ttl - n++, owner).token}`;
+  // Distinct, far-apart expiries: a 1 ms offset could coincide with the clock ticking 1 ms between two sessions (same token).
+  const cookie = (owner: boolean, ttl = SESSION_MS) => `${CK}=${sessions.issue(ttl === SESSION_MS ? ttl - 100_003 * ++n : ttl, owner).token}`;
   const post = (b: string, path: string, c: string, body: unknown = {}, extra: Record<string, string> = {}) => request(b, path, { method: 'POST', headers: { ...H, Cookie: c, ...extra }, body });
   const get = (b: string, path: string, c: string, extra: Record<string, string> = {}) => request(b, path, { headers: { ...H, Cookie: c, ...extra } });
   /** Opens an SSE and resolves with the status once headers arrive (the body never ends by itself). */
