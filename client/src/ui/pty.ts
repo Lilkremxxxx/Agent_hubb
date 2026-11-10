@@ -34,7 +34,7 @@ export interface PtyControl {
   openAgent(agentId: string): void;
   close(): void;
   takeover(agentId: string): Promise<void>;
-  newSession(cwd: string, account?: string, prompt?: string): Promise<PtyInfo | undefined>;
+  newSession(cwd: string, account?: string, prompt?: string, model?: string): Promise<PtyInfo | undefined>;
   stop(agentId: string): Promise<void>;
 }
 
@@ -170,8 +170,8 @@ export class PtyPanel implements UiComponent, PtyControl {
     if (p) this.show(p, true, p.grant ?? undefined);
   }
 
-  async newSession(cwd: string, account?: string, prompt?: string): Promise<PtyInfo | undefined> {
-    const p = await createPty(cwd, account, prompt);
+  async newSession(cwd: string, account?: string, prompt?: string, model?: string): Promise<PtyInfo | undefined> {
+    const p = await createPty(cwd, account, prompt, model);
     if (p) this.show(p, true);
     return p;
   }

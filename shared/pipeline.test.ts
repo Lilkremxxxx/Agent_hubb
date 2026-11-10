@@ -44,8 +44,12 @@ describe('cleanRoster', () => {
     expect(cleanRoster(raw, seats).coder).toEqual({ type: 'seat', seat: 'W1', kind: 'agy', effort: 'high' });
   });
   it('the kind comes from the current seats, not from the saved value', () => {
-    const raw = { coder: { type: 'seat', seat: 'C1', kind: 'agy', model: 'opus', effort: 'max' } };
-    expect(cleanRoster(raw, seats).coder).toEqual({ type: 'seat', seat: 'C1', kind: 'claude', model: 'opus', effort: 'max' });
+    const raw = { coder: { type: 'seat', seat: 'C1', kind: 'agy', model: 'claude-sonnet-4-6', effort: 'max' } };
+    expect(cleanRoster(raw, seats).coder).toEqual({ type: 'seat', seat: 'C1', kind: 'claude', model: 'claude-sonnet-4-6', effort: 'max' });
+  });
+  it('a Claude seat takes full model ids only; an alias saved before falls back to Sonnet 5.5', () => {
+    const raw = { coder: { type: 'seat', seat: 'C1', model: 'opus', effort: 'high' } };
+    expect(cleanRoster(raw, seats).coder).toMatchObject({ kind: 'claude', model: 'claude-sonnet-5-5' });
   });
   it('keeps valid choices', () => {
     const raw = { planner: { type: 'sub', model: 'haiku', effort: 'xhigh' } };

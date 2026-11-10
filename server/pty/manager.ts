@@ -9,6 +9,7 @@
 //
 // Security: anyone controlling one of these terminals executes commands on the machine. The feature is opt-in
 // (HABBLAUD_PTY=1), routes only accept connections from localhost (see http/pty.ts).
+import { CLAUDE_MODELS, has } from '../../shared/pipeline';
 import { chmodSync, readFileSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
@@ -199,6 +200,11 @@ export function checkPrompt(prompt: unknown): asserts prompt is string | undefin
     throw new PtyError(400, tr('invalid prompt (text of up to {0} characters, not starting with "-")', [MAX_PROMPT]));
 }
 
+/** The model of a new session: one of the listed ids (it goes into argv). */
+export function checkModel(model: unknown): asserts model is string | undefined {
+  if (model !== undefined && !has(CLAUDE_MODELS, model)) throw new PtyError(400, tr('unknown model: {0}', [String(model).slice(0, 40)]));
+}
+
 export class PtyManager {
   private ptys = new Map<string, Pty>();
   private seq = 0;
@@ -243,10 +249,11 @@ export class PtyManager {
   }
 
   /** Opens a new Claude Code session in directory (absolute `cwd`), in requested account (or default). */
-  create(p: { cwd: unknown; account?: unknown; cols?: unknown; rows?: unknown; prompt?: unknown }): PtyInfo {
+  create(p: { cwd: unknown; account?: unknown; cols?: unknown; rows?: unknown; prompt?: unknown; model?: unknown }): PtyInfo {
     checkPrompt(p.prompt);
+    checkModel(p.model);
     const plan = this.plan(p, this.takeovers.size);
-    return this.spawn(plan, { prompt: p.prompt });
+    return this.spawn(plan, { prompt: p.prompt, model: p.model });
   }
 
   /**
@@ -500,7 +507,7 @@ export class PtyManager {
     return env;
   }
 
-  private spawn(plan: SpawnPlan, p: { resume?: string; from?: string; prompt?: string } = {}): PtyInfo {
+  private spawn(plan: SpawnPlan, p: { resume?: string; from?: string; prompt?: string; model?: string } = {}): PtyInfo {
     const spawn = this.opts.spawn;
     if (!spawn) throw new PtyError(503, tr('terminal disabled: {0}', [this.opts.disabledReason ?? tr('unavailable')]));
     const { cwd, account, cols, rows } = plan;
@@ -510,7 +517,7 @@ export class PtyManager {
 
     let proc: PtyProcess;
     try {
-      const args = p.resume ? ['--resume', p.resume] : p.prompt ? [p.prompt] : [];
+      const args = p.resume ? ['--resume', p.resume] : [...(p.model ? ['--model', p.model] : []), ...(p.prompt ? [p.prompt] : [])];
       proc = spawn(this.opts.claudeBin, args, { cwd, cols, rows, env });
     } catch (err) {
       throw new PtyError(500, tr("couldn't open Claude Code: {0}", [errMsg(err)]));

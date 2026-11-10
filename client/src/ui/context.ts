@@ -27,7 +27,7 @@ export interface TerminalRouter {
   /** Interactive terminal enabled (launch new sessions, take over, terminate). */
   readonly interactiveEnabled: boolean;
   /** New Claude Code session in directory, launched in interactive terminal (its pty: agent id to come). */
-  newSession(cwd: string, account?: string, prompt?: string): Promise<PtyInfo | undefined>;
+  newSession(cwd: string, account?: string, prompt?: string, model?: string): Promise<PtyInfo | undefined>;
   /** Shows a terminal the server just opened (e.g. a sign-in terminal from the accounts dialog). */
   showPty?(info: PtyInfo): void;
 }

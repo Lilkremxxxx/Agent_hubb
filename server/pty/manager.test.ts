@@ -157,6 +157,14 @@ describe('PtyManager: first prompt', () => {
     }
     expect(s.spawned).toEqual([]);
   });
+
+  it('model: a listed id goes before the prompt as --model; anything else is a 400 and nothing opens', () => {
+    const s = setup();
+    s.manager.create({ cwd: tmpdir(), model: 'claude-sonnet-4-6', prompt: '/x' });
+    expect(s.spawned.map((x) => x.args)).toEqual([['--model', 'claude-sonnet-4-6', '/x']]);
+    for (const model of ['--help', 'opus', 5, 'claude-opus-5-5 --x']) expect(() => s.manager.create({ cwd: tmpdir(), model })).toThrow(PtyError);
+    expect(s.spawned).toHaveLength(1);
+  });
 });
 
 describe('PtyManager: takeover', () => {

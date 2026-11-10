@@ -28,8 +28,8 @@ export async function postPty<T = unknown>(url: string, body: unknown): Promise<
 const SIZE = { cols: 120, rows: 32 };
 
 /** New Claude Code session in the specified directory (and account), optionally with a first prompt. */
-export function createPty(cwd: string, account?: string, prompt?: string): Promise<PtyInfo | undefined> {
-  return postPty<PtyInfo>('/api/pty', { cwd, account, prompt, ...SIZE });
+export function createPty(cwd: string, account?: string, prompt?: string, model?: string): Promise<PtyInfo | undefined> {
+  return postPty<PtyInfo>('/api/pty', { cwd, account, prompt, model, ...SIZE });
 }
 
 export type StepUpTarget = { ptyId: string } | { agentId: string };

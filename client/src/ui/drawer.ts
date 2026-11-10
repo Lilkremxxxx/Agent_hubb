@@ -964,7 +964,7 @@ class RoomView {
     setHidden(this.newMsg, true);
     const choice = await askPipelineHere(this.ctx, account, false);
     if (!choice) return;
-    this.pty.newSession(r.path, choice.account, choice.prompt).catch((err: Error) => {
+    this.pty.newSession(r.path, choice.account, choice.prompt, choice.model).catch((err: Error) => {
       setText(this.newMsg, tr("Didn't work: {0}", [err.message]));
       setHidden(this.newMsg, false);
     });

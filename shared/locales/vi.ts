@@ -1388,6 +1388,9 @@ export const VI: Readonly<Record<string, string>> = {
   "The boss runs the planner, coder, tester and reviewer roles. Choose who does each one: a subagent of the boss, or a seat of the office.": "Boss điều phối bốn vai: lập kế hoạch, viết code, kiểm thử, review. Chọn ai làm từng vai: subagent của boss hoặc một ghế của văn phòng.",
   "Boss": "Boss",
   "Open": "Mở",
-  "The boss is already open: the roster was not sent": "Boss đã mở sẵn: bảng phân vai không được gửi",
+  "Boss model": "Model của boss",
+  "Folder": "Thư mục",
+  "Type the project folder (absolute path).": "Nhập thư mục dự án (đường dẫn tuyệt đối).",
+  "unknown model: {0}": "model không có trong danh sách: {0}",
   "invalid prompt (text of up to {0} characters, not starting with \"-\")": "prompt không hợp lệ (văn bản tối đa {0} ký tự, không bắt đầu bằng \"-\")",
 };
