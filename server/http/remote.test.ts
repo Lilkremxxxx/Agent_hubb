@@ -864,7 +864,7 @@ describe('Secure cookie and CA download', () => {
 
 describe('passkey routes', () => {
   const DOMAIN = 'hub.finstar.pp.ua';
-  const H = { Connection: 'close', Host: DOMAIN, Origin: `https://${DOMAIN}`, 'CF-Connecting-IP': '203.0.113.7' };
+  const H = { Connection: 'close', Host: DOMAIN, Origin: `https://${DOMAIN}`, 'CF-Connecting-IP': '203.0.113.7', 'Sec-Fetch-Site': 'same-origin' };
   let verifyCalls = 0;
   let pwCalls = 0;
   let clock = Date.now();
@@ -1053,7 +1053,7 @@ describe('passkey routes', () => {
 
 describe('passkey changes need a step-up once a passkey exists', () => {
   const DOMAIN = 'hub.finstar.pp.ua';
-  const H = { Connection: 'close', Host: DOMAIN, Origin: `https://${DOMAIN}`, 'CF-Connecting-IP': '203.0.113.7' };
+  const H = { Connection: 'close', Host: DOMAIN, Origin: `https://${DOMAIN}`, 'CF-Connecting-IP': '203.0.113.7', 'Sec-Fetch-Site': 'same-origin' };
   let clock = Date.now();
   async function mk(o: { noOwner?: boolean; corrupt?: boolean } = {}) {
     const tmp = tempDir();
@@ -1511,6 +1511,16 @@ describe('remote pty step-up', () => {
     expect((await post(b, '/api/pty/p1/resize', c, { cols: 80, rows: 24 })).status).toBe(204);
     expect(rec).toEqual(['attach p1', 'input p1 ls\n', 'resize p1']);
     st.abort();
+  });
+
+  it('step-up from a same-site page (or without Sec-Fetch-Site) is refused before the body is read', async () => {
+    const b = await mk();
+    const c = cookie(true);
+    for (const site of ['same-site', 'cross-site', '']) {
+      expect((await post(b, '/api/remote/stepup/options', c, {}, { 'Sec-Fetch-Site': site })).status).toBe(403);
+      expect((await post(b, '/api/remote/stepup/verify', c, { response: { ok: true }, ptyId: 'p1' }, { 'Sec-Fetch-Site': site })).status).toBe(403);
+    }
+    expect((await post(b, '/api/remote/stepup/options', c)).status).toBe(200);
   });
 
   it('the log never contains the grant or the challenge', async () => {

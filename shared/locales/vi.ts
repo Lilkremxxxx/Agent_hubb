@@ -1397,4 +1397,5 @@ export const VI: Readonly<Record<string, string>> = {
   "Type the project folder (absolute path).": "Nhập thư mục dự án (đường dẫn tuyệt đối).",
   "unknown model: {0}": "model không có trong danh sách: {0}",
   "invalid prompt (text of up to {0} characters, not starting with \"-\")": "prompt không hợp lệ (văn bản tối đa {0} ký tự, không bắt đầu bằng \"-\")",
+  "this prompt is a claude command name; add a few words": "prompt này trùng tên một lệnh của claude; hãy viết thêm vài chữ",
 };

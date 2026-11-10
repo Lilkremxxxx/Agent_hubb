@@ -150,6 +150,11 @@ describe('PtyManager: first prompt', () => {
     expect(() => checkPrompt('a\0b')).toThrow(PtyError);
   });
 
+  it('checkPrompt: a prompt that is exactly a claude subcommand would run that command, so it is refused', () => {
+    for (const p of ['update', ' Doctor ', 'mcp', 'install', 'upgrade']) expect(() => checkPrompt(p)).toThrow(PtyError);
+    expect(() => checkPrompt('update the docs')).not.toThrow();
+  });
+
   it('rejects a prompt that is not a string, empty, too long or starts with "-" (400, nothing opens)', () => {
     const s = setup();
     for (const prompt of [5, '', '--dangerously-skip-permissions', 'x'.repeat(20_001), 'a\0b']) {

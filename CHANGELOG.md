@@ -40,6 +40,7 @@ middle one (0.**3**.0).
 - **`npm run office -- stop|restart`**; they only stop this repo's own server on the port (exact command and folder check).
 
 ### Fixed
+- Remote access hardening: the passkey step-up only answers the hub's own page (`Sec-Fetch-Site: same-origin`, so a same-site page sharing the cookie cannot start one), and a new-session prompt that is exactly a claude command name (`update`, `doctor`, `mcp`…) is refused instead of running that command.
 - Office stutter on phones: the office no longer renders at 3x the screen resolution on touch screens (starts at 2x) and steps down to 1x by itself when frames stay slow, so it runs about 3x faster on a phone.
 
 - The top bar sits at the very top of the page again: it kept 32 px of room for the office tabs removed earlier.

@@ -661,6 +661,8 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
     const access = deps.ptyAccess;
     if (!pk || !access || (route !== '/options' && route !== '/verify')) { req.resume(); return sendJson(res, 404, { error: tr('not found') }); }
     if (req.method !== 'POST') { req.resume(); return sendJson(res, 405, { error: tr('method not allowed') }, { Allow: 'POST' }); }
+    // Only the hub's own page may run a step-up: a same-site sibling (linux.finstar.pp.ua shares the Lax cookie) or a request without the header is refused.
+    if (req.headers['sec-fetch-site'] !== 'same-origin') { req.resume(); return sendJson(res, 403, { error: tr('origin not allowed for the interactive terminal') }); }
     if (!session) { req.resume(); return sendJson(res, 401, { error: tr('sign in: open Habblaud on this port in your browser and enter your username and password') }); }
     if (!session.owner) { req.resume(); return sendJson(res, 403, { error: tr('only the owner can type in the terminal') }); }
     if (pk.broken()) return unreadable(res, req);

@@ -194,10 +194,15 @@ export class PtyError extends Error {
   }
 }
 
-/** The prompt is claude's positional argument (argv, no shell): a leading "-" would be read as an option and a NUL makes node-pty throw. Throws a 400. */
+/** `claude --help` commands (+ the `upgrade` alias): a prompt that is exactly one of them would run it instead of starting a session. */
+const CLAUDE_SUBCOMMANDS = new Set(['agents', 'attach', 'auth', 'auto-mode', 'doctor', 'gateway', 'import', 'install', 'logs', 'mcp', 'plugin', 'purge', 'respawn', 'rm', 'setup-token', 'stop', 'ultrareview', 'update', 'upgrade']);
+
+/** The prompt is claude's positional argument (argv, no shell): a leading "-" would be read as an option, a bare subcommand word would run it, and a NUL makes node-pty throw. Throws a 400. */
 export function checkPrompt(prompt: unknown): asserts prompt is string | undefined {
   if (prompt !== undefined && (typeof prompt !== 'string' || !prompt || prompt.length > MAX_PROMPT || prompt.startsWith('-') || prompt.includes('\0')))
     throw new PtyError(400, tr('invalid prompt (text of up to {0} characters, not starting with "-")', [MAX_PROMPT]));
+  if (typeof prompt === 'string' && CLAUDE_SUBCOMMANDS.has(prompt.trim().toLowerCase()))
+    throw new PtyError(400, tr('this prompt is a claude command name; add a few words'));
 }
 
 /** The model of a new session: one of the listed ids (it goes into argv). */
