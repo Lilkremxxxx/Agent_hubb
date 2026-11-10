@@ -11,7 +11,8 @@ import type { UiComponent, UiContext } from './context';
 import { h, iconButton, setHidden, setText } from './dom';
 import { ICONS } from './icons';
 import { maximizeButton, Movable } from './movable';
-import { closePty, createPty, stopAgent, takeoverAgent } from './ptyapi';
+import { access } from '../net/access';
+import { closePty, createPty, stepUp, stopAgent, takeoverAgent } from './ptyapi';
 import type { PtyPane } from './ptypane';
 import { TermActions } from './termactions';
 import { TermTabs } from './termtabs';
@@ -46,6 +47,10 @@ export class PtyPanel implements UiComponent, PtyControl {
   private external: string | null = null;
   private screen: HTMLElement;
   private away: HTMLElement;
+  /** Remote only: "Verify passkey" before the terminal opens (the click is the user gesture the iframe needs). */
+  private verify: HTMLElement;
+  private verifyMsg: HTMLElement;
+  private verifyBtn: HTMLButtonElement;
   private awayTitle: HTMLElement;
   /** Watching a worker's terminal: input is blocked. */
   private watchBar: HTMLElement;
@@ -96,6 +101,9 @@ export class PtyPanel implements UiComponent, PtyControl {
       this.awayTitle,
       h('p', { class: 'ui-muted', text: tr('Use "Take over here" (at the top) to end it there and continue the same conversation in this window, with typing enabled.') }),
     );
+    this.verifyMsg = h('p', { class: 'ui-muted', role: 'status' });
+    this.verifyBtn = h('button', { class: 'ui-btn ui-btn--accent', type: 'button', text: tr('Verify passkey') });
+    this.verify = h('div', { class: 'ui-pty__away', hidden: true }, h('strong', { text: tr('Verify with your passkey to open the terminal') }), this.verifyMsg, this.verifyBtn);
     this.watchBar = h('div', { class: 'ui-pty__watch', hidden: true }, h('span', { class: 'ui-pty__watch-text', text: tr('Watching: this terminal is read-only. Each job is a new conversation.') }));
     // Watch-only: keys, typing and pastes never reach the terminal (capture phase, before xterm.js sees them).
     for (const type of ['keydown', 'keypress', 'beforeinput', 'input', 'paste', 'drop', 'compositionstart']) {
@@ -109,7 +117,7 @@ export class PtyPanel implements UiComponent, PtyControl {
         true,
       );
     }
-    this.el = h('section', { class: 'ui-term ui-pty', role: 'dialog', hidden: true, attrs: { 'aria-label': tr('Terminal') } }, bar, this.tabs.el, this.watchBar, this.screen, this.away);
+    this.el = h('section', { class: 'ui-term ui-pty', role: 'dialog', hidden: true, attrs: { 'aria-label': tr('Terminal') } }, bar, this.tabs.el, this.watchBar, this.screen, this.away, this.verify);
     // Keystrokes typed in terminal belong to Claude Code, not office shortcuts.
     this.el.addEventListener('keydown', (e) => e.stopPropagation());
     this.movable = new Movable(this.el, bar, { key: 'habblaud.move.term', enabled: () => !ctx.isNarrow(), onMove: () => this.pane?.refit(true) });
@@ -117,7 +125,8 @@ export class PtyPanel implements UiComponent, PtyControl {
   }
 
   get enabled(): boolean {
-    return !!this.ctx.store.snapshot?.meta.pty?.enabled;
+    // Remote: only an owner with a passkey (server says so in /api/access); typing is then opened per terminal.
+    return !!this.ctx.store.snapshot?.meta.pty?.enabled && (!access().remote || !!access().ptyStepUp);
   }
 
   get reason(): string {
@@ -158,7 +167,7 @@ export class PtyPanel implements UiComponent, PtyControl {
 
   async takeover(agentId: string): Promise<void> {
     const p = await takeoverAgent(agentId);
-    if (p) this.show(p, true);
+    if (p) this.show(p, true, p.grant);
   }
 
   async newSession(cwd: string, account?: string): Promise<PtyInfo | undefined> {
@@ -241,7 +250,8 @@ export class PtyPanel implements UiComponent, PtyControl {
     this.onShow?.();
   }
 
-  private show(p: PtyInfo, fresh = false): void {
+  private show(p: PtyInfo, fresh = false, grant?: string): void {
+    setHidden(this.verify, true);
     this.info = p;
     this.external = null;
     if (fresh) this.pendingSelect = p.agentId;
@@ -249,7 +259,8 @@ export class PtyPanel implements UiComponent, PtyControl {
     this.render();
     void this.ensurePane().then((pane) => {
       if (this.info?.id !== p.id) return;
-      pane.attach(p.id);
+      if (access().remote && !grant) return this.askVerify(p.id, '');
+      pane.attach(p.id, grant);
       requestAnimationFrame(() => {
         pane.refit(true);
         pane.focus();
@@ -258,10 +269,38 @@ export class PtyPanel implements UiComponent, PtyControl {
     this.ctx.invalidate();
   }
 
+  /** Remote: the terminal opens only after a passkey check; each (re)attach needs a new one. */
+  private askVerify(id: string, msg: string): void {
+    setText(this.verifyMsg, msg);
+    setHidden(this.verify, false);
+    this.verifyBtn.disabled = false;
+    this.verifyBtn.onclick = () => {
+      this.verifyBtn.disabled = true;
+      stepUp({ ptyId: id })
+        .then((grant) => {
+          if (this.info?.id !== id) return;
+          setHidden(this.verify, true);
+          this.pane?.attach(id, grant);
+          this.pane?.focus();
+        })
+        .catch((err: Error) => {
+          setText(this.verifyMsg, err.message);
+          this.verifyBtn.disabled = false;
+        });
+    };
+  }
+
   private ensurePane(): Promise<PtyPane> {
     if (this.pane) return Promise.resolve(this.pane);
     this.loading ??= import('./ptypane').then(({ PtyPane }) => {
-      this.pane = new PtyPane(() => this.ctx.invalidate());
+      this.pane = new PtyPane(
+        () => this.ctx.invalidate(),
+        () => {
+          if (!access().remote || !this.info) return;
+          this.pane?.detach();
+          this.askVerify(this.info.id, tr('Connection closed. Verify again to continue.'));
+        },
+      );
       this.screen.append(this.pane.el);
       return this.pane;
     });

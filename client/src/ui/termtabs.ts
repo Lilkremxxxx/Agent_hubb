@@ -3,6 +3,7 @@
 // changes the order (the same as the sidebar list; see ui/agentorder.ts). Next to the name, the start of what the
 // agent is doing; the X ends the session (requires a second click) and only appears with interactive terminal on.
 import type { AgentInfo } from '../../../shared/types';
+import { access } from '../net/access';
 import type { UiContext } from './context';
 import { moveAgent, orderAgents } from './agentorder';
 import { h, KeyedList, setAttr, setHidden, setText, setTitle } from './dom';
@@ -79,7 +80,7 @@ export class TermTabs {
         setHidden(b.children[3] as HTMLElement, !live);
         const close = b.children[4] as HTMLElement;
         const confirm = this.confirming === a.id;
-        setHidden(close, !ctx.terminals?.interactiveEnabled || !ptyControllable(a));
+        setHidden(close, !ctx.terminals?.interactiveEnabled || !ptyControllable(a) || access().remote);
         close.classList.toggle('is-confirm', confirm);
         setText(close, confirm ? tr('end?') : '×');
         setTitle(close, confirm ? tr('Click again to end the session (the conversation is saved)') : tr('End this session'));
@@ -115,7 +116,7 @@ ${doing}` : ''}${live ? tr(' (interactive)') : ''}`);
 
   /** Tab X: first click requests confirmation; second ends session (here or in another terminal). */
   private closeTab(id: string): void {
-    if (!this.ctx.terminals?.interactiveEnabled || !ptyControllable(this.ctx.agent(id))) return;
+    if (!this.ctx.terminals?.interactiveEnabled || !ptyControllable(this.ctx.agent(id)) || access().remote) return;
     if (this.confirming !== id) {
       this.resetConfirm();
       this.confirming = id;

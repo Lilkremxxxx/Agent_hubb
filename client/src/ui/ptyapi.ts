@@ -1,5 +1,6 @@
 // API calls for the interactive terminal (server/http/pty.ts). Errors become Error with server message.
 import type { AgentInfo, PtyInfo } from '../../../shared/types';
+import { access } from '../net/access';
 import { providerOf } from './provider';
 import { tr } from '../../../shared/i18n';
 
@@ -31,9 +32,31 @@ export function createPty(cwd: string, account?: string): Promise<PtyInfo | unde
   return postPty<PtyInfo>('/api/pty', { cwd, account, ...SIZE });
 }
 
-/** Ends session in another terminal and continues the same conversation here. */
-export function takeoverAgent(agentId: string): Promise<PtyInfo | undefined> {
-  return postPty<PtyInfo>(`/api/agents/${encodeURIComponent(agentId)}/takeover`, SIZE);
+export type StepUpTarget = { ptyId: string } | { agentId: string };
+type Ceremony = (options: unknown) => Promise<unknown>;
+const defaultStart: Ceremony = async (o) => (await import('@simplewebauthn/browser')).startAuthentication(o as never);
+
+/**
+ * Remote only: passkey check before typing into a terminal (or taking an agent over). Returns a single-use grant
+ * (60 s) for that target. Needs a user gesture in the iframe, so call it from a click.
+ */
+export async function stepUp(target: StepUpTarget, start: Ceremony = defaultStart): Promise<string> {
+  const options = await postPty('/api/remote/stepup/options', {});
+  let response: unknown;
+  try {
+    response = await start(options);
+  } catch (e) {
+    const n = (e as { name?: string }).name;
+    throw new Error(n === 'NotAllowedError' || n === 'AbortError' ? tr('Passkey check cancelled.') : tr("Didn't work: {0}", [(e as Error).message]));
+  }
+  const r = await postPty<{ grant: string }>('/api/remote/stepup/verify', { response, ...target });
+  return r!.grant;
+}
+
+/** Ends session in another terminal and continues the same conversation here. Remote: passkey check first; the answer carries a grant to attach the new terminal. */
+export async function takeoverAgent(agentId: string, start?: Ceremony): Promise<(PtyInfo & { grant?: string }) | undefined> {
+  const grant = access().remote ? await stepUp({ agentId }, start) : undefined;
+  return postPty<PtyInfo & { grant?: string }>(`/api/agents/${encodeURIComponent(agentId)}/takeover`, grant ? { ...SIZE, grant } : SIZE);
 }
 
 /** Stops agent (here or in another terminal). */

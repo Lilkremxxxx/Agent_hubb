@@ -22,7 +22,11 @@ export class PtyPane {
   private resizeTimer: ReturnType<typeof setTimeout> | null = null;
   private ro: ResizeObserver;
 
-  constructor(private onExit: () => void) {
+  constructor(
+    private onExit: () => void,
+    /** The stream closed without the terminal exiting (remote: grant spent or session ended; the user must verify again). */
+    private onLost?: () => void,
+  ) {
     this.el = document.createElement('div');
     this.el.className = 'ui-pty__screen';
     this.term = new Terminal({
@@ -45,14 +49,14 @@ export class PtyPane {
     return this.id;
   }
 
-  /** Connects screen to a server pty (different pty = new screen). */
-  attach(id: string): void {
+  /** Connects screen to a server pty (different pty = new screen). Remote: `grant` from ui/ptyapi stepUp. */
+  attach(id: string, grant?: string): void {
     if (this.id === id && this.es) return;
     this.detach();
     this.id = id;
     this.exited = false;
     this.term.reset();
-    const es = new EventSource(`/api/pty/${encodeURIComponent(id)}/stream`);
+    const es = new EventSource(`/api/pty/${encodeURIComponent(id)}/stream${grant ? `?grant=${encodeURIComponent(grant)}` : ''}`);
     this.es = es;
     es.addEventListener('reset', (e) => {
       this.term.reset();
@@ -60,6 +64,9 @@ export class PtyPane {
       this.refit(true);
     });
     es.addEventListener('data', (e) => this.term.write(parse(e)));
+    es.addEventListener('error', () => {
+      if (es.readyState === EventSource.CLOSED && !this.exited && this.es === es) this.onLost?.();
+    });
     es.addEventListener('exit', (e) => {
       this.exited = true;
       let code = 0;

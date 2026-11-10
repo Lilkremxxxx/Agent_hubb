@@ -81,7 +81,7 @@ export interface ApiDeps {
    * Remote port with login (http/remote.ts): `is` indicates if request arrived through it (already authenticated);
    * `allows`, what HABBLAUD_REMOTE_ALLOW allows. Remote request never trusted by Host: only by what `allows` permits.
    */
-  remote?: { is(req: IncomingMessage): boolean; allows(feature: RemoteFeature): boolean };
+  remote?: { is(req: IncomingMessage): boolean; allows(req: IncomingMessage, feature: RemoteFeature): boolean };
 }
 
 /** GET /api/agents/:id/terminal (ids never contain '/'). */
@@ -164,7 +164,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
    * what HABBLAUD_REMOTE_ALLOW permits (missing `feature` = never on remote port).
    */
   const trusted = (req: IncomingMessage, feature?: RemoteFeature): boolean =>
-    isRemote(req) ? !!feature && !!deps.remote?.allows(feature) : isLoopbackHost(req.headers.host);
+    isRemote(req) ? !!feature && !!deps.remote?.allows(req, feature) : isLoopbackHost(req.headers.host);
   const denied = (req: IncomingMessage, localMessage: string): string =>
     isRemote(req) ? tr('not allowed over remote access (see HABBLAUD_REMOTE_ALLOW)') : localMessage;
 
@@ -269,8 +269,8 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           version: deps.version,
           remote,
           terminal: !!terminals && (!remote || trusted(req, 'terminal')),
-          // Interactive terminal (pty) is never allowed over remote port.
-          pty: !!deps.pty && !remote,
+          // Interactive terminal (pty) over the remote port: owner with a passkey only, and each terminal needs a step-up.
+          pty: !!deps.pty && (!remote || trusted(req, 'pty')),
           sources: deps.sources(),
           accounts: accounts.allEntries().map((a) =>
             a.provider === 'claude'
@@ -290,6 +290,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           local: !remote && isLoopbackHost(req.headers.host),
           terminal: !!terminals && trusted(req, 'terminal'),
           spawn: !!deps.spawn && trusted(req),
+          ...(remote ? { ptyStepUp: !!deps.pty && trusted(req, 'pty') } : {}),
         };
         sendJson(res, 200, access);
       }
@@ -323,9 +324,10 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/pty' || path.startsWith('/api/pty/') || AGENT_ACTION_ROUTE.test(path)) {
-      // Runs commands on host: never over remote port, even with login (Host and remote address are not
-      // sufficient: Tailscale arrives over loopback and Host can be forged).
-      if (isRemote(req)) sendJson(res, 403, { error: tr('the interactive terminal can only be used on the computer running Habblaud') });
+      // Runs commands on host: over the remote port only for an owner with a passkey, and then http/pty.ts allows just
+      // attach/input/resize/takeover behind a step-up grant (Host and remote address are not sufficient: Tailscale
+      // arrives over loopback and Host can be forged).
+      if (isRemote(req) && !(deps.pty && trusted(req, 'pty'))) sendJson(res, 403, { error: tr('the interactive terminal can only be used on the computer running Habblaud') });
       else if (!deps.pty) sendJson(res, 403, { error: tr('interactive terminal disabled (see the server log)') });
       else deps.pty(req, res, path);
       return true;

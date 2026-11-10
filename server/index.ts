@@ -11,8 +11,9 @@ import { isTruthy, loadConfig, terminalOffReason } from './config';
 import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard } from './http/guard';
 import { PasskeyService, PasskeyStore } from './remote/passkeys';
-import { GoogleAuth } from './remote/google';
-import { createRemoteGate, FailureWindow, isRemoteRequest, isSecureRemote, listsHubDomain, loadSecret, parseSsoEnv, remoteAllowedHosts, RemoteSessions, startRemoteListener, type RemoteListener } from './http/remote';
+import { GoogleAuth, maskEmail } from './remote/google';
+import { PtyAccess } from './remote/ptygrant';
+import { createRemoteGate, FailureWindow, isRemoteRequest, isSecureRemote, listsHubDomain, loadSecret, parseSsoEnv, remoteAllowedHosts, remoteAllows, RemoteSessions, sessionOf, startRemoteListener, type RemoteListener } from './http/remote';
 import { Hub } from './http/sse';
 import { createStaticHandler, parseFrameAncestor } from './http/static';
 import { TerminalStreams } from './http/terminal';
@@ -51,7 +52,7 @@ const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
 
 // Office, accounts, and agent sources reference each other (change notifications / sources): late binding.
-const late: { office?: Office; agents?: SourceSet; ptys?: PtyManager; ptyOff?: string; workers?: WorkerService } = {};
+const late: { office?: Office; agents?: SourceSet; ptys?: PtyManager; ptyOff?: string; workers?: WorkerService; passkeys?: PasskeyService } = {};
 const accounts = new AccountsService({
   dirs: config.claudeDirs,
   home: config.home,
@@ -299,6 +300,8 @@ const ticker = setInterval(() => {
   }
 }, 250);
 
+/** Passkey step-up grants and the open remote terminal streams (gate issues and ends them, pty routes check them). */
+const ptyAccess = new PtyAccess();
 const api = createApiHandler({
   team: { appoint: (id, pending) => team.appoint(id, pending), openBoss: ptys ? openBoss : undefined },
   workers: workers
@@ -325,7 +328,7 @@ const api = createApiHandler({
   terminal: config.terminal,
   terminals,
   sessions: history,
-  pty: ptys ? createPtyRoutes(ptys) : undefined,
+  pty: ptys ? createPtyRoutes(ptys, { access: ptyAccess, sessionOf, isRemote: isRemoteRequest }) : undefined,
   accountsApi: ptys
     ? createAccountsRoutes({
         ptys,
@@ -347,7 +350,7 @@ const api = createApiHandler({
     const rooms = snap.rooms.map((r) => ({ path: r.path, lastAt: last.get(r.id) ?? 0 }));
     return recentFolders(history ? await history.list().catch(() => []) : [], rooms);
   },
-  remote: config.remote ? { is: isRemoteRequest, allows: (f) => config.remote!.allow.has(f) } : undefined,
+  remote: config.remote ? { is: isRemoteRequest, allows: remoteAllows(config.remote.allow, () => late.passkeys?.count() ?? 0) } : undefined,
 });
 
 const frameAncestor = parseFrameAncestor(process.env.HABBLAUD_FRAME_ANCESTORS);
@@ -412,6 +415,7 @@ if (config.remote) {
   const passkeys = remote.domain
     ? new PasskeyService({ domain: remote.domain, user: remote.user, store: new PasskeyStore(join(config.dataDir, 'remote', 'passkeys.json'), log) })
     : undefined;
+  late.passkeys = passkeys;
   const { sso, warning: ssoWarning } = parseSsoEnv(process.env);
   if (ssoWarning) log.warn(ssoWarning);
   const secret = loadSecret(join(config.dataDir, 'remote-secret'));
@@ -422,6 +426,8 @@ if (config.remote) {
     secure: isSecureRemote(remote),
     domain: remote.domain,
     passkeys,
+    ownerEmail: remote.ownerEmail,
+    ptyAccess,
     passwordLogin: remote.passwordLogin,
     frameAncestor,
     sso,
@@ -454,6 +460,7 @@ if (config.remote) {
     const allow = [...remote.allow].join(', ') || tr('view only');
     const scheme = remote.domain ? tr('HTTP behind a proxy for {0}', [remote.domain]) : remote.tls ? 'HTTPS' : tr('HTTP WITHOUT encryption (HABBLAUD_REMOTE_INSECURE_HTTP)');
     if (/\bspawn\b/i.test(process.env.HABBLAUD_REMOTE_ALLOW ?? '')) log.warn(tr('   Remote access: "spawn" is no longer a remote feature and is ignored (only "terminal").'));
+    if (remote.ownerEmail) log.info(tr('   Remote access: owner {0}; may view terminals, and type in them after a passkey check ({1} passkey(s)).', [maskEmail(remote.ownerEmail), passkeys?.count() ?? 0]));
     if (remote.google) log.info(tr('   Remote access: Sign in with Google on ({0} address(es) allowed).', [remote.google.emails.size]));
     if (passkeys) log.info(tr('   Remote access: {0} passkey(s); password sign-in {1}.', [passkeys.count(), passkeys.count() > 0 && !remote.passwordLogin ? tr('off') : tr('on')]));
     log.info(tr('   Remote access: on at port {0} ({1}), {2}, with login; allows: {3}.', [remote.port, remote.host, scheme, allow]));

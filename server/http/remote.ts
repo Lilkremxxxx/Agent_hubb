@@ -20,12 +20,24 @@
 //                           from CF-Connecting-IP (only on a loopback connection).
 //   HABBLAUD_REMOTE_GOOGLE_CLIENT_ID / _CLIENT_SECRET / _EMAILS  "Sign in with Google" (domain mode only; all three needed, see remote/google.ts).
 //   HABBLAUD_REMOTE_PASSWORD_LOGIN  allow password sign-in even when passkeys exist (default: off once a passkey exists; passwords are the way back in).
+//   HABBLAUD_REMOTE_OWNER_EMAIL  who is the owner (lower-cased, must look like a Google address, else ignored with a warning; unset =
+//                           nobody is owner and nothing below applies). Owner sessions: password and passkey sign-ins always; Google only when the
+//                           email matches; LD sign-in only when LD says owner:true AND the email matches. The token is `v1.<exp>[.o].<sig>` and the
+//                           signature covers `.o`, so a viewer cookie cannot be upgraded. An owner session gets the read-only `terminal` transcripts
+//                           without HABBLAUD_REMOTE_ALLOW and may register or delete passkeys (still needs a recent sign-in). Typing: see below.
+//
+// Typing in a terminal (owner, at least one passkey): POST /api/remote/stepup/options + /verify with {response, ptyId} or {response, agentId} trade a
+// passkey check for a grant: single use, 60 s, bound to the session and to `pty:<id>` (attach the stream, then input and resize while that stream is
+// open) or `agent:<id>` (takeover; the answer carries a fresh `pty:` grant for the new terminal). Every attach asks again; streams end at session
+// expiry and on sign-out. Failures share the per-IP window. List, new session, close, stop and sign-in terminals stay local-only. `pty` is never read
+// from HABBLAUD_REMOTE_ALLOW. See remote/ptygrant.ts and http/pty.ts.
 //
 // Session: HttpOnly + SameSite=Lax cookie (+ Secure with HTTPS) signed with HMAC; key = random secret in
 // <dataDir>/remote-secret mixed with user and password hash: changing password revokes all sessions.
 import { LibLoadError, PasskeyService } from '../remote/passkeys';
-import { GOOGLE_COOKIE, GOOGLE_COOKIE_S, maskEmail, parseGoogleConfig, type GoogleAuth, type GoogleConfig } from '../remote/google';
+import { GOOGLE_COOKIE, GOOGLE_COOKIE_S, GOOGLE_EMAIL_RE, maskEmail, parseGoogleConfig, type GoogleAuth, type GoogleConfig } from '../remote/google';
 import { loginPage, securityPage } from '../remote/pages';
+import { PtyAccess, sessionKey } from '../remote/ptygrant';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
@@ -38,7 +50,8 @@ import { hostAllowed, isLoopbackBind, normalizeIp } from './guard';
 import { isValidDomain } from '../remote/tls';
 import { tr } from '../../shared/i18n';
 
-export type RemoteFeature = 'terminal';
+/** `pty` (typing into a terminal after a passkey step-up) is never read from HABBLAUD_REMOTE_ALLOW: see remoteAllows. */
+export type RemoteFeature = 'terminal' | 'pty';
 
 const FEATURES: readonly RemoteFeature[] = ['terminal'];
 
@@ -64,6 +77,15 @@ export interface RemoteConfig {
   passwordLogin: boolean;
   /** Present = Sign in with Google is on (domain mode only). */
   google?: GoogleConfig;
+  /** HABBLAUD_REMOTE_OWNER_EMAIL, lower-case. Missing = nobody is owner (view only, as before). */
+  ownerEmail?: string;
+}
+
+/** HABBLAUD_REMOTE_OWNER_EMAIL: lower-cased and trimmed; an invalid value is ignored with a warning. */
+function parseOwnerEmail(raw: string | undefined): { ownerEmail?: string; warning?: string } {
+  const email = raw?.trim().toLowerCase();
+  if (!email) return {};
+  return GOOGLE_EMAIL_RE.test(email) ? { ownerEmail: email } : { warning: tr('HABBLAUD_REMOTE_OWNER_EMAIL ignored: not a valid email address') };
 }
 
 /** Cookie gets `Secure` when the port speaks HTTPS itself or sits behind an HTTPS proxy. */
@@ -107,6 +129,8 @@ export function parseRemoteConfig(
   const passwordHash = parsePasswordHash(hashText);
   if (!passwordHash) return { warning: tr('remote access off: invalid HABBLAUD_REMOTE_PASSWORD_HASH; run npm run remote:setup') };
   const passwordLogin = truthy(env.HABBLAUD_REMOTE_PASSWORD_LOGIN);
+  const owner = parseOwnerEmail(env.HABBLAUD_REMOTE_OWNER_EMAIL);
+  const ownerPart = owner.ownerEmail ? { ownerEmail: owner.ownerEmail } : {};
   const rawPort = Number.parseInt(env.HABBLAUD_REMOTE_PORT ?? '', 10);
   const port = Number.isInteger(rawPort) && rawPort > 0 && rawPort < 65536 ? rawPort : DEFAULT_REMOTE_PORT;
   const rawDomain = env.HABBLAUD_REMOTE_DOMAIN?.trim().toLowerCase();
@@ -115,7 +139,7 @@ export function parseRemoteConfig(
     const host = env.HABBLAUD_REMOTE_HOST?.trim() || '127.0.0.1';
     if (!isLoopbackBind(host)) return { warning: tr('remote access off: behind a proxy (HABBLAUD_REMOTE_DOMAIN) the remote port listens on loopback only; HABBLAUD_REMOTE_HOST={0}', [host]) };
     const g = parseGoogleConfig(env, rawDomain);
-    return { config: { port, host, user, passwordHash, passwordHashText: hashText, allow: parseAllow(env.HABBLAUD_REMOTE_ALLOW), domain: rawDomain, passwordLogin, ...(g.google ? { google: g.google } : {}) }, warning: g.warning };
+    return { config: { port, host, user, passwordHash, passwordHashText: hashText, allow: parseAllow(env.HABBLAUD_REMOTE_ALLOW), domain: rawDomain, passwordLogin, ...ownerPart, ...(g.google ? { google: g.google } : {}) }, warning: [g.warning, owner.warning].filter(Boolean).join('. ') || undefined };
   }
   const dir = defaultTlsDir(env);
   const tls: RemoteTls = { dir, keyFile: join(dir, 'server.key'), certFile: join(dir, 'server.crt'), caFile: join(dir, 'ca.crt') };
@@ -124,7 +148,8 @@ export function parseRemoteConfig(
   if (!hasTls && !insecure) return { warning: tr('remote access off: no certificate in {0} (HTTPS is required); run npm run remote:setup', [dir]) };
   const host = env.HABBLAUD_REMOTE_HOST?.trim() || '0.0.0.0';
   return {
-    config: { port, host, user, passwordHash, passwordHashText: hashText, allow: parseAllow(env.HABBLAUD_REMOTE_ALLOW), tls: hasTls ? tls : undefined, passwordLogin },
+    config: { port, host, user, passwordHash, passwordHashText: hashText, allow: parseAllow(env.HABBLAUD_REMOTE_ALLOW), tls: hasTls ? tls : undefined, passwordLogin, ...ownerPart },
+    warning: owner.warning,
   };
 }
 
@@ -164,6 +189,8 @@ export function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(h(a), h(b));
 }
 
+export interface SessionInfo { exp: number; sig: string; owner: boolean }
+
 export class RemoteSessions {
   private readonly key: Buffer;
   /**
@@ -187,16 +214,28 @@ export class RemoteSessions {
     return createHmac('sha256', this.key).update(payload, 'utf8').digest('base64url');
   }
 
-  /** A shorter `ttlMs` also makes the session never `recent()` (its implied issue time is far in the past). */
-  issue(ttlMs = SESSION_MS): { token: string; maxAgeS: number } {
+  /**
+   * A shorter `ttlMs` also makes the session never `recent()` (its implied issue time is far in the past).
+   * An owner token carries `.o` inside the signed payload; a token without it (every older cookie) is a viewer.
+   */
+  issue(ttlMs = SESSION_MS, owner = false): { token: string; maxAgeS: number } {
     const exp = this.now() + ttlMs;
-    const payload = `v1.${exp}`;
+    const payload = `v1.${exp}${owner ? '.o' : ''}`;
     return { token: `${payload}.${this.sign(payload)}`, maxAgeS: Math.floor(ttlMs / 1000) };
   }
 
   verify(token: string | undefined): boolean {
+    return !!this.info(token);
+  }
+
+  /** The session behind a valid, unrevoked token. */
+  info(token: string | undefined): SessionInfo | undefined {
     const parsed = this.parse(token);
-    return !!parsed && !this.revoked.has(parsed.sig);
+    return parsed && !this.revoked.has(parsed.sig) ? parsed : undefined;
+  }
+
+  isOwner(token: string | undefined): boolean {
+    return !!this.info(token)?.owner;
   }
 
   /** True when this valid token was issued (password or passkey sign-in) within the last `ms`. */
@@ -215,15 +254,15 @@ export class RemoteSessions {
     this.saveRevoked();
   }
 
-  private parse(token: string | undefined): { exp: number; sig: string } | undefined {
+  private parse(token: string | undefined): SessionInfo | undefined {
     if (!token) return undefined;
-    const m = /^v1\.(\d{10,16})\.([A-Za-z0-9_-]{43})$/.exec(token);
+    const m = /^v1\.(\d{10,16})(\.o)?\.([A-Za-z0-9_-]{43})$/.exec(token);
     if (!m) return undefined;
     const exp = Number(m[1]);
     if (exp <= this.now() || exp > this.now() + SESSION_MS) return undefined; // expired, or older/longer than a session
-    const expected = Buffer.from(this.sign(`v1.${m[1]}`));
-    const got = Buffer.from(m[2]);
-    return expected.length === got.length && timingSafeEqual(expected, got) ? { exp, sig: m[2] } : undefined;
+    const expected = Buffer.from(this.sign(`v1.${m[1]}${m[2] ?? ''}`));
+    const got = Buffer.from(m[3]);
+    return expected.length === got.length && timingSafeEqual(expected, got) ? { exp, sig: m[3], owner: !!m[2] } : undefined;
   }
 
   private loadRevoked(): void {
@@ -374,6 +413,18 @@ export function clientIp(req: IncomingMessage, behindProxy: boolean): string {
 
 /** Requests that arrived on remote port and passed login. */
 const remoteRequests = new WeakSet<IncomingMessage>();
+/** Session behind each signed-in request (never set for PUBLIC_STATIC requests). */
+const sessionsOfRequests = new WeakMap<IncomingMessage, SessionInfo>();
+export const sessionOf = (req: IncomingMessage): SessionInfo | undefined => sessionsOfRequests.get(req);
+export const isOwnerRequest = (req: IncomingMessage): boolean => !!sessionOf(req)?.owner;
+
+/**
+ * `allows` for the app: `terminal` (read-only transcript) from HABBLAUD_REMOTE_ALLOW or for an owner session; `pty`
+ * (typing, after a passkey step-up) only for an owner session while a passkey exists, never from the env.
+ */
+export function remoteAllows(allow: ReadonlySet<RemoteFeature>, passkeyCount: () => number = () => 0): (req: IncomingMessage, f: RemoteFeature) => boolean {
+  return (req, f) => (f === 'pty' ? isOwnerRequest(req) && passkeyCount() > 0 : allow.has(f) || (f === 'terminal' && isOwnerRequest(req)));
+}
 /** Files served by remote port without login: manifest, icons and the sign-in script (mobile fetches them before login, without
  *  cookie). No API or office contents. */
 const PUBLIC_STATIC = /^\/(manifest\.webmanifest|assets\/brand\/(?:finstar-144|apple-touch-icon|icon-192|icon-512)\.png|assets\/remote\/auth\.js)$/;
@@ -460,6 +511,10 @@ export interface RemoteGateDeps {
   frameAncestor?: string;
   /** LD_SSO_SECRET + LD_INTERNAL_URL: sign in with a one-time ticket from the Linux Dashboard (missing = the route answers 404). */
   sso?: { url: string; secret: string; timeoutMs?: number };
+  /** HABBLAUD_REMOTE_OWNER_EMAIL (lower-case). Missing = nobody is owner. */
+  ownerEmail?: string;
+  /** Step-up grants and open remote terminal streams (shared with the pty routes). Missing = step-up routes answer 404. */
+  ptyAccess?: PtyAccess;
 }
 
 /** LD_INTERNAL_URL must be plain http(s) on loopback: the hub sends a bearer secret there (SSRF guard). */
@@ -486,6 +541,8 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
   const failures = deps.failures ?? new FailureWindow();
   const verify = deps.verify ?? verifyPassword;
   const cname = cookieName(deps.secure);
+  /** Password and passkey sign-ins are the owner (the credentials are the proof); Google and LD need the matching email. */
+  const isOwnerEmail = (email: unknown): boolean => !!deps.ownerEmail && typeof email === 'string' && email.trim().toLowerCase() === deps.ownerEmail;
   const passwordOff = () => !!deps.passkeys && deps.passkeys.count() > 0 && !deps.passwordLogin;
   const caAvailable = () => !!deps.caFile && existsSync(deps.caFile);
   let libWarned = false;
@@ -509,7 +566,8 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       }
     }
     const change = route === '/register/options' || route === '/register/verify' || route === '/delete';
-    if (change && !deps.sessions.recent(readCookie(req.headers.cookie, cname), RECENT_MS)) {
+    const cookie = readCookie(req.headers.cookie, cname);
+    if (change && !(deps.sessions.recent(cookie, RECENT_MS) && (!deps.ownerEmail || deps.sessions.isOwner(cookie)))) {
       req.resume();
       deps.log?.warn(tr('Remote passkey change refused ({0}) from {1}, {2}', [route.slice(1), ip, ua]));
       return sendJson(res, 403, { error: tr('sign in again to change passkeys') });
@@ -530,7 +588,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
           }
           failures.clear(ip);
           deps.log?.info(tr('Remote sign-in ok ({0}) from {1}, {2}', ['passkey', ip, ua]));
-          const { token, maxAgeS } = deps.sessions.issue();
+          const { token, maxAgeS } = deps.sessions.issue(SESSION_MS, !!deps.ownerEmail);
           return sendJson(res, 200, { ok: true }, { 'Set-Cookie': cookieHeader(token, maxAgeS, deps.secure) });
         }
         if (route === '/register/verify') {
@@ -545,6 +603,58 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       })
       .catch((e) => {
         if (e instanceof LibLoadError && !libWarned) { libWarned = true; deps.log?.warn(tr('passkey library could not load')); } // once, no stack
+        if (!res.headersSent) sendJson(res, 400, { error: tr('invalid request') });
+      });
+  };
+  // Passkey step-up: the owner proves presence again before typing into a terminal (or taking an agent over).
+  // The grant it returns is single use, 60 s, bound to this session and to one target.
+  const TARGET_ID = /^[A-Za-z0-9_-]{1,64}$/;
+  const stepupRoute = (req: IncomingMessage, res: ServerResponse, route: string, session: SessionInfo | undefined): void => {
+    const pk = deps.passkeys;
+    const access = deps.ptyAccess;
+    if (!pk || !access || (route !== '/options' && route !== '/verify')) { req.resume(); return sendJson(res, 404, { error: tr('not found') }); }
+    if (req.method !== 'POST') { req.resume(); return sendJson(res, 405, { error: tr('method not allowed') }, { Allow: 'POST' }); }
+    if (!session) { req.resume(); return sendJson(res, 401, { error: tr('sign in: open Habblaud on this port in your browser and enter your username and password') }); }
+    if (!session.owner) { req.resume(); return sendJson(res, 403, { error: tr('only the owner can type in the terminal') }); }
+    if (pk.count() === 0) { req.resume(); return sendJson(res, 403, { error: tr('typing in the terminal needs a passkey: register one first') }); }
+    const key = sessionKey(session.sig);
+    const ip = clientIp(req, !!deps.domain);
+    const ua = (req.headers['user-agent'] ?? '-').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 80) || '-';
+    if (route === '/options') {
+      req.resume();
+      pk.stepupOptions(key).then(
+        (o) => (o ? sendJson(res, 200, o) : sendJson(res, 429, { error: tr('Too many attempts. Try again in {0} s.', [CHALLENGE_TTL_S]) }, { 'Retry-After': String(CHALLENGE_TTL_S) })),
+        () => sendJson(res, 400, { error: tr('invalid request') }),
+      );
+      return;
+    }
+    const wait = failures.retryAfter(ip);
+    if (wait > 0) {
+      req.resume();
+      if (failures.noteBlocked(ip)) deps.log?.warn(tr('Remote sign-in blocked ({0}) from {1}, {2}', ['step-up', ip, ua]));
+      return sendJson(res, 429, { error: tr('Too many attempts. Try again in {0} s.', [wait]) }, { 'Retry-After': String(wait) });
+    }
+    readBody(req, 32 * 1024, true)
+      .then(async (raw) => {
+        const body = JSON.parse(raw) as { response?: unknown; ptyId?: unknown; agentId?: unknown };
+        const ids = [body?.ptyId, body?.agentId].filter((x) => x !== undefined);
+        const id = ids[0];
+        if (!body || typeof body !== 'object' || !body.response || typeof body.response !== 'object' || ids.length !== 1 || typeof id !== 'string' || !TARGET_ID.test(id)) {
+          return sendJson(res, 400, { error: tr('invalid request') });
+        }
+        const target = `${body.ptyId !== undefined ? 'pty' : 'agent'}:${id}`;
+        if (!(await pk.verifyStepup(body.response, key))) {
+          failures.fail(ip);
+          deps.log?.warn(tr('Remote passkey step-up failed from {0}, {1}', [ip, ua]));
+          return sendJson(res, 401, { error: tr('Passkey not recognized.') });
+        }
+        const grant = access.issue(key, target);
+        if (!grant) return sendJson(res, 429, { error: tr('Too many attempts. Try again in {0} s.', [60]) }, { 'Retry-After': '60' });
+        deps.log?.info(tr('Remote passkey step-up ok from {0}, {1}', [ip, ua]));
+        return sendJson(res, 200, { grant, expiresInS: 60 });
+      })
+      .catch((e) => {
+        if (e instanceof LibLoadError && !libWarned) { libWarned = true; deps.log?.warn(tr('passkey library could not load')); }
         if (!res.headersSent) sendJson(res, 400, { error: tr('invalid request') });
       });
   };
@@ -586,7 +696,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
         }
         failures.clear(ip);
         deps.log?.info(tr('Remote sign-in ok (google, {0}) from {1}, {2}', [maskEmail(r.email), ip, ua]));
-        const { token, maxAgeS } = deps.sessions.issue();
+        const { token, maxAgeS } = deps.sessions.issue(SESSION_MS, isOwnerEmail(r.email));
         res.writeHead(302, { Location: '/', 'Set-Cookie': [cookieHeader(token, maxAgeS, deps.secure), clear], 'Cache-Control': 'no-store' }).end();
       });
   };
@@ -616,13 +726,14 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       redirect: 'manual',
       signal: AbortSignal.timeout(sso.timeoutMs ?? 3000),
     }).then(
-      (r) => {
-        void r.body?.cancel();
-        if (r.status !== 200) return bad(`status ${r.status}`);
+      async (r) => {
+        if (r.status !== 200) { void r.body?.cancel(); return bad(`status ${r.status}`); }
+        const who = (await r.json().catch(() => ({}))) as { email?: unknown; owner?: unknown };
         failures.clear(ip);
         deps.log?.info(tr('Remote sign-in ok ({0}) from {1}, {2}', ['ld', ip, ua]));
         // 12 h, never recent(): a granted viewer must not manage credentials, and a revoked LD grant lapses soon.
-        const { token, maxAgeS } = deps.sessions.issue(SSO_SESSION_MS);
+        // Owner only when LD says so AND the email is the configured owner's (either alone is not enough).
+        const { token, maxAgeS } = deps.sessions.issue(SSO_SESSION_MS, who.owner === true && isOwnerEmail(who.email));
         res.writeHead(302, { Location: '/', 'Set-Cookie': cookieHeader(token, maxAgeS, deps.secure), ...headers }).end();
       },
       () => bad('unreachable', false), // LD down is not the user's fault
@@ -636,7 +747,8 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       sendJson(res, 403, { error: tr('cross-site request refused') });
       return true;
     }
-    const authed = deps.sessions.verify(readCookie(req.headers.cookie, cname));
+    const session = deps.sessions.info(readCookie(req.headers.cookie, cname));
+    const authed = !!session;
 
     if (path === '/api/remote/login') {
       if (method !== 'POST') {
@@ -689,7 +801,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
           ok = true;
           failures.clear(ip);
           deps.log?.info(tr('Remote sign-in ok ({0}) from {1}, {2}', ['password', ip, ua]));
-          const { token, maxAgeS } = deps.sessions.issue();
+          const { token, maxAgeS } = deps.sessions.issue(SESSION_MS, !!deps.ownerEmail);
           sendJson(res, 200, { ok: true }, { 'Set-Cookie': cookieHeader(token, maxAgeS, deps.secure) });
         })
         .catch(() => {
@@ -706,6 +818,11 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       return true;
     }
 
+    if (path.startsWith('/api/remote/stepup/')) {
+      stepupRoute(req, res, path.slice('/api/remote/stepup'.length), session);
+      return true;
+    }
+
     if (path.startsWith('/api/remote/google/')) {
       googleRoute(req, res, url, path.slice('/api/remote/google/'.length));
       return true;
@@ -715,6 +832,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       req.resume();
       if (method !== 'POST') sendJson(res, 405, { error: tr('method not allowed') }, { Allow: 'POST' });
       else {
+        if (session) deps.ptyAccess?.endSession(sessionKey(session.sig)); // open terminals die with the sign-out
         deps.sessions.revoke(readCookie(req.headers.cookie, cname));
         sendJson(res, 200, { ok: true }, { 'Set-Cookie': cookieHeader('', 0, deps.secure) });
       }
@@ -763,8 +881,9 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       return true;
     }
 
-    if (authed) {
+    if (session) {
       remoteRequests.add(req);
+      sessionsOfRequests.set(req, session);
       return false;
     }
     // App icon and manifest (Home Screen): public, mobile fetches them before login (and without cookie).

@@ -2,13 +2,16 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AccountsService } from '../accounts/service';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import { tempDir } from '../test/fixtures';
 import { createApiHandler, sendJson } from './app';
+import { createPtyRoutes } from './pty';
+import { PtyAccess } from '../remote/ptygrant';
+import { PtyError, type PtyManager } from '../pty/manager';
 import { createRequestGuard } from './guard';
 import {
   clientIp,
@@ -17,13 +20,16 @@ import {
   FailureWindow,
   listsHubDomain,
   remoteAllowedHosts,
+  isOwnerRequest,
   isRemoteRequest,
+  sessionOf as sessionOfRequest,
   isSecureRemote,
   loadSecret,
   LoginThrottle,
   parseAllow,
   parseRemoteConfig,
   readCookie,
+  remoteAllows,
   RemoteSessions,
   SESSION_MS,
   type RemoteFeature,
@@ -447,7 +453,7 @@ async function start(allow: RemoteFeature[] = []): Promise<Harness> {
       sendJson(res, 200, { ok: true });
     },
     renameRoom: () => 'room',
-    remote: { is: isRemoteRequest, allows: (f) => allowSet.has(f) },
+    remote: { is: isRemoteRequest, allows: (_req, f) => allowSet.has(f) },
   });
   const guard = createRequestGuard();
   const gate = createRemoteGate({ config: CFG, sessions: new RemoteSessions(SECRET, CFG), secure: false });
@@ -814,6 +820,7 @@ describe('GET /api/access (what the page can do)', () => {
       local: false,
       terminal: false,
       spawn: false,
+      ptyStepUp: false,
     });
     expect(JSON.parse((await request(h.localBase, '/api/access')).body)).toEqual({ remote: false, local: true, terminal: true, spawn: true });
     expect(JSON.parse((await request(h.localBase, '/api/access', { headers: { Host: '192.168.1.5:4747' } })).body)).toMatchObject({
@@ -1027,5 +1034,508 @@ describe('passkey routes', () => {
       r.end('{"a":"' + 'x'.repeat(200_000) + '"}');
     });
     expect(big).not.toBe('status 200');
+  });
+});
+
+describe('owner identity (HABBLAUD_REMOTE_OWNER_EMAIL)', () => {
+  const DOMAIN = 'hub.finstar.pp.ua';
+  const OWNER = 'owner@example.com';
+  const H = { Connection: 'close', Host: DOMAIN, Origin: `https://${DOMAIN}`, 'CF-Connecting-IP': '203.0.113.5' };
+  const NAV = { 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Site': 'same-site' };
+  const T = 'abcDEF123_-abcDEF123_-abcDEF123_-abcDEF12345';
+  const env = { HABBLAUD_REMOTE_USER: 'ana', HABBLAUD_REMOTE_PASSWORD_HASH: HASH_TEXT, HABBLAUD_REMOTE_DOMAIN: DOMAIN };
+
+  describe('config', () => {
+    it('lower-cases and trims the email; unset stays undefined', () => {
+      expect(parseRemoteConfig({ ...env, HABBLAUD_REMOTE_OWNER_EMAIL: '  Owner@Example.COM ' }).config?.ownerEmail).toBe(OWNER);
+      expect(parseRemoteConfig(env).config?.ownerEmail).toBeUndefined();
+    });
+    it('an invalid email is ignored with a warning (nobody becomes owner)', () => {
+      for (const bad of ['nope', 'a@b', 'a b@example.com', '@example.com']) {
+        const r = parseRemoteConfig({ ...env, HABBLAUD_REMOTE_OWNER_EMAIL: bad });
+        expect(r.config?.ownerEmail, bad).toBeUndefined();
+        expect(r.warning, bad).toMatch(/HABBLAUD_REMOTE_OWNER_EMAIL/);
+      }
+    });
+    it('parseAllow never accepts pty', () => {
+      expect([...parseAllow('terminal,pty')]).toEqual(['terminal']);
+      expect([...parseAllow('pty')]).toEqual([]);
+    });
+  });
+
+  describe('tokens', () => {
+    const now = 1_800_000_000_000;
+    const sessions = new RemoteSessions(SECRET, CFG, () => now);
+    it('owner token carries .o under the signature; viewer and legacy tokens are viewers', () => {
+      const o = sessions.issue(SESSION_MS, true).token;
+      const v = sessions.issue().token;
+      expect(o).toMatch(/^v1\.\d+\.o\.[A-Za-z0-9_-]{43}$/);
+      expect(v).toMatch(/^v1\.\d+\.[A-Za-z0-9_-]{43}$/);
+      expect([sessions.isOwner(o), sessions.isOwner(v)]).toEqual([true, false]);
+      expect([sessions.verify(o), sessions.verify(v)]).toEqual([true, true]);
+      expect(sessions.info(o)).toMatchObject({ owner: true });
+      expect(sessions.info(v)).toMatchObject({ owner: false });
+    });
+    it('forging .o onto a viewer token, or stripping it from an owner token, invalidates it', () => {
+      const o = sessions.issue(SESSION_MS, true).token;
+      const v = sessions.issue().token;
+      const forged = v.replace(/^(v1\.\d+)/, '$1.o');
+      expect([sessions.verify(forged), sessions.isOwner(forged)]).toEqual([false, false]);
+      const stripped = o.replace('.o.', '.');
+      expect([sessions.verify(stripped), sessions.isOwner(stripped)]).toEqual([false, false]);
+      expect(sessions.isOwner(undefined)).toBe(false);
+    });
+    it('a revoked owner token is no longer owner', () => {
+      const o = sessions.issue(SESSION_MS, true).token;
+      sessions.revoke(o);
+      expect([sessions.verify(o), sessions.isOwner(o), sessions.info(o)]).toEqual([false, false, undefined]);
+    });
+  });
+
+  describe('who becomes owner', () => {
+    let ldBody = '{"email":"owner@example.com","name":"A","owner":true}';
+    let googleEmail = OWNER;
+    let passkeyCount = 1;
+    let clock = Date.now();
+    async function mk(ownerEmail: string | null = OWNER) {
+      const guard = createRequestGuard({ allowedHosts: new Set([DOMAIN]) });
+      const ld = http.createServer((req, res) => { req.resume(); res.writeHead(200, { 'Content-Type': 'application/json' }).end(ldBody); });
+      await new Promise<void>((ok) => ld.listen(0, '127.0.0.1', ok));
+      closers.push(() => new Promise<void>((ok) => { ld.closeAllConnections(); ld.close(() => ok()); }));
+      const tmp = tempDir();
+      const passkeys = new PasskeyService({ domain: DOMAIN, user: 'ana', store: new PasskeyStore(join(tmp.dir, 'pk.json')), lib: { ...webauthn, verifyRegistrationResponse: (async () => ({ verified: true, registrationInfo: { credential: { id: 'cred-1', publicKey: new Uint8Array([1]), counter: 0 } } })) as never, verifyAuthenticationResponse: (async () => ({ verified: true, authenticationInfo: { newCounter: 1 } })) as never } });
+      if (passkeyCount) { await passkeys.registerOptions(); await passkeys.verifyRegister({ response: {}, name: 'x' }); }
+      const gate = createRemoteGate({
+        config: CFG, sessions: new RemoteSessions(SECRET, CFG, () => clock), secure: true, domain: DOMAIN, ownerEmail: ownerEmail ?? undefined, passkeys, passwordLogin: true,
+        sso: { url: `http://127.0.0.1:${(ld.address() as AddressInfo).port}`, secret: 's', timeoutMs: 500 },
+        google: { start: () => ({ location: '/x', cookie: 'c' }), finish: async () => ({ ok: true as const, email: googleEmail }) } as never,
+        failures: new FailureWindow(50, 600_000),
+      });
+      const server = http.createServer((req, res) => {
+        if (guard(req, res)) return;
+        if (gate(req, res, new URL(req.url ?? '/', 'http://x'))) return;
+        sendJson(res, 200, { owner: isOwnerRequest(req) });
+      });
+      await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+      closers.push(() => new Promise<void>((ok) => { server.closeAllConnections(); server.close(() => { tmp.cleanup(); ok(); }); }));
+      return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    }
+    const cookieOf = (r: { headers: http.IncomingHttpHeaders }) => (r.headers['set-cookie']?.[0] ?? '').split(';')[0];
+    const owner = async (b: string, cookie: string) => JSON.parse((await request(b, '/whoami', { headers: { ...H, Cookie: cookie } })).body).owner as boolean;
+    const viaPassword = async (b: string) => cookieOf(await request(b, '/api/remote/login', { method: 'POST', headers: H, body: CREDS }));
+    const viaPasskey = async (b: string) => { await request(b, '/api/remote/passkeys/login/options', { method: 'POST', headers: H, body: {} }); return cookieOf(await request(b, '/api/remote/passkeys/login/verify', { method: 'POST', headers: H, body: { id: 'cred-1' } })); };
+    const viaGoogle = async (b: string) => cookieOf(await request(b, '/api/remote/google/callback?code=c&state=s', { headers: { ...H, Cookie: '__Host-habblaud_google=x' } }));
+    const viaSso = async (b: string) => cookieOf(await request(b, `/api/remote/sso?ticket=${T}`, { headers: { ...H, ...NAV } }));
+
+    it('password and passkey sign-ins are owner; without the env nobody is', async () => {
+      clock = Date.now(); passkeyCount = 1;
+      const b = await mk();
+      expect(await owner(b, await viaPassword(b))).toBe(true);
+      expect(await owner(b, await viaPasskey(b))).toBe(true);
+      const none = await mk(null);
+      expect(await owner(none, await viaPassword(none))).toBe(false);
+      expect(await owner(none, await viaPasskey(none))).toBe(false);
+      expect(await owner(none, await viaGoogle(none))).toBe(false);
+    });
+    it('Google is owner only for the owner email', async () => {
+      const b = await mk();
+      googleEmail = OWNER;
+      expect(await owner(b, await viaGoogle(b))).toBe(true);
+      googleEmail = 'other@example.com';
+      expect(await owner(b, await viaGoogle(b))).toBe(false);
+      googleEmail = OWNER;
+    });
+    it('LD SSO is owner only when LD says owner:true AND the email matches', async () => {
+      const b = await mk();
+      const cases: Array<[string, boolean]> = [
+        ['{"email":"owner@example.com","name":"A","owner":true}', true],
+        ['{"email":"Owner@Example.com","name":"A","owner":true}', true],
+        ['{"email":"owner@example.com","name":"A","owner":false}', false],
+        ['{"email":"owner@example.com","name":"A"}', false],
+        ['{"email":"other@example.com","name":"A","owner":true}', false],
+        ['{"owner":true}', false],
+        ['not json', false],
+      ];
+      for (const [body, want] of cases) {
+        ldBody = body;
+        const c = await viaSso(b);
+        expect(c, body).not.toBe('');
+        expect(await owner(b, c), body).toBe(want);
+      }
+      ldBody = '{"email":"owner@example.com","name":"A","owner":true}';
+    });
+    it('an old cookie (legacy format) is a viewer', async () => {
+      const b = await mk();
+      const legacy = new RemoteSessions(SECRET, CFG, () => clock).issue().token;
+      expect(await owner(b, `__Host-habblaud_remote=${legacy}`)).toBe(false);
+    });
+    it('passkey register and delete need recent AND (no owner email OR owner)', async () => {
+      clock = Date.now();
+      const b = await mk();
+      const post = (path: string, cookie: string, body: unknown = {}) => request(b, path, { method: 'POST', headers: { ...H, Cookie: cookie }, body });
+      googleEmail = 'other@example.com';
+      const viewer = await viaGoogle(b); // recent, but not the owner
+      googleEmail = OWNER;
+      for (const [path, body] of [['/api/remote/passkeys/register/options', {}], ['/api/remote/passkeys/register/verify', { response: {} }], ['/api/remote/passkeys/delete', { id: 'cred-1' }]] as const) {
+        expect((await post(path, viewer, body)).status, path).toBe(403);
+      }
+      const o = await viaPassword(b);
+      expect((await post('/api/remote/passkeys/register/options', o)).status).toBe(200);
+      const sso = await viaSso(b); // owner, but SSO is never recent
+      expect((await post('/api/remote/passkeys/register/options', sso)).status).toBe(403);
+      const none = await mk(null);
+      googleEmail = 'other@example.com';
+      const anyone = await viaGoogle(none);
+      googleEmail = OWNER;
+      expect((await request(none, '/api/remote/passkeys/register/options', { method: 'POST', headers: { ...H, Cookie: anyone }, body: {} })).status).toBe(200); // env unset: as today
+    });
+  });
+});
+
+describe('remote pty step-up', () => {
+  const DOMAIN = 'hub.finstar.pp.ua';
+  const H = { Connection: 'close', Host: DOMAIN, Origin: `https://${DOMAIN}`, 'CF-Connecting-IP': '203.0.113.5', 'Sec-Fetch-Site': 'same-origin' };
+  const CK = '__Host-habblaud_remote';
+  let grantClock = 1_000_000;
+  let verifyCalls = 0;
+  let lines: string[] = [];
+  let passkeyCount = 1;
+  let rec: string[] = [];
+  let sessions: RemoteSessions;
+  let access: PtyAccess;
+  let streams: http.ServerResponse[] = [];
+
+  async function mk(o: { limit?: number } = {}) {
+    grantClock = 1_000_000; verifyCalls = 0; lines = []; rec = []; streams = [];
+    const tmp = tempDir();
+    const dir = join(tmp.dir, '.claude');
+    mkdirSync(join(dir, 'sessions'), { recursive: true });
+    const accounts = new AccountsService({ dirs: [dir], home: tmp.dir, env: {}, onChange: () => {} });
+    const office = new Office({ names: new NameStore(null), version: '9.9.9', startedAt: Date.now(), accounts: (s) => accounts.list(s), sources: () => [], accountName: () => undefined });
+    const hub = new Hub(office, { throttleMs: 10 });
+    hub.start();
+    sessions = new RemoteSessions(SECRET, CFG);
+    access = new PtyAccess(() => grantClock);
+    const passkeys = {
+      count: () => passkeyCount,
+      list: () => [],
+      stepupOptions: async () => ({ challenge: 'c' }),
+      verifyStepup: async (assertion: { ok?: boolean }) => { verifyCalls++; return assertion?.ok === true; },
+    } as unknown as PasskeyService;
+    const fake = {
+      attach: (id: string, _req: http.IncomingMessage, res: http.ServerResponse) => {
+        if (id === 'nope') throw new PtyError(404, 'unknown');
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.write('event: reset\ndata: {}\n\n');
+        streams.push(res);
+        rec.push(`attach ${id}`);
+      },
+      input: (id: string, d: unknown) => void rec.push(`input ${id} ${String(d)}`),
+      resize: (id: string) => void rec.push(`resize ${id}`),
+      close: (id: string) => void rec.push(`close ${id}`),
+      stop: async (id: string) => void rec.push(`stop ${id}`),
+      takeover: async (id: string) => { rec.push(`takeover ${id}`); return { id: 'p9', agentId: 'x' }; },
+      create: () => { rec.push('create'); return { id: 'pnew' }; },
+      list: () => { rec.push('list'); return []; },
+      status: () => ({ enabled: true }),
+    } as unknown as PtyManager;
+    const api = createApiHandler({
+      office, hub, accounts, sources: () => [], version: '9.9.9', terminal: true,
+      terminals: new TerminalStreams({ office, transcriptPathOf: () => undefined, parserFor: () => undefined }),
+      sessions: { list: async () => [], resolve: () => ({ ok: false, status: 404, error: 'unknown' }) } as unknown as SessionLookup,
+      pty: createPtyRoutes(fake, { access, sessionOf: sessionOfRequest, isRemote: isRemoteRequest }),
+      remote: { is: isRemoteRequest, allows: remoteAllows(new Set<RemoteFeature>(), () => passkeyCount) },
+    });
+    const guard = createRequestGuard({ allowedHosts: new Set([DOMAIN]) });
+    const gate = createRemoteGate({ config: CFG, sessions, secure: true, domain: DOMAIN, passkeys, ptyAccess: access, passwordLogin: true, log: { info: (m) => lines.push(m), warn: (m) => lines.push(m) }, failures: new FailureWindow(o.limit ?? 5, 600_000) });
+    const server = http.createServer((req, res) => {
+      if (guard(req, res)) return;
+      const url = new URL(req.url ?? '/', 'http://x');
+      if (gate(req, res, url)) return;
+      if (!api(req, res, url)) res.writeHead(404).end();
+    });
+    await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+    closers.push(() => new Promise<void>((ok) => { hub.stop(); for (const r of streams) r.destroy(); server.closeAllConnections(); server.close(() => { tmp.cleanup(); ok(); }); }));
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  }
+  let n = 0;
+  const cookie = (owner: boolean, ttl = SESSION_MS) => `${CK}=${sessions.issue(ttl - n++, owner).token}`;
+  const post = (b: string, path: string, c: string, body: unknown = {}, extra: Record<string, string> = {}) => request(b, path, { method: 'POST', headers: { ...H, Cookie: c, ...extra }, body });
+  const get = (b: string, path: string, c: string, extra: Record<string, string> = {}) => request(b, path, { headers: { ...H, Cookie: c, ...extra } });
+  /** Opens an SSE and resolves with the status once headers arrive (the body never ends by itself). */
+  const sse = (b: string, path: string, c: string, extra: Record<string, string> = {}) =>
+    new Promise<{ status: number; ended: Promise<void>; abort(): void }>((ok, fail) => {
+      const r = http.request(new URL(path, b), { headers: { ...H, Cookie: c, ...extra } }, (res) => {
+        const ended = new Promise<void>((done) => { res.on('end', done); res.on('close', done); res.on('error', done); });
+        res.resume();
+        ok({ status: res.statusCode ?? 0, ended, abort: () => r.destroy() });
+      });
+      r.on('error', fail);
+      r.end();
+    });
+  const stepup = async (b: string, c: string, target: { ptyId: string } | { agentId: string }): Promise<string> => {
+    expect((await post(b, '/api/remote/stepup/options', c)).status).toBe(200);
+    const v = await post(b, '/api/remote/stepup/verify', c, { response: { ok: true }, ...target });
+    expect(v.status).toBe(200);
+    const body = JSON.parse(v.body);
+    expect(body.expiresInS).toBe(60);
+    return body.grant as string;
+  };
+  const streamPath = (id: string, grant?: string) => `/api/pty/${id}/stream${grant === undefined ? '' : `?grant=${encodeURIComponent(grant)}`}`;
+
+  beforeEach(() => { passkeyCount = 1; });
+
+  it('owner with a valid step-up: stream is event-stream, input and resize are recorded', async () => {
+    const b = await mk();
+    const c = cookie(true);
+    const grant = await stepup(b, c, { ptyId: 'p1' });
+    const st = await sse(b, streamPath('p1', grant), c);
+    expect(st.status).toBe(200);
+    const inp = await post(b, '/api/pty/p1/input', c, { data: 'ls\n' });
+    expect(inp.status).toBe(204);
+    expect((await post(b, '/api/pty/p1/resize', c, { cols: 80, rows: 24 })).status).toBe(204);
+    expect(rec).toEqual(['attach p1', 'input p1 ls\n', 'resize p1']);
+    st.abort();
+  });
+
+  it('the log never contains the grant or the challenge', async () => {
+    const b = await mk();
+    const c = cookie(true);
+    const grant = await stepup(b, c, { ptyId: 'p1' });
+    expect(lines.join('\n')).toMatch(/step-up ok/);
+    expect(lines.join('\n')).not.toContain(grant);
+  });
+
+  it('no grant or a garbage grant: 403; input without a live stream: 403', async () => {
+    const b = await mk();
+    const c = cookie(true);
+    expect((await get(b, streamPath('p1'), c)).status).toBe(403);
+    expect((await get(b, streamPath('p1', 'garbage'), c)).status).toBe(403);
+    expect((await post(b, '/api/pty/p1/input', c, { data: 'x' })).status).toBe(403);
+    expect((await post(b, '/api/pty/p1/resize', c, { cols: 1, rows: 1 })).status).toBe(403);
+    expect(rec).toEqual([]);
+  });
+
+  it('an expired grant: 403', async () => {
+    const b = await mk();
+    const c = cookie(true);
+    const grant = await stepup(b, c, { ptyId: 'p1' });
+    grantClock += 60_001;
+    expect((await get(b, streamPath('p1', grant), c)).status).toBe(403);
+  });
+
+  it('a reused grant: 403 (EventSource auto-reconnect must ask again)', async () => {
+    const b = await mk();
+    const c = cookie(true);
+    const grant = await stepup(b, c, { ptyId: 'p1' });
+    const st = await sse(b, streamPath('p1', grant), c);
+    expect(st.status).toBe(200);
+    expect((await get(b, streamPath('p1', grant), c)).status).toBe(403);
+    st.abort();
+  });
+
+  it("a grant from owner session A presented by owner session B: 403 (and B cannot type into A's stream)", async () => {
+    const b = await mk();
+    const A = cookie(true), B = cookie(true);
+    const grant = await stepup(b, A, { ptyId: 'p1' });
+    expect((await get(b, streamPath('p1', grant), B)).status).toBe(403);
+    const grant2 = await stepup(b, A, { ptyId: 'p1' });
+    const st = await sse(b, streamPath('p1', grant2), A);
+    expect(st.status).toBe(200);
+    expect((await post(b, '/api/pty/p1/input', B, { data: 'x' })).status).toBe(403);
+    expect((await post(b, '/api/pty/p1/input', A, { data: 'x' })).status).toBe(204);
+    st.abort();
+  });
+
+  it('a grant for pty A opens A; on pty B it is 403', async () => {
+    const b = await mk();
+    const c = cookie(true);
+    const grant = await stepup(b, c, { ptyId: 'pA' });
+    expect((await get(b, streamPath('pB', grant), c)).status).toBe(403);
+    const again = await stepup(b, c, { ptyId: 'pA' });
+    const st = await sse(b, streamPath('pA', again), c);
+    expect(st.status).toBe(200);
+    st.abort();
+  });
+
+  it('a viewer (no owner): options 403, verify 403, stream 403, ptyStepUp false', async () => {
+    const b = await mk();
+    const c = cookie(false);
+    expect((await post(b, '/api/remote/stepup/options', c)).status).toBe(403);
+    expect((await post(b, '/api/remote/stepup/verify', c, { response: { ok: true }, ptyId: 'p1' })).status).toBe(403);
+    expect((await get(b, streamPath('p1', 'x'), c)).status).toBe(403);
+    expect(JSON.parse((await get(b, '/api/access', c)).body)).toMatchObject({ ptyStepUp: false, terminal: false });
+    expect(verifyCalls).toBe(0);
+  });
+
+  it('an owner with no passkey: options 403, ptyStepUp false, terminal still true', async () => {
+    passkeyCount = 0;
+    const b = await mk();
+    const c = cookie(true);
+    const r = await post(b, '/api/remote/stepup/options', c);
+    expect(r.status).toBe(403);
+    expect(r.body).toContain('register one first');
+    expect(JSON.parse((await get(b, '/api/access', c)).body)).toMatchObject({ ptyStepUp: false, terminal: true });
+    expect(JSON.parse((await get(b, '/api/health', c)).body).pty).toBe(false);
+  });
+
+  it('an owner with a passkey: ptyStepUp and health.pty are true; unsigned requests are 401', async () => {
+    const b = await mk();
+    const c = cookie(true);
+    expect(JSON.parse((await get(b, '/api/access', c)).body)).toMatchObject({ ptyStepUp: true, terminal: true });
+    expect(JSON.parse((await get(b, '/api/health', c)).body).pty).toBe(true);
+    expect((await request(b, '/api/remote/stepup/options', { method: 'POST', headers: H, body: {} })).status).toBe(401);
+  });
+
+  it('same-site with a valid grant: 403 and the grant is not consumed; same-origin afterwards: 200', async () => {
+    const b = await mk();
+    const c = cookie(true);
+    const grant = await stepup(b, c, { ptyId: 'p1' });
+    expect((await get(b, streamPath('p1', grant), c, { 'Sec-Fetch-Site': 'same-site' })).status).toBe(403);
+    const { 'Sec-Fetch-Site': _s, ...noHeader } = H;
+    expect((await request(b, streamPath('p1', grant), { headers: { ...noHeader, Cookie: c } })).status).toBe(403);
+    const st = await sse(b, streamPath('p1', grant), c);
+    expect(st.status).toBe(200);
+    st.abort();
+  });
+
+  it('logout ends the stream; later input is 403', async () => {
+    const b = await mk();
+    const c = cookie(true);
+    const st = await sse(b, streamPath('p1', await stepup(b, c, { ptyId: 'p1' })), c);
+    expect(st.status).toBe(200);
+    expect((await post(b, '/api/remote/logout', c)).status).toBe(200);
+    await st.ended;
+    expect((await post(b, '/api/pty/p1/input', c, { data: 'x' })).status).toBe(401);
+  });
+
+  it('a short-lived session: the timer ends the stream at expiry', async () => {
+    const b = await mk();
+    const c = cookie(true, 800);
+    const st = await sse(b, streamPath('p1', await stepup(b, c, { ptyId: 'p1' })), c);
+    expect(st.status).toBe(200);
+    const t0 = Date.now();
+    await st.ended;
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+
+  it('5 bad verifies, then the 6th is 429 with Retry-After and the verifier is not called', async () => {
+    const b = await mk();
+    const c = cookie(true);
+    await post(b, '/api/remote/stepup/options', c);
+    for (let i = 0; i < 5; i++) expect((await post(b, '/api/remote/stepup/verify', c, { response: { ok: false }, ptyId: 'p1' })).status).toBe(401);
+    expect(verifyCalls).toBe(5);
+    const r = await post(b, '/api/remote/stepup/verify', c, { response: { ok: true }, ptyId: 'p1' });
+    expect(r.status).toBe(429);
+    expect(Number(r.headers['retry-after'])).toBeGreaterThan(0);
+    expect(verifyCalls).toBe(5);
+  });
+
+  it('verify rejects a bad body or target id with 400 before the verifier runs; 21st outstanding grant is 429', async () => {
+    const b = await mk();
+    const c = cookie(true);
+    for (const body of [{}, { response: { ok: true } }, { response: { ok: true }, ptyId: 'a/b' }, { response: { ok: true }, ptyId: 'x'.repeat(65) }, { response: { ok: true }, ptyId: 'a', agentId: 'b' }, { response: 1, ptyId: 'a' }]) {
+      expect((await post(b, '/api/remote/stepup/verify', c, body)).status, JSON.stringify(body)).toBe(400);
+    }
+    expect(verifyCalls).toBe(0);
+    for (let i = 0; i < 20; i++) expect(access.issue('other', `pty:p${i}`)).toBeTruthy();
+    expect((await post(b, '/api/remote/stepup/verify', c, { response: { ok: true }, ptyId: 'p1' })).status).toBe(429);
+  });
+
+  it('an owner holding a grant still gets 403 on POST /api/pty, close, stop, GET /api/pty', async () => {
+    const b = await mk();
+    const c = cookie(true);
+    const grant = await stepup(b, c, { ptyId: 'p1' });
+    const grantAgent = await stepup(b, c, { agentId: 'a1' });
+    const blocked: Array<[string, string, unknown?]> = [
+      ['POST', '/api/pty', { cwd: '/tmp' }],
+      ['GET', '/api/pty'],
+      ['POST', '/api/pty/p1/close', {}],
+      ['POST', `/api/agents/a1/stop?grant=${grantAgent}`, {}],
+      ['POST', `/api/agents/a1/stop`, { grant: grantAgent }],
+    ];
+    for (const [method, path, body] of blocked) {
+      const r = await request(b, `${path}${path.includes('?') ? '&' : '?'}grant=${grant}`, { method, headers: { ...H, Cookie: c }, ...(body ? { body } : {}) });
+      expect(r.status, `${method} ${path}`).toBe(403);
+    }
+    expect(rec).toEqual([]);
+  });
+
+  describe('takeover', () => {
+    const takeover = (b: string, id: string, c: string, grant?: string, extra: Record<string, string> = {}) =>
+      post(b, `/api/agents/${id}/takeover`, c, grant === undefined ? {} : { grant }, extra);
+
+    it('owner with an agent grant: 200 and the returned pty grant attaches (single use)', async () => {
+      const b = await mk();
+      const c = cookie(true);
+      const r = await takeover(b, 'a1', c, await stepup(b, c, { agentId: 'a1' }));
+      expect(r.status).toBe(201);
+      const info = JSON.parse(r.body);
+      expect(info).toMatchObject({ id: 'p9' });
+      expect(typeof info.grant).toBe('string');
+      expect(rec).toEqual(['takeover a1']);
+      const st = await sse(b, streamPath('p9', info.grant), c);
+      expect(st.status).toBe(200);
+      expect((await get(b, streamPath('p9', info.grant), c)).status).toBe(403);
+      st.abort();
+    });
+
+    it('the grant may also come in ?grant=', async () => {
+      const b = await mk();
+      const c = cookie(true);
+      const g = await stepup(b, c, { agentId: 'a1' });
+      expect((await post(b, `/api/agents/a1/takeover?grant=${g}`, c, {})).status).toBe(201);
+    });
+
+    it('no grant, a reused grant, or another session\'s grant: 403, nothing taken over', async () => {
+      const b = await mk();
+      const A = cookie(true), B = cookie(true);
+      expect((await takeover(b, 'a1', A)).status).toBe(403);
+      expect((await takeover(b, 'a1', A, 'junk')).status).toBe(403);
+      const g = await stepup(b, A, { agentId: 'a1' });
+      expect((await takeover(b, 'a1', B, g)).status).toBe(403);
+      const g2 = await stepup(b, A, { agentId: 'a1' });
+      expect((await takeover(b, 'a1', A, g2)).status).toBe(201);
+      expect((await takeover(b, 'a1', A, g2)).status).toBe(403);
+      expect(rec).toEqual(['takeover a1']);
+    });
+
+    it('a grant for agent A on agent B, a pty grant on takeover, an agent grant on a stream: all 403', async () => {
+      const b = await mk();
+      const c = cookie(true);
+      expect((await takeover(b, 'aB', c, await stepup(b, c, { agentId: 'aA' }))).status).toBe(403);
+      expect((await takeover(b, 'a1', c, await stepup(b, c, { ptyId: 'a1' }))).status).toBe(403);
+      expect((await get(b, streamPath('a1', await stepup(b, c, { agentId: 'a1' })), c)).status).toBe(403);
+      expect(rec).toEqual([]);
+    });
+
+    it('a viewer: 403', async () => {
+      const b = await mk();
+      expect((await takeover(b, 'a1', cookie(false), 'x')).status).toBe(403);
+      expect(rec).toEqual([]);
+    });
+
+    it('without Sec-Fetch-Site same-origin: 403 and the grant is not consumed', async () => {
+      const b = await mk();
+      const c = cookie(true);
+      const g = await stepup(b, c, { agentId: 'a1' });
+      expect((await takeover(b, 'a1', c, g, { 'Sec-Fetch-Site': 'same-site' })).status).toBe(403);
+      expect((await takeover(b, 'a1', c, g)).status).toBe(201);
+    });
+  });
+
+  it('ownerEmail unset (viewer sessions only): step-up, stream, takeover and terminal are all 403', async () => {
+    const b = await mk();
+    const c = cookie(false);
+    expect((await post(b, '/api/remote/stepup/options', c)).status).toBe(403);
+    expect((await get(b, streamPath('p1', 'x'), c)).status).toBe(403);
+    expect((await post(b, '/api/agents/a1/takeover', c, { grant: 'x' })).status).toBe(403);
+    expect(JSON.parse((await get(b, '/api/access', c)).body)).toMatchObject({ terminal: false, ptyStepUp: false });
+  });
+
+  it('owner sessions get the read-only terminal feature without HABBLAUD_REMOTE_ALLOW', async () => {
+    const b = await mk();
+    expect(JSON.parse((await get(b, '/api/access', cookie(true))).body).terminal).toBe(true);
+    expect(JSON.parse((await get(b, '/api/access', cookie(false))).body).terminal).toBe(false);
   });
 });

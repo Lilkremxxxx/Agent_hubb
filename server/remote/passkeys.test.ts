@@ -220,3 +220,54 @@ describe('PasskeyService', () => {
     expect(new PasskeyStore(file()).get('c2')?.transports).toEqual(['usb', 'internal']);
   });
 });
+
+describe('PasskeyService step-up', () => {
+  const DOMAIN = 'hub.finstar.pp.ua';
+  let last = '';
+  let seen: any;
+  const lib = (): WebAuthnLib => ({
+    ...webauthn,
+    generateAuthenticationOptions: (async (o: any) => { const r = await webauthn.generateAuthenticationOptions(o); last = r.challenge; return r; }) as never,
+    verifyAuthenticationResponse: (async (o: any) => {
+      seen = o;
+      if (!(await o.expectedChallenge(last))) throw new Error('challenge');
+      return { verified: true, authenticationInfo: { newCounter: 7 } };
+    }) as never,
+  });
+  const mk = () => {
+    const store = new PasskeyStore(file());
+    store.add(pk('cred-1'));
+    return new PasskeyService({ domain: DOMAIN, user: 'bang', store, lib: lib() });
+  };
+
+  it('the step-up challenge is bound to the session key', async () => {
+    const s = mk();
+    await s.stepupOptions('k1');
+    expect(await s.verifyStepup({ id: 'cred-1' }, 'k2')).toBe(false);
+    await s.stepupOptions('k1');
+    expect(await s.verifyStepup({ id: 'cred-1' }, 'k1')).toBe(true);
+  });
+
+  it('login and step-up challenges are not interchangeable', async () => {
+    const s = mk();
+    await s.loginOptions('203.0.113.1');
+    expect(await s.verifyStepup({ id: 'cred-1' }, 'k1')).toBe(false);
+    await s.stepupOptions('k1');
+    expect(await s.verifyLogin({ id: 'cred-1' })).toBe(false);
+  });
+
+  it('verifies against the hub origin and rpID with user verification', async () => {
+    const s = mk();
+    await s.stepupOptions('k1');
+    await s.verifyStepup({ id: 'cred-1' }, 'k1');
+    expect(seen).toMatchObject({ expectedOrigin: 'https://hub.finstar.pp.ua', expectedRPID: 'hub.finstar.pp.ua', requireUserVerification: true });
+  });
+
+  it('a session may hold at most 3 step-up challenges; options return null when the map is full', async () => {
+    const s = mk();
+    const c = new Challenges(() => 0, 2, 3);
+    expect([c.add('stepup', 'a', 'k1'), c.add('stepup', 'b', 'k2'), c.add('stepup', 'c', 'k3')]).toEqual([true, true, false]);
+    expect(c.take('stepup', 'a', 'other')).toBe(false);
+    expect(await s.stepupOptions('k1')).not.toBeNull();
+  });
+});

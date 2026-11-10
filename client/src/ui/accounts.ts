@@ -3,6 +3,7 @@
 // opens a sign-in terminal (`claude auth login` or `agy-as accN`, server/http/accounts.ts). Sessions and workers are
 // chosen in the sidebar; this window only makes accounts ready for them.
 import type { AccountInfo, PtyInfo } from '../../../shared/types';
+import { access } from '../net/access';
 import type { UiContext } from './context';
 import { h, iconButton, setHidden, setText } from './dom';
 import { FIVE_HOURS_MS, usageWindowView, WEEK_MS } from './format';
@@ -194,7 +195,7 @@ export class AccountsDialog {
     const snap = this.ctx.store.snapshot;
     const now = this.ctx.now();
     const accounts = snap?.accounts ?? [];
-    const pty = !!snap?.meta.pty?.enabled;
+    const pty = !!snap?.meta.pty?.enabled && !access().remote; // sign-in terminals stay on the computer
     const sig = JSON.stringify([accounts.map((a) => [a.id, a.name, a.email, a.plan, usageLine(a, now)]), this.profiles, pty]);
     if (sig === this.sig) return;
     this.sig = sig;

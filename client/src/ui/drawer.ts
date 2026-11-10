@@ -933,7 +933,7 @@ class RoomView {
     }
     setHidden(this.gone, !!live);
     setHidden(this.renameBtn, !live || !canRenameRoom(this.ctx, r.id));
-    setHidden(this.newBtn, !this.pty.enabled);
+    setHidden(this.newBtn, !this.pty.enabled || access().remote); // new sessions stay on the computer
 
     const snap = this.ctx.store.snapshot;
     const agents = (snap?.agents ?? []).filter((a) => a.roomId === r.id);

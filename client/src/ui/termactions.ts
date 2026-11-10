@@ -3,6 +3,7 @@
 // Only for main agents and with interactive terminal enabled; an Antigravity
 // worker gets "End" only while its interactive agy runs here.
 import type { AgentInfo } from '../../../shared/types';
+import { access } from '../net/access';
 import type { UiContext } from './context';
 import { h, setHidden, setText, setTitle } from './dom';
 import type { PtyControl } from './pty';
@@ -51,7 +52,10 @@ export class TermActions {
     const usable = (ptyControllable(agent) || agyTerm) && this.pty.enabled;
     setHidden(this.el, !usable);
     if (!usable) return;
+    // Remote: taking over needs a passkey check (done by the click handler); ending a session stays on the computer.
+    const remote = access().remote;
     setHidden(this.takeBtn, !this.withTakeover || agyTerm);
+    setHidden(this.stopBtn, remote);
     setTitle(this.stopBtn, agyTerm ? tr('Closes this agy terminal') : tr('Ends this Claude Code session (the conversation is saved)'));
     setText(this.takeBtn, this.confirm === 'takeover' ? tr('Confirm?') : tr('Take over here'));
     setText(this.stopBtn, this.confirm === 'stop' ? tr('Confirm?') : tr('End'));

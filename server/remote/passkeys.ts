@@ -13,6 +13,8 @@ export const MAX_CHALLENGES = 50;
 export const MAX_LOGIN_CHALLENGES = 5000; // public map: keys are sha256, TTL 2 min
 export const MAX_LOGIN_CHALLENGES_PER_IP = 10;
 export const MAX_REGISTER_CHALLENGES = 10; // only an authenticated session can add one
+export const MAX_STEPUP_CHALLENGES = 20;
+export const MAX_STEPUP_CHALLENGES_PER_SESSION = 3;
 export const MAX_PASSKEYS = 20;
 export const NAME_MAX = 60;
 
@@ -78,7 +80,7 @@ export function cleanName(raw: unknown, at: number): string {
   return s || tr('Passkey {0}', [new Date(at).toISOString().slice(0, 10)]);
 }
 
-type Kind = 'login' | 'register';
+type Kind = 'login' | 'register' | 'stepup';
 
 export class Challenges {
   // Keyed by sha256 of the challenge: the lookup never compares the secret itself byte by byte.
@@ -99,10 +101,11 @@ export class Challenges {
     return true;
   }
 
-  take(kind: Kind, challenge: string): boolean {
+  /** With `owner`, the challenge must have been issued to that same owner (it is not burned by another's attempt). */
+  take(kind: Kind, challenge: string, owner?: string): boolean {
     const k = Challenges.key(challenge);
     const v = this.m.get(k);
-    if (!v || v.kind !== kind) return false;
+    if (!v || v.kind !== kind || (owner !== undefined && v.owner !== normalizeIp(owner))) return false;
     this.m.delete(k);
     return v.exp > this.now();
   }
@@ -136,6 +139,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 export class PasskeyService {
   private readonly loginCh: Challenges;
   private readonly registerCh: Challenges;
+  private readonly stepupCh: Challenges;
   private readonly store: PasskeyStore;
   private readonly lib: WebAuthnLib;
   private readonly now: () => number;
@@ -146,6 +150,7 @@ export class PasskeyService {
     this.domain = o.domain; this.user = o.user; this.store = o.store; this.lib = o.lib ?? lazyLib; this.now = o.now ?? Date.now;
     this.loginCh = new Challenges(this.now, MAX_LOGIN_CHALLENGES, MAX_LOGIN_CHALLENGES_PER_IP);
     this.registerCh = new Challenges(this.now, MAX_REGISTER_CHALLENGES, MAX_REGISTER_CHALLENGES);
+    this.stepupCh = new Challenges(this.now, MAX_STEPUP_CHALLENGES, MAX_STEPUP_CHALLENGES_PER_SESSION);
   }
 
   count(): number { return this.store.count(); }
@@ -158,14 +163,28 @@ export class PasskeyService {
     return this.loginCh.add('login', o.challenge, ip) ? o : null;
   }
 
-  async verifyLogin(body: unknown): Promise<boolean> {
+  /** Step-up options for one session (key = sessionKey); null: the challenge map is full (429). */
+  async stepupOptions(sessionKey: string): Promise<object | null> {
+    const o = await this.lib.generateAuthenticationOptions({ rpID: this.domain, allowCredentials: [], userVerification: 'required', timeout: CHALLENGE_TTL_MS });
+    return this.stepupCh.add('stepup', o.challenge, sessionKey) ? o : null;
+  }
+
+  verifyLogin(body: unknown): Promise<boolean> {
+    return this.verifyAssertion(body, (c) => this.loginCh.take('login', c));
+  }
+
+  verifyStepup(body: unknown, sessionKey: string): Promise<boolean> {
+    return this.verifyAssertion(body, (c) => this.stepupCh.take('stepup', c, sessionKey));
+  }
+
+  private async verifyAssertion(body: unknown, take: (challenge: string) => boolean): Promise<boolean> {
     try {
       if (!isObj(body) || typeof body.id !== 'string') return false;
       const p = this.store.get(body.id);
       if (!p) return false;
       const r = await this.lib.verifyAuthenticationResponse({
         response: body as never,
-        expectedChallenge: (c) => this.loginCh.take('login', c),
+        expectedChallenge: take,
         expectedOrigin: `https://${this.domain}`,
         expectedRPID: this.domain,
         requireUserVerification: true,

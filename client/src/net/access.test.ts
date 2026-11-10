@@ -57,3 +57,22 @@ describe('access', () => {
     expect(went).toEqual(['/login']);
   });
 });
+
+describe('ptyStepUp', () => {
+  const reply = (b: object) => (() => Promise.resolve(new Response(JSON.stringify(b), { status: 200 }))) as unknown as typeof fetch;
+  it('an old payload without ptyStepUp still parses (and reads as not allowed)', async () => {
+    const old = { remote: true, local: false, terminal: true, spawn: false };
+    expect(await loadAccess(reply(old))).toEqual(old);
+    expect(access().ptyStepUp).toBeUndefined();
+  });
+  it('ptyStepUp is kept and a change notifies', async () => {
+    const base = { remote: true, local: false, terminal: true, spawn: false };
+    let calls = 0;
+    const off = onAccessChange(() => calls++);
+    await loadAccess(reply({ ...base, ptyStepUp: false }));
+    await loadAccess(reply({ ...base, ptyStepUp: true }));
+    expect(access().ptyStepUp).toBe(true);
+    expect(calls).toBe(2);
+    off();
+  });
+});

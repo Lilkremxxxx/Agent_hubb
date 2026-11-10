@@ -492,6 +492,8 @@ export interface AccessInfo {
   terminal: boolean;
   /** Can spawn new agents in Claude app (POST /api/spawn). */
   spawn: boolean;
+  /** Remote owner may open an interactive terminal after a passkey check (absent on older servers and the local port). */
+  ptyStepUp?: boolean;
 }
 
 export interface FeedItem {
