@@ -12,6 +12,7 @@ import { quotaWindows, type QuotaWindow } from './accounts';
 import { ICONS } from './icons';
 import { groupRoles, roleKey, roleScope, type AgentNode, type RoleGroup, type RoleKey, type RoleScope } from './model';
 import { teamOffices } from './offices';
+import { access } from '../net/access';
 import { appointBoss, openBoss, sessionOfAgent } from './workers-api';
 import { officeIsEmpty } from './overlays';
 import { askPipelineHere } from './pipeline-dialog';
@@ -297,6 +298,14 @@ export class Sidebar implements UiComponent {
       if (office?.bossKind === 'agy') {
         const { pty } = await openBoss();
         if (pty) this.ctx.terminals?.showPty?.(pty);
+        return this.ctx.announce(tr('The boss is opening in the terminal…'));
+      }
+      // Remote: no folder to type (the server only opens the team's folder) and the server appoints the boss itself.
+      if (access().remote) {
+        if (!office?.folder) return this.ctx.announce(tr('Set the team folder first.'));
+        const choice = await askPipelineHere(this.ctx, office.bossAccount, false, undefined);
+        if (!choice) return;
+        await this.ctx.terminals?.newSession(office.folder, choice.account, choice.prompt, choice.model, true);
         return this.ctx.announce(tr('The boss is opening in the terminal…'));
       }
       // ＋ = a new Claude Code session (folder asked, prefilled with the office's), appointed boss once it opens.

@@ -1,6 +1,6 @@
 // Single-use passkey step-up grants for the remote interactive terminal, and the registry of open remote streams.
-// A grant is bound to one session and one target ("pty:<id>" to attach, "agent:<id>" to take over); it lives in RAM
-// only, so a hub restart drops every grant and stream.
+// A grant is bound to one session and one target ("pty:<id>" to attach, "agent:<id>" to take over, "create:new|boss:<hash>"
+// to open a new session with exactly those arguments); it lives in RAM only, so a hub restart drops every grant and stream.
 import { createHash, randomBytes } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
 
@@ -10,6 +10,21 @@ export const MAX_GRANTS = 20;
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 /** Stable per-session key (the token signature is never stored raw). */
 export const sessionKey = (sig: string): string => sha(sig);
+
+/**
+ * Target of a "new session" grant: the same function runs when the grant is issued (/verify) and when it is spent
+ * (POST /api/pty), so a field that is not a string (or a boss flag that is not a boolean) never hashes. Absent and null
+ * count alike; `boss` is part of the prefix, so a grant for one never opens the other. undefined = invalid.
+ */
+export function createTarget(b: unknown): string | undefined {
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return undefined;
+  const o = b as Record<string, unknown>;
+  const opt = (v: unknown): boolean => v === undefined || v === null || typeof v === 'string';
+  if (typeof o.cwd !== 'string' || !opt(o.account) || !opt(o.model) || !opt(o.prompt)) return undefined;
+  if (o.boss !== undefined && o.boss !== null && typeof o.boss !== 'boolean') return undefined;
+  const h = createHash('sha256').update(JSON.stringify([o.cwd, o.account ?? null, o.model ?? null, o.prompt ?? null])).digest('base64url');
+  return `create:${o.boss === true ? 'boss' : 'new'}:${h}`;
+}
 
 const dead = (res: ServerResponse): boolean => res.destroyed || res.writableEnded;
 

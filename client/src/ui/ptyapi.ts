@@ -27,14 +27,18 @@ export async function postPty<T = unknown>(url: string, body: unknown): Promise<
 
 const SIZE = { cols: 120, rows: 32 };
 
-/** New Claude Code session in the specified directory (and account), optionally with a first prompt. */
-export function createPty(cwd: string, account?: string, prompt?: string, model?: string): Promise<PtyInfo | undefined> {
-  return postPty<PtyInfo>('/api/pty', { cwd, account, prompt, model, ...SIZE });
-}
-
-export type StepUpTarget = { ptyId: string } | { agentId: string };
+export type StepUpTarget = { ptyId: string } | { agentId: string } | { create: { cwd: string; account?: string; prompt?: string; model?: string; boss?: boolean } };
 type Ceremony = (options: unknown) => Promise<unknown>;
 const defaultStart: Ceremony = async (o) => (await import('@simplewebauthn/browser')).startAuthentication(o as never);
+
+/**
+ * New Claude Code session in the specified directory (and account), optionally with a first prompt. `boss` only matters
+ * remotely (the server then appoints it). Remote: passkey check for exactly these arguments first; the answer carries a grant to attach it.
+ */
+export async function createPty(cwd: string, account?: string, prompt?: string, model?: string, boss?: boolean, start?: Ceremony): Promise<(PtyInfo & { grant?: string | null }) | undefined> {
+  const grant = access().remote ? await stepUp({ create: { cwd, account, prompt, model, boss } }, start) : undefined;
+  return postPty<PtyInfo & { grant?: string | null }>('/api/pty', { cwd, account, prompt, model, ...SIZE, ...(grant ? { grant, boss } : {}) });
+}
 
 /**
  * Remote only: passkey check before typing into a terminal (or taking an agent over). Returns a single-use grant

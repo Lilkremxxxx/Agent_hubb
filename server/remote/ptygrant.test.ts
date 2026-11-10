@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { ServerResponse } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GRANT_TTL_MS, MAX_GRANTS, PtyAccess, sessionKey } from './ptygrant';
+import { createTarget, GRANT_TTL_MS, MAX_GRANTS, PtyAccess, sessionKey } from './ptygrant';
 
 const fakeRes = (closeOnEnd = true) => {
   const r = new EventEmitter() as EventEmitter & { ended: boolean; destroyed: boolean; writableEnded: boolean; end(): void };
@@ -111,5 +111,36 @@ describe('PtyAccess grants', () => {
   });
   it('sessionKey is a sha256 hex of the signature', () => {
     expect(sessionKey('abc')).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('createTarget', () => {
+  it('is create:new:<hash> or create:boss:<hash>; boss only changes the prefix', () => {
+    const t = createTarget({ cwd: '/h/p' })!;
+    expect(t).toMatch(/^create:new:[A-Za-z0-9_-]{43}$/);
+    const b = createTarget({ cwd: '/h/p', boss: true })!;
+    expect(b).toMatch(/^create:boss:/);
+    expect(b.split(':')[2]).toBe(t.split(':')[2]);
+    expect(createTarget({ cwd: '/h/p', boss: false })).toBe(t);
+  });
+  it('absent, undefined and null fields hash alike; extra keys (cols, grant) are ignored', () => {
+    const t = createTarget({ cwd: '/h/p' });
+    expect(createTarget({ cwd: '/h/p', prompt: undefined, account: null, model: null, cols: 9, grant: 'x' })).toBe(t);
+  });
+  it('every field changes the hash', () => {
+    const base = { cwd: '/h/p', account: 'a', model: 'm', prompt: 'p' };
+    const all = new Set([createTarget(base), createTarget({ ...base, cwd: '/h/q' }), createTarget({ ...base, account: 'b' }), createTarget({ ...base, model: 'n' }), createTarget({ ...base, prompt: 'q' })]);
+    expect(all.size).toBe(5);
+  });
+  it('rejects a non-string cwd and any non-string account, model, prompt or non-boolean boss', () => {
+    expect(createTarget(undefined)).toBeUndefined();
+    expect(createTarget([])).toBeUndefined();
+    expect(createTarget('x')).toBeUndefined();
+    for (const bad of [0, 1, true, [], {}, ['a']]) {
+      expect(createTarget({ cwd: bad })).toBeUndefined();
+      for (const f of ['account', 'model', 'prompt']) expect(createTarget({ cwd: '/h', [f]: bad })).toBeUndefined();
+    }
+    expect(createTarget({})).toBeUndefined();
+    for (const bad of [0, 'true', [], {}]) expect(createTarget({ cwd: '/h', boss: bad })).toBeUndefined();
   });
 });

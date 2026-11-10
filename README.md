@@ -444,7 +444,7 @@ open the same window, with tabs for the other agents in the same project.
   keeps its name. On Windows, the
   terminal the session came from goes back to normal (Habblaud turns off the mouse/keyboard modes that Claude turned on).
 - **End** closes the session, whether it's here or in another terminal (the conversation is saved).
-- **New session** (in the room's drawer) opens a new Claude Code in the project folder.
+- **New session** (in the room's drawer) opens a new Claude Code in the project folder. Over the remote port the owner can do it too, with a passkey check each time, only in the team folder or a room's folder inside the home folder (never a dot folder such as `~/.ssh`), at most 3 at once; **＋ Boss** opens the boss in the team folder the same way.
 
 Taking over and ending ask for a second click; closing the window doesn't end the session. The window (and the agent's
 drawer) can be dragged by its bar and resized from the corner; double-clicking the bar puts it back in place.

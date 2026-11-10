@@ -8,15 +8,21 @@
 // Controlling these terminals executes commands on the machine: connections from computer itself only, with
 // local Host and (when browser sends it) same-origin Origin. Request guard (http/guard.ts) already requires
 // JSON on POST.
-// Over the remote port only the OWNER session gets in, and only for: attach (stream), input, resize, and takeover
-// of an agent. Attach and takeover each burn a single-use passkey step-up grant (remote/ptygrant.ts); input and
-// resize need that session's stream to be open. List, new session, close and stop stay local-only.
+// Over the remote port only the OWNER session gets in, and only for: attach (stream), input, resize, takeover of an
+// agent, and a new session (POST /api/pty, ＋ Boss included). Attach, takeover and new session each burn a single-use
+// passkey step-up grant (remote/ptygrant.ts); a new-session grant is bound to its exact arguments and `boss` flag, the
+// folder must be one the hub offers (inside HOME, no dot folders), and at most 3 stay open from remote. Input and
+// resize need that session's stream to be open. List, close and stop stay local-only.
+import { realpathSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { PtyError, type PtyManager } from '../pty/manager';
+import { basename, isAbsolute, sep } from 'node:path';
+import { checkModel, checkPrompt, PtyError, type PtyManager } from '../pty/manager';
+import type { PtyInfo } from '../../shared/types';
+import { log } from '../log';
 import { HttpError, readJson, sendJson } from './app';
 import { isLoopbackHost } from './guard';
 import type { SessionInfo } from './remote';
-import { PtyAccess, sessionKey } from '../remote/ptygrant';
+import { createTarget, PtyAccess, sessionKey } from '../remote/ptygrant';
 import { tr } from '../../shared/i18n';
 
 /** /api/agents/:id/(stop|takeover) (ids never contain '/'). */
@@ -49,13 +55,49 @@ export function ptyRequestProblem(req: IncomingMessage): string | null {
   return null;
 }
 
+/** New sessions opened from the remote port stay few: this many may be running at once. */
+const REMOTE_CREATE_MAX = 3;
+
+/**
+ * The real folder to open, or undefined. It must be the realpath of one of `allowed` (equal, not a prefix) and lie
+ * strictly inside the realpath of `home` with no dot segment (so ~/.ssh, ~/.habblaud, ~/.config, ~/.claude, ~/.gnupg and
+ * ~/.cloudflared are out, also through a symlink). No ".." in what was asked.
+ */
+export function remoteCwd(cwd: unknown, allowed: readonly string[], home: string): string | undefined {
+  if (typeof cwd !== 'string' || !isAbsolute(cwd) || cwd.split('/').includes('..')) return undefined;
+  try {
+    const h = realpathSync(home);
+    const real = realpathSync(cwd);
+    if (h === sep || !real.startsWith(h + sep) || real.slice(h.length + 1).split(sep).some((x) => !x || x.startsWith('.'))) return undefined;
+    // Room paths are reported by agents: a relative one would resolve against the hub's own cwd.
+    return allowed.some((a) => { try { return isAbsolute(a) && realpathSync(a) === real; } catch { return false; } }) ? real : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface RemotePty {
   access: PtyAccess;
   sessionOf(req: IncomingMessage): SessionInfo | undefined;
   isRemote(req: IncomingMessage): boolean;
+  /** New sessions from the remote port; without it POST /api/pty stays local-only. */
+  create?: {
+    /** Folders offered: the team folder (and the rooms' folders unless `boss`). */
+    folders(boss: boolean): string[];
+    accounts(): string[];
+    home: string;
+    /** False when the boss is not a Claude Code one (then the boss cannot be opened this way). */
+    bossOk(): boolean;
+    /** Appoints the session just opened as boss. */
+    appoint(p: PtyInfo): { ok: boolean };
+    /** Client address, for the log. */
+    ip(req: IncomingMessage): string;
+  };
 }
 
 export function createPtyRoutes(ptys: PtyManager, remote?: RemotePty): (req: IncomingMessage, res: ServerResponse, path: string) => void {
+  /** Terminals opened from the remote port that may still be running (pruned against the manager's list on each request). */
+  const remoteMade = new Set<string>();
   const fail = (res: ServerResponse, err: unknown) => {
     if (res.headersSent) return void res.destroy();
     if (err instanceof HttpError || err instanceof PtyError) sendJson(res, err.status, { error: err.message });
@@ -87,6 +129,34 @@ export function createPtyRoutes(ptys: PtyManager, remote?: RemotePty): (req: Inc
     const needGrant = () => new HttpError(403, tr('typing in the terminal needs a passkey check'));
     const queryGrant = new URL(req.url ?? '/', 'http://x').searchParams.get('grant');
     const take = (g: unknown, target: string) => typeof g === 'string' && rp.access.consume(g, key, target);
+    if (path === '/api/pty') {
+      const cr = rp.create;
+      if (method !== 'POST' || !cr) throw new HttpError(403, tr('the interactive terminal can only be used on the computer running Habblaud'));
+      // Owner only here; still no bigger than a full prompt needs (20 000 characters, JSON-escaped).
+      const body = ((await readJson(req, 140 * 1024)) ?? {}) as Record<string, unknown>;
+      // The grant comes from the body only, and any presentation burns it, also against the wrong arguments.
+      if (!take(body.grant, createTarget(body) ?? '')) throw needGrant();
+      const live = new Map(ptys.list().map((p) => [p.id, p]));
+      for (const id of remoteMade) if (live.get(id)?.exitedAt !== undefined || !live.has(id)) remoteMade.delete(id);
+      if (remoteMade.size >= REMOTE_CREATE_MAX) throw new HttpError(429, tr('limit of {0} terminals opened from remote access', [REMOTE_CREATE_MAX]));
+      const boss = body.boss === true;
+      if (boss && !cr.bossOk()) throw new HttpError(409, tr('the boss is an Antigravity account set in team.json'));
+      const cwd = remoteCwd(body.cwd, cr.folders(boss), cr.home);
+      if (!cwd) throw new HttpError(400, tr('this folder cannot be opened from remote access'));
+      const account = typeof body.account === 'string' ? body.account : undefined;
+      if (account !== undefined && !cr.accounts().includes(account)) throw new HttpError(400, tr('unknown account'));
+      const prompt = body.prompt ?? undefined;
+      const model = body.model ?? undefined;
+      checkPrompt(prompt);
+      checkModel(model);
+      const info = ptys.create({ cwd, account, prompt, model, cols: body.cols, rows: body.rows });
+      remoteMade.add(info.id);
+      const ua = (req.headers['user-agent'] ?? '-').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 80) || '-';
+      log.info(tr('New terminal opened from remote access: {0}, {1}, folder {2}', [cr.ip(req), ua, basename(cwd).replace(/[\x00-\x1f\x7f]/g, '?')]));
+      const appointed = boss ? cr.appoint(info) : undefined;
+      // The owner just proved presence for this session: hand over the grant to attach it (null when 20 are outstanding: the client asks again).
+      return sendJson(res, 201, { ...info, grant: rp.access.issue(key, `pty:${info.id}`) ?? null, ...(appointed ? { boss: appointed.ok } : {}) });
+    }
     const action = AGENT_ACTION_ROUTE.exec(path);
     if (action) {
       if (action[2] !== 'takeover' || method !== 'POST') throw new HttpError(403, tr('the interactive terminal can only be used on the computer running Habblaud'));

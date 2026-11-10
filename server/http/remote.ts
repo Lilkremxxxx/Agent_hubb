@@ -26,18 +26,19 @@
 //                           signature covers `.o`, so a viewer cookie cannot be upgraded. An owner session gets the read-only `terminal` transcripts
 //                           without HABBLAUD_REMOTE_ALLOW and may register or delete passkeys (still needs a recent sign-in). Typing: see below.
 //
-// Typing in a terminal (owner, at least one passkey): POST /api/remote/stepup/options + /verify with {response, ptyId} or {response, agentId} trade a
-// passkey check for a grant: single use, 60 s, bound to the session and to `pty:<id>` (attach the stream, then input and resize while that stream is
-// open) or `agent:<id>` (takeover; the answer carries a fresh `pty:` grant for the new terminal). Every attach asks again; streams end at session
-// expiry and on sign-out. Failures share the per-IP window. List, new session, close, stop and sign-in terminals stay local-only. `pty` is never read
-// from HABBLAUD_REMOTE_ALLOW. See remote/ptygrant.ts and http/pty.ts.
+// Typing in a terminal (owner, at least one passkey): POST /api/remote/stepup/options + /verify with {response, ptyId}, {response, agentId} or
+// {response, create: {cwd, account?, model?, prompt?, boss?}} trade a passkey check for a grant: single use, 60 s, bound to the session and to
+// `pty:<id>` (attach the stream, then input and resize while that stream is open), `agent:<id>` (takeover; the answer carries a fresh `pty:` grant
+// for the new terminal) or `create:new|boss:<hash of the arguments>` (open a new session, only with those exact arguments). Every attach asks
+// again; streams end at session expiry and on sign-out. Failures share the per-IP window. List, close, stop and sign-in terminals stay local-only.
+// `pty` is never read from HABBLAUD_REMOTE_ALLOW. See remote/ptygrant.ts and http/pty.ts.
 //
 // Session: HttpOnly + SameSite=Lax cookie (+ Secure with HTTPS) signed with HMAC; key = random secret in
 // <dataDir>/remote-secret mixed with user and password hash: changing password revokes all sessions.
 import { LibLoadError, PasskeyService } from '../remote/passkeys';
 import { GOOGLE_COOKIE, GOOGLE_COOKIE_S, GOOGLE_EMAIL_RE, maskEmail, parseGoogleConfig, type GoogleAuth, type GoogleConfig } from '../remote/google';
 import { loginPage, securityPage } from '../remote/pages';
-import { PtyAccess, sessionKey } from '../remote/ptygrant';
+import { createTarget, PtyAccess, sessionKey } from '../remote/ptygrant';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
@@ -681,15 +682,17 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       if (failures.noteBlocked(ip)) deps.log?.warn(tr('Remote sign-in blocked ({0}) from {1}, {2}', ['step-up', ip, ua]));
       return sendJson(res, 429, { error: tr('Too many attempts. Try again in {0} s.', [wait]) }, { 'Retry-After': String(wait) });
     }
-    readBody(req, 32 * 1024, true)
+    // The owner and passkey checks above ran first; only now may a larger body (a create carries a prompt of up to 20 000 characters) be buffered.
+    readBody(req, 128 * 1024, true)
       .then(async (raw) => {
-        const body = JSON.parse(raw) as { response?: unknown; ptyId?: unknown; agentId?: unknown; action?: unknown };
-        const ids = [body?.ptyId, body?.agentId, body?.action].filter((x) => x !== undefined);
+        const body = JSON.parse(raw) as { response?: unknown; ptyId?: unknown; agentId?: unknown; action?: unknown; create?: unknown };
+        const ids = [body?.ptyId, body?.agentId, body?.action, body?.create].filter((x) => x !== undefined);
         const id = ids[0];
-        if (!body || typeof body !== 'object' || !body.response || typeof body.response !== 'object' || ids.length !== 1 || typeof id !== 'string' || !(body.action !== undefined ? PASSKEY_ACTIONS.has(id) : TARGET_ID.test(id))) {
-          return sendJson(res, 400, { error: tr('invalid request') });
-        }
-        const target = body.action !== undefined ? id : `${body.ptyId !== undefined ? 'pty' : 'agent'}:${id}`;
+        const created = body?.create !== undefined ? createTarget(body.create) : undefined;
+        if (!body || typeof body !== 'object' || !body.response || typeof body.response !== 'object' || ids.length !== 1) return sendJson(res, 400, { error: tr('invalid request') });
+        const valid = body.create !== undefined ? created !== undefined : typeof id === 'string' && (body.action !== undefined ? PASSKEY_ACTIONS.has(id) : TARGET_ID.test(id));
+        if (!valid) return sendJson(res, 400, { error: tr('invalid request') });
+        const target = created ?? (body.action !== undefined ? String(id) : `${body.ptyId !== undefined ? 'pty' : 'agent'}:${String(id)}`);
         if (!(await pk.verifyStepup(body.response, key))) {
           failures.fail(ip);
           deps.log?.warn(tr('Remote passkey step-up failed from {0}, {1}', [ip, ua]));

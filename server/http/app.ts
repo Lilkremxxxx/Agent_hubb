@@ -325,7 +325,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     }
     if (path === '/api/pty' || path.startsWith('/api/pty/') || AGENT_ACTION_ROUTE.test(path)) {
       // Runs commands on host: over the remote port only for an owner with a passkey, and then http/pty.ts allows just
-      // attach/input/resize/takeover behind a step-up grant (Host and remote address are not sufficient: Tailscale
+      // attach/input/resize/takeover/new session behind a step-up grant (Host and remote address are not sufficient: Tailscale
       // arrives over loopback and Host can be forged).
       if (isRemote(req) && !(deps.pty && trusted(req, 'pty'))) sendJson(res, 403, { error: tr('the interactive terminal can only be used on the computer running Habblaud') });
       else if (!deps.pty) sendJson(res, 403, { error: tr('interactive terminal disabled (see the server log)') });

@@ -1,15 +1,15 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountsService } from '../accounts/service';
-import { setQuiet } from '../log';
+import { log, setQuiet } from '../log';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import { tempDir } from '../test/fixtures';
 import { createApiHandler, sendJson } from './app';
-import { createPtyRoutes } from './pty';
+import { createPtyRoutes, type RemotePty } from './pty';
 import { PtyAccess } from '../remote/ptygrant';
 import { PtyError, type PtyManager } from '../pty/manager';
 import { createRequestGuard } from './guard';
@@ -98,6 +98,7 @@ describe('parseRemoteConfig', () => {
   });
   it('HABBLAUD_REMOTE_ALLOW: lists, ignores unknown names, "none" = view only', () => {
     expect([...parseAllow('spawn, Terminal, bogus')]).toEqual(['terminal']);
+    expect([...parseAllow('terminal,pty,create')]).toEqual(['terminal']);
     expect([...parseAllow('none')]).toEqual([]);
     expect([...parseAllow('')]).toEqual([]);
     expect([...parseAllow(undefined)]).toEqual([]);
@@ -1387,10 +1388,21 @@ describe('remote pty step-up', () => {
   let access: PtyAccess;
   let streams: http.ServerResponse[] = [];
   let takeoverHook: (() => void) | undefined;
+  // New-session fixtures: what the fake manager was asked to create and which folders the hub offers.
+  let home = '';
+  let createArgs: Array<Record<string, unknown>> = [];
+  let made: Array<Record<string, unknown>> = [];
+  let appointed: unknown[] = [];
+  let teamFolder = '';
+  let rooms: string[] = [];
+  let accountIds = ['acc1'];
+  let bossOk = true;
 
-  async function mk(o: { limit?: number } = {}) {
+  async function mk(o: { limit?: number; create?: boolean } = {}) {
     grantClock = 1_000_000; verifyCalls = 0; lines = []; rec = []; streams = [];
+    createArgs = []; made = []; appointed = []; teamFolder = ''; rooms = []; accountIds = ['acc1']; bossOk = true;
     const tmp = tempDir();
+    home = realpathSync(tmp.dir);
     const dir = join(tmp.dir, '.claude');
     mkdirSync(join(dir, 'sessions'), { recursive: true });
     const accounts = new AccountsService({ dirs: [dir], home: tmp.dir, env: {}, onChange: () => {} });
@@ -1419,15 +1431,33 @@ describe('remote pty step-up', () => {
       close: (id: string) => void rec.push(`close ${id}`),
       stop: async (id: string) => void rec.push(`stop ${id}`),
       takeover: async (id: string) => { rec.push(`takeover ${id}`); takeoverHook?.(); return { id: 'p9', agentId: 'x' }; },
-      create: () => { rec.push('create'); return { id: 'pnew' }; },
-      list: () => { rec.push('list'); return []; },
+      create: (p: Record<string, unknown>) => {
+        rec.push('create');
+        createArgs.push(p);
+        const info = { id: `pn${createArgs.length}`, agentId: `acc1:${100 + createArgs.length}`, account: p.account ?? 'acc1', cwd: p.cwd };
+        made.push(info);
+        return info;
+      },
+      list: () => { rec.push('list'); return made; },
       status: () => ({ enabled: true }),
     } as unknown as PtyManager;
     const api = createApiHandler({
       office, hub, accounts, sources: () => [], version: '9.9.9', terminal: true,
       terminals: new TerminalStreams({ office, transcriptPathOf: () => undefined, parserFor: () => undefined }),
       sessions: { list: async () => [], resolve: () => ({ ok: false, status: 404, error: 'unknown' }) } as unknown as SessionLookup,
-      pty: createPtyRoutes(fake, { access, sessionOf: sessionOfRequest, isRemote: isRemoteRequest }),
+      pty: createPtyRoutes(fake, {
+        access, sessionOf: sessionOfRequest, isRemote: isRemoteRequest,
+        ...(o.create ? {
+          create: {
+            folders: (boss) => (boss ? [teamFolder] : [teamFolder, ...rooms]).filter(Boolean),
+            accounts: () => accountIds,
+            home,
+            bossOk: () => bossOk,
+            appoint: (pi) => { appointed.push(pi); return { ok: true }; },
+            ip: (r) => clientIp(r, true),
+          } satisfies RemotePty['create'],
+        } : {}),
+      }),
       remote: { is: isRemoteRequest, allows: remoteAllows(new Set<RemoteFeature>(), () => passkeyCount) },
     });
     const guard = createRequestGuard({ allowedHosts: new Set([DOMAIN]) });
@@ -1458,7 +1488,7 @@ describe('remote pty step-up', () => {
       r.on('error', fail);
       r.end();
     });
-  const stepup = async (b: string, c: string, target: { ptyId: string } | { agentId: string }): Promise<string> => {
+  const stepup = async (b: string, c: string, target: Record<string, unknown>): Promise<string> => {
     expect((await post(b, '/api/remote/stepup/options', c)).status).toBe(200);
     const v = await post(b, '/api/remote/stepup/verify', c, { response: { ok: true }, ...target });
     expect(v.status).toBe(200);
@@ -1733,5 +1763,263 @@ describe('remote pty step-up', () => {
     const b = await mk();
     expect(JSON.parse((await get(b, '/api/access', cookie(true))).body).terminal).toBe(true);
     expect(JSON.parse((await get(b, '/api/access', cookie(false))).body).terminal).toBe(false);
+  });
+  describe('new session (create)', () => {
+    type Create = { cwd: string; account?: string; prompt?: string; model?: string; boss?: boolean };
+    const mkc = async () => {
+      const b = await mk({ create: true });
+      for (const d of ['team', 'proj', 'other', '.ssh', '.hidden', 'proj/sub']) mkdirSync(join(home, d), { recursive: true });
+      teamFolder = join(home, 'team');
+      rooms = [join(home, 'proj')];
+      return { b, c: cookie(true) };
+    };
+    const body = (c: Create, grant?: string) => ({ ...c, cols: 100, rows: 30, ...(grant === undefined ? {} : { grant }) });
+    const open = async (b: string, c: string, cr: Create) => post(b, '/api/pty', c, body(cr, await stepup(b, c, { create: cr })));
+    const stepupCreate = (b: string, c: string, create: unknown) => post(b, '/api/remote/stepup/verify', c, { response: { ok: true }, create });
+
+    it('owner with the exact grant: 201, the fake gets the real folder, the answer carries a grant that attaches', async () => {
+      const { b, c } = await mkc();
+      const r = await open(b, c, { cwd: join(home, 'proj'), account: 'acc1', model: 'claude-sonnet-5-5', prompt: 'hello' });
+      expect(r.status).toBe(201);
+      const info = JSON.parse(r.body);
+      expect(info).toMatchObject({ id: 'pn1' });
+      expect(info.boss).toBeUndefined();
+      expect(createArgs).toEqual([{ cwd: join(home, 'proj'), account: 'acc1', prompt: 'hello', model: 'claude-sonnet-5-5', cols: 100, rows: 30 }]);
+      const st = await sse(b, streamPath('pn1', info.grant), c);
+      expect(st.status).toBe(200);
+      st.abort();
+    });
+
+    it('no grant, garbage, only in the query, reused, another session, expired: 403 and nothing is created', async () => {
+      const { b, c } = await mkc();
+      const cr = { cwd: join(home, 'proj') };
+      expect((await post(b, '/api/pty', c, body(cr))).status).toBe(403);
+      expect((await post(b, '/api/pty', c, body(cr, 'junk'))).status).toBe(403);
+      const q = await stepup(b, c, { create: cr });
+      expect((await post(b, `/api/pty?grant=${q}`, c, body(cr))).status).toBe(403);
+      expect(createArgs).toEqual([]); // a grant in the query is ignored (not even burned): only the body counts
+      expect((await post(b, '/api/pty', c, body(cr, q))).status).toBe(201);
+      const g = await stepup(b, c, { create: cr });
+      expect((await post(b, '/api/pty', cookie(true), body(cr, g))).status).toBe(403);
+      const g2 = await stepup(b, c, { create: cr });
+      grantClock += 60_001;
+      expect((await post(b, '/api/pty', c, body(cr, g2))).status).toBe(403);
+      const g3 = await stepup(b, c, { create: cr });
+      expect((await post(b, '/api/pty', c, body(cr, g3))).status).toBe(201);
+      expect((await post(b, '/api/pty', c, body(cr, g3))).status).toBe(403);
+      expect(createArgs.length).toBe(2);
+    });
+
+    it('a grant spent on other arguments is 403 and burned (cwd, prompt, model, account)', async () => {
+      const { b, c } = await mkc();
+      accountIds = ['acc1', 'acc2'];
+      const base: Create = { cwd: join(home, 'proj'), account: 'acc1', model: 'claude-sonnet-5-5', prompt: 'p' };
+      for (const other of [{ ...base, cwd: join(home, 'team') }, { ...base, prompt: 'q' }, { ...base, model: 'claude-haiku-5-5' }, { ...base, account: 'acc2' }, { cwd: base.cwd }]) {
+        const g = await stepup(b, c, { create: base });
+        expect((await post(b, '/api/pty', c, body(other, g))).status, JSON.stringify(other)).toBe(403);
+        expect((await post(b, '/api/pty', c, body(base, g))).status).toBe(403);
+      }
+      expect(createArgs).toEqual([]);
+    });
+
+    it('a grant for one purpose never opens another (both directions), nothing is created', async () => {
+      const { b, c } = await mkc();
+      const cr = { cwd: join(home, 'proj') };
+      for (const t of [{ ptyId: 'p1' }, { agentId: 'a1' }, { action: 'passkey:add' }]) {
+        expect((await post(b, '/api/pty', c, body(cr, await stepup(b, c, t)))).status, JSON.stringify(t)).toBe(403);
+      }
+      const gc = () => stepup(b, c, { create: cr });
+      expect((await get(b, streamPath('p1', await gc()), c)).status).toBe(403);
+      expect((await post(b, '/api/agents/a1/takeover', c, { grant: await gc() })).status).toBe(403);
+      expect((await post(b, '/api/remote/passkeys/register/options', c, { grant: await gc() })).status).toBe(403);
+      expect(createArgs).toEqual([]);
+      expect(rec).toEqual([]);
+    });
+
+    it('boss is part of the target: a new-session grant fails for a boss POST and the other way round', async () => {
+      const { b, c } = await mkc();
+      const cr = { cwd: join(home, 'team') };
+      expect((await post(b, '/api/pty', c, body({ ...cr, boss: true }, await stepup(b, c, { create: cr })))).status).toBe(403);
+      expect((await post(b, '/api/pty', c, body(cr, await stepup(b, c, { create: { ...cr, boss: true } })))).status).toBe(403);
+      expect(createArgs).toEqual([]);
+      expect(appointed).toEqual([]);
+    });
+
+    it('a viewer: verify and POST are 403 and nothing is created', async () => {
+      const { b } = await mkc();
+      const v = cookie(false);
+      expect((await stepupCreate(b, v, { cwd: join(home, 'proj') })).status).toBe(403);
+      expect((await post(b, '/api/pty', v, body({ cwd: join(home, 'proj') }, 'x'))).status).toBe(403);
+      expect(createArgs).toEqual([]);
+      expect(verifyCalls).toBe(0);
+    });
+
+    it('GET /api/pty, other methods and the other routes stay local-only even with create on', async () => {
+      const { b, c } = await mkc();
+      expect((await get(b, '/api/pty', c)).status).toBe(403);
+      expect((await request(b, '/api/pty', { method: 'PUT', headers: { ...H, Cookie: c }, body: {} })).status).toBe(403);
+      expect((await post(b, '/api/pty/pn1/close', c, {})).status).toBe(403);
+      expect((await post(b, '/api/agents/a1/stop', c, {})).status).toBe(403);
+      expect(rec).toEqual([]);
+    });
+
+    it('same-site or a missing Sec-Fetch-Site: 403 and the grant is not burned', async () => {
+      const { b, c } = await mkc();
+      const cr = { cwd: join(home, 'proj') };
+      const g = await stepup(b, c, { create: cr });
+      expect((await post(b, '/api/pty', c, body(cr, g), { 'Sec-Fetch-Site': 'same-site' })).status).toBe(403);
+      expect((await post(b, '/api/pty', c, body(cr, g))).status).toBe(201);
+    });
+
+    it('folders: home itself, outside home, "..", symlink into a dotdir, dot folders, unlisted: all 400 (grant for exactly that cwd)', async () => {
+      const { b, c } = await mkc();
+      symlinkSync(join(home, '.ssh'), join(home, 'link'));
+      rooms = [join(home, 'proj'), home, '/etc', join(home, '.ssh'), join(home, '.hidden'), join(home, 'link')];
+      teamFolder = '/etc';
+      const bad = [home, '/etc', join(home, '.ssh'), join(home, '.hidden'), join(home, 'link'), `${home}/proj/../.ssh`, `${home}/proj/../proj`, join(home, 'other'), join(home, 'proj', 'sub'), 'proj', '/', ''];
+      for (const cwd of bad) {
+        const r = await open(b, c, { cwd });
+        expect(r.status, cwd).toBe(400);
+      }
+      expect(createArgs).toEqual([]);
+      expect((await open(b, c, { cwd: join(home, 'proj') })).status).toBe(201);
+    });
+
+    it('an allowed room that is a symlink into home resolves to the real folder; one that points outside home is 400', async () => {
+      const { b, c } = await mkc();
+      symlinkSync(join(home, 'other'), join(home, 'alias'));
+      symlinkSync('/etc', join(home, 'toetc'));
+      rooms = [join(home, 'alias'), join(home, 'toetc')];
+      expect((await open(b, c, { cwd: join(home, 'toetc') })).status).toBe(400);
+      expect((await open(b, c, { cwd: join(home, 'alias') })).status).toBe(201);
+      expect(createArgs[0]!.cwd).toBe(join(home, 'other'));
+    });
+
+    it('team folder in a dotdir or outside home is refused as well', async () => {
+      const { b, c } = await mkc();
+      teamFolder = join(home, '.ssh');
+      expect((await open(b, c, { cwd: teamFolder, boss: true })).status).toBe(400);
+      teamFolder = '/tmp';
+      expect((await open(b, c, { cwd: '/tmp' })).status).toBe(400);
+      expect(createArgs).toEqual([]);
+    });
+
+    it('unknown account, unknown model, bad prompt: 400, nothing created', async () => {
+      const { b, c } = await mkc();
+      const cwd = join(home, 'proj');
+      for (const cr of [{ cwd, account: 'nope' }, { cwd, model: 'gpt-9' }, { cwd, prompt: '--dangerous' }, { cwd, prompt: '' }]) {
+        expect((await open(b, c, cr)).status, JSON.stringify(cr)).toBe(400);
+      }
+      expect(createArgs).toEqual([]);
+    });
+
+    it('prompt reaches the manager as the literal string (no shell involved)', async () => {
+      const { b, c } = await mkc();
+      const prompt = 'run $(id) and `whoami` ; echo "$HOME" | cat';
+      expect((await open(b, c, { cwd: join(home, 'proj'), prompt })).status).toBe(201);
+      expect(createArgs[0]!.prompt).toBe(prompt);
+    });
+
+    it('verify refuses a create with a non-string field, or together with another target: 400, verifier not called', async () => {
+      const { b, c } = await mkc();
+      const cwd = join(home, 'proj');
+      for (const bad of [0, 1, true, [], {}, ['a']]) {
+        for (const f of ['cwd', 'account', 'model', 'prompt']) {
+          expect((await stepupCreate(b, c, { cwd, [f]: bad })).status, `${f}=${JSON.stringify(bad)}`).toBe(400);
+        }
+      }
+      for (const bad of [0, 'yes', [], {}]) expect((await stepupCreate(b, c, { cwd, boss: bad })).status).toBe(400);
+      for (const create of [null, 'x', [], {}]) expect((await post(b, '/api/remote/stepup/verify', c, { response: { ok: true }, create })).status).toBe(400);
+      expect((await post(b, '/api/remote/stepup/verify', c, { response: { ok: true }, create: { cwd }, ptyId: 'p1' })).status).toBe(400);
+      expect((await post(b, '/api/remote/stepup/verify', c, { response: { ok: true }, create: { cwd }, action: 'passkey:add' })).status).toBe(400);
+      expect(verifyCalls).toBe(0);
+    });
+
+    it('POST with a non-string field is refused even with a grant (same function on both ends)', async () => {
+      const { b, c } = await mkc();
+      const cwd = join(home, 'proj');
+      for (const bad of [0, [], {}, ['a']]) {
+        for (const f of ['cwd', 'account', 'model', 'prompt']) {
+          const g = await stepup(b, c, { create: { cwd } });
+          expect((await post(b, '/api/pty', c, body({ cwd, [f]: bad } as Create, g))).status, `${f}=${JSON.stringify(bad)}`).toBe(403);
+        }
+      }
+      const g = await stepup(b, c, { create: { cwd } });
+      expect((await post(b, '/api/pty', c, body({ cwd, prompt: undefined, account: null, model: null } as unknown as Create, g))).status).toBe(201); // absent == null == undefined
+      expect(createArgs.length).toBe(1);
+    });
+
+    it('at most 3 open from remote: the 4th is 429; an exited or vanished terminal frees a slot', async () => {
+      const { b, c } = await mkc();
+      const cr = { cwd: join(home, 'proj') };
+      for (let i = 0; i < 3; i++) expect((await open(b, c, cr)).status).toBe(201);
+      expect((await open(b, c, cr)).status).toBe(429);
+      expect(createArgs.length).toBe(3);
+      made[0]!.exitedAt = 5;
+      expect((await open(b, c, cr)).status).toBe(201);
+      expect((await open(b, c, cr)).status).toBe(429);
+      made.splice(1, 1); // gone from the manager's list
+      expect((await open(b, c, cr)).status).toBe(201);
+      expect(createArgs.length).toBe(5);
+    });
+
+    it('boss in the team folder: created, appointed, answer says boss; extra body keys go nowhere', async () => {
+      const { b, c } = await mkc();
+      const cr = { cwd: join(home, 'team'), boss: true };
+      const r = await post(b, '/api/pty', c, { ...body(cr, await stepup(b, c, { create: cr })), folder: '/x', workers: [], team: { boss: { kind: 'agy' } } });
+      expect(r.status).toBe(201);
+      expect(JSON.parse(r.body)).toMatchObject({ id: 'pn1', boss: true });
+      expect(appointed).toEqual([made[0]]);
+      expect(createArgs).toEqual([{ cwd: join(home, 'team'), account: undefined, prompt: undefined, model: undefined, cols: 100, rows: 30 }]);
+    });
+
+    it('boss in a room folder: 400; boss when the boss is not a Claude Code one: 409; nothing created', async () => {
+      const { b, c } = await mkc();
+      expect((await open(b, c, { cwd: join(home, 'proj'), boss: true })).status).toBe(400);
+      bossOk = false;
+      expect((await open(b, c, { cwd: join(home, 'team'), boss: true })).status).toBe(409);
+      expect(createArgs).toEqual([]);
+      expect(appointed).toEqual([]);
+    });
+
+    it('the team folder is also a normal choice for a plain new session (no appoint)', async () => {
+      const { b, c } = await mkc();
+      const r = await open(b, c, { cwd: join(home, 'team') });
+      expect(r.status).toBe(201);
+      expect(JSON.parse(r.body).boss).toBeUndefined();
+      expect(appointed).toEqual([]);
+    });
+
+    it('logs IP, user agent and folder name only: never the prompt or the grant', async () => {
+      const { b, c } = await mkc();
+      const info = vi.spyOn(log, 'info').mockImplementation(() => undefined);
+      try {
+        const cr = { cwd: join(home, 'proj'), prompt: 'top secret words' };
+        const g = await stepup(b, c, { create: cr });
+        const r = await post(b, '/api/pty', c, body(cr, g), { 'User-Agent': 'UA-test' });
+        const out = JSON.parse(r.body) as { grant: string };
+        const logged = info.mock.calls.map((x) => String(x[0])).join('\n') + lines.join('\n');
+        expect(logged).toContain('203.0.113.5');
+        expect(logged).toContain('UA-test');
+        expect(logged).toContain('proj');
+        expect(logged).not.toContain('top secret');
+        expect(logged).not.toContain(g);
+        expect(logged).not.toContain(out.grant);
+        expect(logged).not.toContain(home);
+      } finally {
+        info.mockRestore();
+      }
+    });
+
+    it('/verify body size: a viewer is refused with 403 whatever the size; an owner may send up to 128 KB, not more', async () => {
+      const { b, c } = await mkc();
+      const pad = (n: number) => ({ response: { ok: true, pad: 'x'.repeat(n) }, create: { cwd: join(home, 'proj') } });
+      expect((await post(b, '/api/remote/stepup/verify', cookie(false), pad(70_000))).status).toBe(403);
+      expect((await post(b, '/api/remote/stepup/verify', c, pad(60_000))).status).toBe(200);
+      // Over the cap the server cuts the connection (cut mode): a reset or a 400, never a grant.
+      const over = await post(b, '/api/remote/stepup/verify', c, pad(200_000)).then((r) => r.status, () => 0);
+      expect([0, 400]).toContain(over);
+      expect(verifyCalls).toBe(1);
+    });
   });
 });

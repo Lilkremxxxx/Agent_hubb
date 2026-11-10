@@ -13,7 +13,7 @@ import { createRequestGuard } from './http/guard';
 import { PasskeyService, PasskeyStore } from './remote/passkeys';
 import { GoogleAuth, maskEmail } from './remote/google';
 import { PtyAccess } from './remote/ptygrant';
-import { createRemoteGate, FailureWindow, isRemoteRequest, isSecureRemote, listsHubDomain, loadSecret, parseSsoEnv, remoteAllowedHosts, remoteAllows, RemoteSessions, sessionOf, startRemoteListener, type RemoteListener } from './http/remote';
+import { clientIp, createRemoteGate, FailureWindow, isRemoteRequest, isSecureRemote, listsHubDomain, loadSecret, parseSsoEnv, remoteAllowedHosts, remoteAllows, RemoteSessions, sessionOf, startRemoteListener, type RemoteListener } from './http/remote';
 import { Hub } from './http/sse';
 import { createStaticHandler, parseFrameAncestor } from './http/static';
 import { TerminalStreams } from './http/terminal';
@@ -329,7 +329,23 @@ const api = createApiHandler({
   terminal: config.terminal,
   terminals,
   sessions: history,
-  pty: ptys ? createPtyRoutes(ptys, { access: ptyAccess, sessionOf, isRemote: isRemoteRequest }) : undefined,
+  pty: ptys
+    ? createPtyRoutes(ptys, {
+        access: ptyAccess,
+        sessionOf,
+        isRemote: isRemoteRequest,
+        // New sessions from the remote port (passkey step-up each time): the team folder, and the rooms' folders unless it is the boss.
+        create: {
+          folders: (boss) => (boss ? [team.folder] : [team.folder, ...hub.current().rooms.map((r) => r.path)]).filter(Boolean),
+          accounts: () => accounts.entries().map((a) => a.id),
+          home: config.home,
+          bossOk: () => team.boss.kind === 'claude',
+          // Only the new session becomes boss (the account of the terminal just opened); nothing else of team.json comes from the request.
+          appoint: (p) => team.appoint(p.agentId, { account: p.account }),
+          ip: (req) => clientIp(req, !!config.remote?.domain),
+        },
+      })
+    : undefined,
   accountsApi: ptys
     ? createAccountsRoutes({
         ptys,
